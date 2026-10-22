@@ -10,11 +10,12 @@ import online from './pages/online.js';
 import wallet from './pages/wallet.js';
 import salary from './pages/salary.js';
 import community from './pages/community.js';
+import payroll from './pages/payroll.js';
 import importer from './pages/import.js';
 import report from './pages/report.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 
-const RENDERERS = { deposit, online, wallet, salary, community };
+const RENDERERS = { deposit, online, wallet, salary, community, payroll };
 
 const state = { catalog: null, data: null, date: null, view: document.getElementById('view'), open: new Set(['jg']) };
 
@@ -69,7 +70,8 @@ function renderNav() {
   if (r.name === 'prof' || r.name === 'group') state.open.add(r.prof || r.id);
 
   const sections = cat.professionals;
-  nav.innerHTML = sections.map((p) => navSection(p)).join('')
+  nav.innerHTML = '<a href="#/" data-id="home" class="nav-item nav-home"><span class="nav-name">总览</span></a>'
+    + sections.map((p) => navSection(p)).join('')
     + '<div class="nav-sep"></div>'
     + '<a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span></a>'
     + '<a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span></a>';

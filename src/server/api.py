@@ -79,6 +79,65 @@ def _no_data(line: str, on: str | None = None) -> dict:
             'available': all_dates, 'reason': '该日期没有数据' if before else '所选日期早于最早数据'}
 
 
+def build_payroll(on: str | None = None) -> dict:
+    """代发明细（月度、网点维度）：金额用「全年代发金额」的年累计，月度值由相邻两期相减。"""
+    s = _latest('dfmx', on)
+    if not s:
+        return _no_data('dfmx', on)
+    snaps = _upto('dfmx', on)
+    trend, prev_ytd, prev_month = [], None, None
+    for x in snaps:
+        ytd = (x.get('totals') or {}).get('amt_year') or 0
+        mon = x.get('month') or ''
+        # 跨年要重置：新年第一个月的「当月」= YTD 本身，不能拿去年累计相减
+        if prev_ytd is None:
+            amount = None
+        elif mon[:4] != (prev_month or '')[:4]:
+            amount = round(ytd / 10000, 2)
+        else:
+            amount = round((ytd - prev_ytd) / 10000, 2)
+        trend.append({'month': mon, 'd': x['as_of'], 'ytd': round(ytd / 10000, 2),
+                      'amount': amount,
+                      'cust': (x.get('totals') or {}).get('cust'),
+                      'comps': (x.get('totals') or {}).get('comps')})
+        prev_ytd, prev_month = ytd, mon
+
+    nets = s.get('nets') or []
+    t = s.get('totals') or {}
+    br: dict[str, dict] = {}
+    for n in nets:
+        b = br.setdefault(n['branch'], {'name': n['branch'], 'nets': 0, 'comps': 0, 'cust': 0.0,
+                                        'ytd': 0.0, 'new_year': 0, 'lost': 0, 'warn': 0})
+        b['nets'] += 1
+        for k in ('comps', 'cust', 'amt_year', 'new_year', 'lost', 'warn'):
+            key = 'ytd' if k == 'amt_year' else k
+            b[key] = b.get(key, 0) + (n.get(k) or 0)
+    branches = sorted(br.values(), key=lambda x: -x['ytd'])
+    for b in branches:
+        b['ytd'] = round(b['ytd'] / 10000, 2)
+
+    month_amt = next((t['amount'] for t in reversed(trend) if t['amount'] is not None), 0)
+    return {
+        'ok': True, 'as_of': s['as_of'], 'month': s.get('month'),
+        'kpi': {
+            'comps': t.get('comps'), 'cust': t.get('cust'),
+            'ytd': round((t.get('amt_year') or 0) / 10000, 2), 'month': month_amt,
+            'new_year': t.get('new_year'), 'lost': t.get('lost'), 'warn': t.get('warn'),
+            'assets': round((t.get('assets') or 0) / 10000, 2) if t.get('assets') else None,
+            'pen': t.get('pen') or {},
+            'tier': t.get('tier') or {},
+            'nets': len(nets), 'cols': s.get('cols') or [],
+        },
+        'trend': trend,
+        'branches': branches,
+        'nets': [{'name': n['name'], 'branch': n['branch'], 'comps': n['comps'],
+                  'cust': n['cust'], 'ytd': round((n.get('amt_year') or 0) / 10000, 2),
+                  'new_year': n.get('new_year'), 'lost': n.get('lost'), 'warn': n.get('warn'),
+                  'assets': round((n.get('assets') or 0) / 10000, 2) if n.get('assets') else None,
+                  'tier': n.get('tier') or {}, 'pen': n.get('pen') or {}} for n in nets],
+    }
+
+
 def build_deposit(on: str | None = None) -> dict:
     s = _latest('dqzz', on)
     if not s:
@@ -257,9 +316,9 @@ def build_community(on: str | None = None) -> dict:
 
 
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
-            'salary': build_salary, 'community': build_community}
+            'salary': build_salary, 'community': build_community, 'payroll': build_payroll}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
-           'salary': 'xgj', 'community': 'qwsq'}
+           'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx'}
 
 
 # ---------------------------------------------------------------- 汇总

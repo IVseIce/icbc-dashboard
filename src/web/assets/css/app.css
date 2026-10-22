@@ -435,3 +435,6 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .pj-tile-top b{font-size:12.5px}
 .pj-tile-top .chip{margin-left:auto}
 .pj-tile-desc{font-size:11px;color:var(--ink-3);line-height:1.45}
+
+.nav a.nav-home{padding:8px 10px;font-weight:600;color:#dbe4f0}
+.nav a.nav-home.on{background:linear-gradient(90deg,rgba(200,16,46,.24),rgba(200,16,46,.04));color:#fff}
