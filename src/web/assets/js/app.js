@@ -62,29 +62,34 @@ function renderNav() {
   const nav = document.getElementById('nav');
   const cat = state.catalog;
   const r = parseRoute();
-  // 当前路由所属板块默认展开
   if (r.name === 'module') {
     const hit = findModule(r.id);
     if (hit) state.open.add(hit.prof.id);
   }
   if (r.name === 'prof' || r.name === 'group') state.open.add(r.prof || r.id);
 
-  const groups = cat.professionals.filter((p) => p.id !== 'project');
-  nav.innerHTML = `
-    <a href="#/" data-id="home" class="nav-item"><span class="nav-name">经营总览</span></a>
-    ${groups.map((p) => navSection(p)).join('')}
-    ${navSection(cat.professionals.find((p) => p.id === 'project'))}
-    <div class="nav-sep"></div>
-    <a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span></a>
-    <a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span></a>`;
+  const sections = cat.professionals;
+  nav.innerHTML = sections.map((p) => navSection(p)).join('')
+    + '<div class="nav-sep"></div>'
+    + '<a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span></a>'
+    + '<a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span></a>';
 
-  nav.querySelectorAll('.nav-cat').forEach((btn) => {
-    btn.onclick = (e) => {
+  // 大类：点名字进板块总览，点箭头只展开/收起
+  nav.querySelectorAll('[data-cat-link]').forEach((a) => {
+    a.onclick = () => {
+      const id = a.dataset.catLink;
+      state.open.add(id);
+      a.closest('.nav-group').classList.add('open');
+    };
+  });
+  nav.querySelectorAll('[data-caret]').forEach((b) => {
+    b.onclick = (e) => {
       e.preventDefault();
-      const id = btn.dataset.cat;
-      if (state.open.has(id)) state.open.delete(id); else state.open.add(id);
-      btn.closest('.nav-group').classList.toggle('open', state.open.has(id));
-      btn.setAttribute('aria-expanded', state.open.has(id));
+      e.stopPropagation();
+      const id = b.dataset.caret;
+      const grp = b.closest('.nav-group');
+      if (state.open.has(id)) { state.open.delete(id); grp.classList.remove('open'); }
+      else { state.open.add(id); grp.classList.add('open'); }
     };
   });
   nav.querySelectorAll('a.nav-item').forEach((a) => {
@@ -98,23 +103,24 @@ function renderNav() {
 function navSection(p) {
   if (!p) return '';
   const open = state.open.has(p.id);
-  const mods = p.groups.flatMap((g) => (g.modules || []).map((m) => ({ ...m, _g: g.name })));
+  const mods = p.groups.flatMap((g) => g.modules || []);
   return `
   <div class="nav-group ${open ? 'open' : ''}" data-group="${p.id}">
-    <button class="nav-cat" data-cat="${p.id}" aria-expanded="${open}">
-      <span class="nav-cat-name">${p.short || p.name}</span>
-      <span class="nav-count">${mods.filter((m) => m.kind === 'metric').length}/${mods.length}</span>
-      <svg class="nav-caret" viewBox="0 0 24 24" width="12" height="12"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+    <div class="nav-cat">
+      <a class="nav-cat-link" href="#/p/${p.id}" data-cat-link="${p.id}">
+        <span class="nav-cat-name">${p.short || p.name}</span>
+        <span class="nav-count">${mods.filter((m) => m.kind === 'metric').length}/${mods.length}</span>
+      </a>
+      <button class="nav-caret-btn" data-caret="${p.id}" aria-label="展开/收起">
+        <svg viewBox="0 0 24 24" width="12" height="12"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
     <div class="nav-sub-wrap">
-      <a href="#/p/${p.id}" class="nav-item nav-over">板块总览</a>
-      ${p.groups.map((g) => `
-        <div class="nav-sub">${g.name}</div>
-        ${(g.modules || []).map((m) => `
-          <a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${m.kind === 'metric' ? '' : 'dim'}">
-            <span class="nav-name">${m.name}</span>
-            ${m.kind === 'metric' ? '' : '<em class="nav-badge">待接入</em>'}
-          </a>`).join('')}`).join('')}
+      ${mods.map((m) => `
+        <a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${m.kind === 'metric' ? '' : 'dim'}">
+          <span class="nav-name">${m.name}</span>
+          ${m.kind === 'metric' ? '' : '<em class="nav-badge">待接入</em>'}
+        </a>`).join('')}
     </div>
   </div>`;
 }

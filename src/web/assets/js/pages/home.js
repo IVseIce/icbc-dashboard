@@ -27,12 +27,13 @@ export default {
         ${heroCard(byId.wj, L, 'wj')}
       </div>
 
-      <div class="grid g4" style="margin-top:16px" id="secondRow">
+      <div class="grid g3" style="margin-top:16px" id="secondRow">
         ${smallCard(byId.loan, 'loan')}
         ${smallCard(byId.card, 'card')}
         ${smallCard(byId.pbs, 'pbs')}
-        ${projectCard(byId.project)}
       </div>
+
+      <div style="margin-top:16px">${projectCard(byId.project)}</div>
 
       <div class="grid g-7-5" style="margin-top:16px">
         ${timeline(L)}
@@ -148,13 +149,16 @@ function projectCard(p) {
       <a class="chip blue" href="#/p/project" style="margin-left:auto;text-decoration:none">${mods.length} 个 →</a>
     </div>
     <div class="prof-desc">方案推进与专项攻坚</div>
-    <div class="pj-list compact">
-      ${mods.slice(0, 4).map((m) => `
-        <div class="pj-row" data-go="#/m/${m.id}">
-          <span class="pj-dot ${m.kind === 'metric' ? 'on' : ''}"></span>
-          <div class="pj-txt"><b>${m.name}</b></div>
-          <span class="chip ${m.kind === 'metric' ? 'green' : ''}" style="font-size:9.5px">
-            ${m.kind === 'metric' ? '已接入' : '待接入'}</span>
+    <div class="pj-grid">
+      ${mods.map((m) => `
+        <div class="pj-tile" data-go="#/m/${m.id}">
+          <div class="pj-tile-top">
+            <span class="pj-dot ${m.kind === 'metric' ? 'on' : ''}"></span>
+            <b>${m.name}</b>
+            <span class="chip ${m.kind === 'metric' ? 'green' : ''}" style="font-size:9.5px">
+              ${m.kind === 'metric' ? '已接入' : '待接入'}</span>
+          </div>
+          <span class="pj-tile-desc">${m.desc || ''}</span>
         </div>`).join('')}
     </div>
   </div>`;
