@@ -79,6 +79,63 @@ def _no_data(line: str, on: str | None = None) -> dict:
             'available': all_dates, 'reason': '该日期没有数据' if before else '所选日期早于最早数据'}
 
 
+def build_fivecards(on: str | None = None) -> dict:
+    """五卡唤醒（支行维度）：每张卡的存量、长尾、未激活/未缴存、未交易。"""
+    s = _latest('wk', on)
+    if not s:
+        return _no_data('wk', on)
+    branches = s.get('branches') or []
+    total = s.get('total') or {}
+    cards = s.get('cards') or []
+
+    def val(rec, card, metric):
+        return (rec.get('values') or {}).get(f'{card}|{metric}')
+
+    def pick(rec, card, *names):
+        for n in names:
+            v = val(rec, card, n)
+            if v is not None:
+                return n, v
+        return None, None
+
+    out_cards = []
+    for card in cards:
+        stock = val(total, card, '存量客户数')
+        if stock is None:
+            stock = sum((val(b, card, '存量客户数') or 0) for b in branches)
+        long_n = val(total, card, '长尾客户数')
+        if long_n is None and any(val(b, card, '长尾客户数') is not None for b in branches):
+            long_n = sum((val(b, card, '长尾客户数') or 0) for b in branches)
+        idle_name, idle = pick(total, card, '存量未激活', '睡眠户数', '未缴存人数')
+        trade_name, trade = pick(total, card, '近一年未交易')
+        out_cards.append({
+            'name': card, 'stock': stock,
+            'long': long_n, 'long_rate': _r(long_n / stock, 4) if stock and long_n is not None else None,
+            'idle_label': idle_name, 'idle': idle,
+            'idle_rate': _r(idle / stock, 4) if stock and idle is not None else None,
+            'trade_label': trade_name, 'trade': trade,
+            'trade_rate': _r(trade / stock, 4) if stock and trade is not None else None,
+        })
+
+    rows = []
+    for b in branches:
+        rec = {'name': b['name'], 'cards': {}}
+        for card in cards:
+            st = val(b, card, '存量客户数')
+            ln = val(b, card, '长尾客户数')
+            rec['cards'][card] = {'stock': st, 'long': ln,
+                                  'long_rate': _r(ln / st, 4) if st and ln is not None else None}
+        rows.append(rec)
+
+    return {
+        'ok': True, 'as_of': s['as_of'], 'cards': out_cards, 'branches': rows,
+        'totals': {'stock': sum(c['stock'] or 0 for c in out_cards),
+                   'long': sum(c['long'] for c in out_cards if c['long'] is not None),
+                   'long_rate': _r(sum(c['long'] for c in out_cards if c['long'] is not None)
+                                   / max(1, sum(c['stock'] for c in out_cards if c['long'] is not None)), 4)},
+    }
+
+
 def build_payroll(on: str | None = None) -> dict:
     """代发明细（月度、网点维度）：金额用「全年代发金额」的年累计，月度值由相邻两期相减。"""
     s = _latest('dfmx', on)
@@ -316,9 +373,10 @@ def build_community(on: str | None = None) -> dict:
 
 
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
-            'salary': build_salary, 'community': build_community, 'payroll': build_payroll}
+            'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
+            'fivecards': build_fivecards}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
-           'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx'}
+           'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk'}
 
 
 # ---------------------------------------------------------------- 汇总

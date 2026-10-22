@@ -11,11 +11,12 @@ import wallet from './pages/wallet.js';
 import salary from './pages/salary.js';
 import community from './pages/community.js';
 import payroll from './pages/payroll.js';
+import fivecards from './pages/fivecards.js';
 import importer from './pages/import.js';
 import report from './pages/report.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 
-const RENDERERS = { deposit, online, wallet, salary, community, payroll };
+const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards };
 
 const state = { catalog: null, data: null, date: null, view: document.getElementById('view'), open: new Set(['jg']) };
 
