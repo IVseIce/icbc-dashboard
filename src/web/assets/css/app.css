@@ -480,3 +480,20 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .tbl.rep td.hl-green{color:#0b7a4f;font-weight:700}
 .chip.hl-red{background:var(--red-soft);color:#a80d26}
 .chip.hl-green{background:var(--green-soft);color:#0b7a4f}
+
+/* 通报表格：与 Excel 观感对齐（微软雅黑 11 号、居中、细边框） */
+.tbl.rep{font-family:"Microsoft YaHei","微软雅黑",sans-serif}
+.tbl.rep th,.tbl.rep td{text-align:center;border-right:1px solid #e3e8f0}
+.tbl.rep th:last-child,.tbl.rep td:last-child{border-right:0}
+.tbl.rep td:first-child{text-align:left;padding-left:12px}
+.tbl.rep th{background:#eef2f8;color:#33415c;font-weight:600}
+.sheet{position:absolute;left:-99999px;top:0;background:#fff;padding:18px 20px 22px;
+  font-family:"Microsoft YaHei","微软雅黑",sans-serif;color:#1a1a1a}
+.sheet h4{margin:0 0 10px;text-align:center;font-size:15px;font-weight:700;letter-spacing:.3px}
+.sheet table{border-collapse:collapse;font-size:12px}
+.sheet th,.sheet td{border:1px solid #cfd6e2;padding:4px 6px;text-align:center;white-space:nowrap}
+.sheet th{background:#eef2f8;font-weight:600}
+.sheet td:first-child{text-align:left}
+.sheet tr.sum td{background:#f7f9fd;font-weight:700}
+.sheet .hl-red{color:#c8102e;font-weight:700}
+.sheet .hl-green{color:#0b7a4f;font-weight:700}

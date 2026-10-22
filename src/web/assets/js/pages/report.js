@@ -42,8 +42,8 @@ export default {
           <div class="rep-actions">
             <button class="btn btn-primary" id="copyText">${icon('file', 14)} 复制文案</button>
             <a class="btn" href="/api/report/online.xlsx${q}">${icon('arrow', 14)} 下载 Excel</a>
-            <button class="btn" id="printBtn">打印 / 存 PDF</button>
-            <button class="btn" disabled title="后续接入">导出 PNG</button>
+            <button class="btn" id="copyImg">${icon('spark', 14)} 复制图片</button>
+            <button class="btn" id="saveImg">${icon('down', 14)} 导出图片</button>
           </div>
         </div>
 
@@ -90,10 +90,58 @@ export default {
           document.execCommand('copy'); ta.remove(); toast('文案已复制');
         }
       };
-      root.querySelector('#printBtn').onclick = () => window.print();
+      // ---------- 图片导出（与 Excel 观感一致：微软雅黑、细边框、居中）
+      document.querySelectorAll('.sheet').forEach((n) => n.remove());
+      const exportNode = document.createElement('div');
+      exportNode.className = 'sheet';
+      exportNode.innerHTML = `<h4>${r.title}</h4>${buildSheetTable(cols, rows)}`;
+      document.body.appendChild(exportNode);
+
+      const toBlob = () => window.html2canvas(exportNode, { scale: 2, backgroundColor: '#ffffff' })
+        .then((canvas) => new Promise((res) => canvas.toBlob(res, 'image/png')));
+
+      root.querySelector('#saveImg').onclick = async () => {
+        const blob = await toBlob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${r.title}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+        toast('图片已导出');
+      };
+
+      root.querySelector('#copyImg').onclick = async () => {
+        try {
+          const blob = await toBlob();
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          toast('图片已复制，可直接粘贴');
+        } catch (e) {
+          const blob = await toBlob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = `${r.title}.png`; a.click();
+          toast('浏览器不支持直接复制，已改为下载');
+        }
+      };
     }
   },
 };
+
+function buildSheetTable(cols, rows) {
+  const head = `<tr>${cols.map((c) => `<th>${c.title}</th>`).join('')}</tr>`;
+  const body = rows.map((row, i) => {
+    const sum = i === rows.length - 1;
+    return `<tr class="${sum ? 'sum' : ''}">${cols.map((c) => {
+      const v = row[c.key];
+      if (c.type === 'text') return `<td>${String(v ?? '—').replace('阜阳', '')}</td>`;
+      if (v === null || v === undefined) return '<td>—</td>';
+      const hl = sum ? null : (row._hl || {})[c.key];
+      const cls = hl === 'red' ? 'hl-red' : hl === 'green' ? 'hl-green' : '';
+      const txt = c.type === 'pct' ? `${(v * 100).toFixed(2)}%` : fmt.n(v);
+      return `<td class="${cls}">${txt}</td>`;
+    }).join('')}</tr>`;
+  }).join('');
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
 
 function escapeHTML(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

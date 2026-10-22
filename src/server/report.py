@@ -119,7 +119,7 @@ def build_text(d: dict, rows: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------- Excel（套用技能模板）
-TEMPLATE = Path(__file__).resolve().parent.parent / 'parsers' / 'icbc-xsfw' / 'assets' / 'template.xlsx'
+TEMPLATE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'online_base.xlsx'
 FMT = {'day_rate': '0.00%', 'month_rate': '0.00%', 'real_rate': '0.00%', 'sign_rate': '0.00%',
        'kh_rate': '0.00%', 'cust': '#,##0', 'add_today': '#,##0', 'add_month': '#,##0',
        'auth_cust': '#,##0', 'auth_signed': '#,##0', 'kh': '#,##0', 'kh_signed': '#,##0'}
