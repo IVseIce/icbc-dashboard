@@ -1,0 +1,32 @@
+# ---------- 运行时数据（只增不改，不进版本库） ----------
+data/
+imports/
+snapshots/
+*.db
+*.sqlite3
+ledger.jsonl
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ---------- 日志与临时产物 ----------
+*.log
+tmp/
+_temp/
+~$*
+
+# ---------- 本地覆盖配置（示例见 config.example.*） ----------
+config.local.*

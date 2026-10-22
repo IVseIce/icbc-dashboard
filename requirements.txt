@@ -1,0 +1,4 @@
+# 运行环境：Python 3.10+
+openpyxl>=3.1          # xlsx 读写（解析器与导入）
+xlrd>=2.0              # 旧版 .xls 读取（定期存款那张月表）
+# 其余全部标准库：http.server / email / json / sqlite3（如后续启用）

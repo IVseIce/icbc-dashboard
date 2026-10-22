@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>阜阳分行 · 个人金融经营驾驶舱</title>
+<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23c8102e'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='white' font-family='sans-serif'>工</text></svg>">
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">工</div>
+      <div class="brand-txt">
+        <b>个人金融</b>
+        <span>经营驾驶舱 · 阜阳</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="side-foot">
+      <div class="dot-line"><i class="live-dot"></i><span id="sideStatus">数据加载中</span></div>
+      <button class="side-import" data-route="#/import">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        导入源数据
+      </button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="crumbs" id="crumbs"><span>总览</span></div>
+      <div class="topbar-right">
+        <div class="asof" id="asof"><i></i><span>—</span></div>
+        <button class="icon-btn" id="btnRefresh" title="重新载入数据">
+          <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="btn btn-primary" data-route="#/import">
+          <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          导入数据
+        </button>
+      </div>
+    </header>
+
+    <main id="view" class="view"></main>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<div id="boot" class="boot">
+  <div class="boot-mark">工</div>
+  <div class="boot-bar"><i></i></div>
+  <p>正在载入经营数据…</p>
+</div>
+
+<script src="/vendor/echarts.min.js"></script>
+<script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>

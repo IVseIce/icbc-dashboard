@@ -1,0 +1,15 @@
+
+[list-style-type] {padding-left:20px;list-style-position:inside}
+[list-style-type] li {margin:0}
+[list-style-type] li:before, span.ke-list-item-matter {font-family:"sans serif",tahoma,verdana,helvetica}
+[list-style-type] li p,[list-style-type] li h1,[list-style-type] li h2,[list-style-type] li h3,[list-style-type] li h4,[list-style-type] li h5,[list-style-type] li div,[list-style-type] li blockquote{display:inline;word-break:break-all}
+[list-style-type] li table {display:inline-block;vertical-align:top}
+p{margin:0}
+td {word-break: break-word}
+.default-font-1791546254880{
+font-size:12pt;
+font-family:宋体;
+color:rgb(0, 0, 0);
+text-align:left;
+line-height:1.5;
+}
