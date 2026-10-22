@@ -68,6 +68,14 @@ icbc-dashboard/
 - 页面布局：页签 + 操作按钮置顶，文案卡片在表格之上
 - 接口：`/api/report/online?date=`、`/api/report/online.xlsx?date=`
 
+## 多格式读取（src/ingest/readers.py）
+
+- 按**文件内容**判断真实格式（zip→xlsx、OLE→xls、否则文本），不信任扩展名
+- 导入时自动纠正扩展名：`CSV 存成 .xlsx` → 按 .csv 识别；`xlsx 存成 .csv` → 按 .xlsx 识别
+- 仍认不出时兜底：把文本内容转成真正的 xlsx 再试一次
+- 给解析器用：`read_table()` / `sheets()` 统一返回二维表 / [(sheet, rows)]，xlsx、xls、csv 同码
+- 已接入：上传导入链路、代发明细、五卡汇总；其余模块可逐步切换
+
 ## 页面逻辑
 
 | 路由 | 页面 | 说明 |

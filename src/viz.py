@@ -364,6 +364,18 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
     if line not in IMPORTERS:
         return {'ok': False, 'error': f'未知大类：{line}'}
     arch = archive(line, files, root)
+
+    # 统一格式：按内容纠正扩展名（CSV 被存成 xlsx 这类），并在失败时兜底转 xlsx
+    from ingest import readers
+    norm, fmt_notes, text_blobs = [], [], []
+    for name, blob in files:
+        n, b, info = readers.normalize(name, blob)
+        if info.get('changed'):
+            fmt_notes.append(f'{name} 实际是 {info["detected"]}，已按 {info["to"]} 识别')
+        if info.get('detected') == 'text':
+            text_blobs.append((n, b))
+        norm.append((n, b))
+    files = norm
     try:
         if line == 'xgj':
             dd, snap = IMPORTERS[line](files, line, root, data_date=data_date)
@@ -376,9 +388,28 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
                       'archive': str(arch)}, root)
         return {'ok': True, 'line': line, 'label': LINES[line]['label'], 'data_date': dd,
-                'files': snap.get('_files', []), 'notes': snap.get('_notes', []),
+                'files': snap.get('_files', []), 'notes': fmt_notes + list(snap.get('_notes') or []),
                 'archive': str(arch), 'summary': data['meta']}
     except Exception as exc:
+        # 兜底：文本内容转成真正的 xlsx 再试一次（给只认 xlsx 的解析器）
+        if text_blobs:
+            try:
+                conv = [(n, readers.text_to_xlsx(b)) if readers.sniff(b) == 'text' else (n, b)
+                        for n, b in files]
+                dd, snap = (IMPORTERS[line](conv, line, root, data_date=data_date)
+                            if line == 'xgj' else IMPORTERS[line](conv, line, root))
+                snap['line'] = line
+                snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                save_snapshot(line, dd, snap, root)
+                data = assemble(root)
+                ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
+                              'archive': str(arch), 'note': '按文本转 xlsx 兜底'}, root)
+                fmt_notes.append('按文本内容转成 xlsx 后识别成功')
+                return {'ok': True, 'line': line, 'label': LINES[line]['label'], 'data_date': dd,
+                        'files': snap.get('_files', []), 'notes': fmt_notes + (snap.get('_notes') or []),
+                        'archive': str(arch), 'summary': data['meta']}
+            except Exception:
+                pass
         ledger(line, {'files': [n for n, _ in files], 'ok': False, 'error': str(exc)}, root)
         return {'ok': False, 'line': line, 'error': str(exc),
                 'trace': traceback.format_exc()[-800:], 'archive': str(arch)}

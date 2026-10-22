@@ -31,10 +31,10 @@ def num(v):
 
 
 def parse(path: Path, as_of: str) -> dict:
-    wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb.active
-    rows = [[ws.cell(row=r, column=c).value for c in range(1, ws.max_column + 1)]
-            for r in range(1, ws.max_row + 1)]
+    from ingest import readers
+    rows = readers.sheets(path)[0][1]
+    width = max((len(r) for r in rows), default=0)
+    rows = [list(r) + [None] * (width - len(r)) for r in rows]
     card_row, metric_row = rows[0], rows[1]
 
     cards: list[str] = []
@@ -67,7 +67,6 @@ def parse(path: Path, as_of: str) -> dict:
         else:
             branches.append(rec)
 
-    wb.close()
     return {'as_of': as_of, 'cards': [c for c in dict.fromkeys(cards) if c],
             'metrics': sorted({m for _, m, _ in cols}),
             'cols': [{'card': c, 'metric': m} for c, m, _ in cols],

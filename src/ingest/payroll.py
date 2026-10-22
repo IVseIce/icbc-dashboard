@@ -52,8 +52,7 @@ def pick_col(hdr: list[str], *patterns) -> int | None:
     return None
 
 
-def parse_sheet(ws, month: str, no2info: dict) -> dict:
-    rows = list(ws.iter_rows(values_only=True))
+def parse_sheet(rows, month: str, no2info: dict) -> dict:
     if not rows:
         return {}
     hdr = [str(h).strip() if h is not None else '' for h in rows[0]]
@@ -153,20 +152,25 @@ def parse_sheet(ws, month: str, no2info: dict) -> dict:
 def main() -> None:
     src = Path(sys.argv[1] if len(sys.argv) > 1 else '/mnt/d/资料/ICBC/20261022代发明细/代发明细.xlsx')
     no2info, _ = net_info()
-    wb = openpyxl.load_workbook(src, data_only=True, read_only=True)
+    from ingest import readers
     saved = []
-    for ws in wb.worksheets:
-        month = MONTHS.get(ws.title)
+    for title, rows in readers.sheets(src):
+        month = MONTHS.get(title)
         if not month:
-            continue
-        snap = parse_sheet(ws, month, no2info)
+            m = re.search(r'(\d{2})[.\-年](\d{1,2})', title + ' ' + src.name)
+            if not m:
+                continue
+            yy = int(m.group(1))
+            month = f'20{yy:02d}-{int(m.group(2)):02d}' if yy < 100 else f'{yy}-{int(m.group(2)):02d}'
+        snap = parse_sheet(rows, month, no2info)
         if not snap.get('nets'):
             continue
         f = viz.paths()['snapshots'] / 'dfmx' / f'{snap["as_of"]}.json'
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(snap, ensure_ascii=False), encoding='utf-8')
-        saved.append((snap['month'], len(snap['nets']), snap['totals']['amt_month']))
-    wb.close()
+        saved.append((snap['month'], len(snap['nets']), snap['totals']['amt_year']))
+        if not title or title == 'csv':
+            break
     print(json.dumps({'ok': True, 'saved': saved}, ensure_ascii=False, indent=1))
 
 
