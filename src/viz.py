@@ -37,6 +37,8 @@ LINES = {
     'dqzz': {'label': '定期存款', 'skill': 'icbc-dqzz', 'hint': '分品种、期限时点报表（本月 + 上月）'},
     'xsfw': {'label': '网点线上服务', 'skill': 'icbc-xsfw', 'hint': '动户率×2 + 企微明细×3 + 营销授权'},
     'qwsq': {'label': '企微社群', 'skill': 'icbc-qwsq', 'hint': '成员群聊数据统计（本周 + 上周）'},
+    'dfmx': {'label': '代发明细', 'skill': '', 'hint': '月度多 sheet 的代发明细工作簿'},
+    'wk': {'label': '五卡唤醒', 'skill': '', 'hint': '五卡汇总表（支行 × 5 类卡）'},
 }
 
 _mods: dict[str, object] = {}
@@ -355,8 +357,56 @@ def import_qwsq(files, line, root):
     }
 
 
+def import_payroll(files, line, root, data_date=None):
+    """代发明细：一个工作簿可能含多个月份 sheet，逐月落快照，返回最新一期。"""
+    from ingest import payroll as pr
+    from ingest import readers
+    no2info, _ = pr.net_info()
+    latest, saved, notes = None, [], []
+    for name, blob in files:
+        for title, rows in readers.sheets(blob, name):
+            month = pr.MONTHS.get(title)
+            if not month:
+                continue
+            snap = pr.parse_sheet(rows, month, no2info)
+            if not snap.get('nets'):
+                continue
+            save_snapshot('dfmx', snap['as_of'], {**snap, 'line': 'dfmx'}, root)
+            saved.append(month)
+            latest = snap
+    if not latest:
+        raise ValueError('没有识别出代发明细的月度 sheet（sheet 名需形如 26.09）')
+    notes.append(f'已导入 {len(saved)} 个月度快照：{"、".join(saved)}')
+    return latest['as_of'], {**latest, '_files': [{'name': n, 'role': '代发明细'} for n, _ in files],
+                             '_notes': notes}
+
+
+def import_fivecards(files, line, root, data_date=None):
+    """五卡汇总表：单期，日期取参数 / 文件名 / 今天。"""
+    import re
+    import tempfile
+    from ingest import fivecards as fc
+    name, blob = files[0]
+    as_of = data_date
+    if not as_of:
+        m = re.search(r'(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})', name)
+        as_of = f'{m.group(1)}-{m.group(2)}-{m.group(3)}' if m else date.today().isoformat()
+    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+        tmp.write(blob)
+        path = Path(tmp.name)
+    try:
+        snap = fc.parse(path, as_of)
+    finally:
+        path.unlink(missing_ok=True)
+    if not snap.get('branches'):
+        raise ValueError('没有识别出支行数据，请确认是五卡汇总表')
+    return as_of, {**snap, '_files': [{'name': n, 'role': '五卡汇总'} for n, _ in files],
+                   '_notes': [f'{len(snap["branches"])} 家支行 · {len(snap["cards"])} 类卡']}
+
+
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
-             'xsfw': import_xsfw, 'qwsq': import_qwsq}
+             'xsfw': import_xsfw, 'qwsq': import_qwsq,
+             'dfmx': import_payroll, 'wk': import_fivecards}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,
@@ -377,7 +427,7 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         norm.append((n, b))
     files = norm
     try:
-        if line == 'xgj':
+        if line in ('xgj', 'wk', 'dfmx'):
             dd, snap = IMPORTERS[line](files, line, root, data_date=data_date)
         else:
             dd, snap = IMPORTERS[line](files, line, root)
@@ -397,7 +447,7 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                 conv = [(n, readers.text_to_xlsx(b)) if readers.sniff(b) == 'text' else (n, b)
                         for n, b in files]
                 dd, snap = (IMPORTERS[line](conv, line, root, data_date=data_date)
-                            if line == 'xgj' else IMPORTERS[line](conv, line, root))
+                            if line in ('xgj', 'wk', 'dfmx') else IMPORTERS[line](conv, line, root))
                 snap['line'] = line
                 snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 save_snapshot(line, dd, snap, root)

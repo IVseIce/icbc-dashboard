@@ -115,7 +115,9 @@ class Handler(BaseHTTPRequestHandler):
                 if lp.exists():
                     for line in lp.read_text('utf-8').splitlines()[-12:]:
                         try:
-                            led.append(json.loads(line))
+                            rec = json.loads(line)
+                            rec['label'] = (viz.LINES.get(rec.get('line')) or {}).get('label', rec.get('line'))
+                            led.append(rec)
                         except Exception:
                             pass
                 return self._json({'ok': True, 'root': str(ROOT), 'lines': lines,

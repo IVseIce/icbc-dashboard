@@ -237,7 +237,7 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .rank-badge.top{background:var(--red-soft);color:#a80d26}
 
 /* ============================== 导入页 ============================== */
-.import-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.import-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:10px}
 @media (max-width:1100px){.import-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .line-pick{border:1.5px solid var(--line);border-radius:14px;padding:14px;cursor:pointer;background:#fff;
   transition:.2s var(--ease);display:flex;flex-direction:column;gap:4px}
@@ -497,3 +497,14 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .sheet tr.sum td{background:#f7f9fd;font-weight:700}
 .sheet .hl-red{color:#c8102e;font-weight:700}
 .sheet .hl-green{color:#0b7a4f;font-weight:700}
+
+/* 上传页：两级选择 */
+.mod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.mod-pick{border:1.5px solid var(--line);border-radius:12px;padding:12px 13px;cursor:pointer;background:#fff;
+  transition:.18s var(--ease);display:flex;flex-direction:column;gap:3px}
+.mod-pick:hover{border-color:#c9d6ea;transform:translateY(-1px);box-shadow:var(--shadow)}
+.mod-pick.on{border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft);background:#fffafb}
+.mod-pick.off{opacity:.55;cursor:not-allowed;background:#fbfcfe}
+.mp-top{display:flex;align-items:center;gap:8px}
+.mp-top b{font-size:13px}
+.mod-pick small{color:var(--ink-3);font-size:11px;line-height:1.4}
