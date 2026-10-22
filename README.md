@@ -61,6 +61,13 @@ icbc-dashboard/
 - 接口：`GET /api/report/online?date=`、`GET /api/report/online.xlsx?date=`
 - 顶栏新增「日 / 月」切换：选月时取该月内最新一期
 
+## 通报中心（v2）
+
+- Excel 导出改为**套用技能模板**：版式、列宽、合并表头、数字格式与正式通报一致
+- 每列**前 5 名标红、后 5 名标绿**（与定稿同规则），网页与 Excel 同步
+- 页面布局：页签 + 操作按钮置顶，文案卡片在表格之上
+- 接口：`/api/report/online?date=`、`/api/report/online.xlsx?date=`
+
 ## 页面逻辑
 
 | 路由 | 页面 | 说明 |

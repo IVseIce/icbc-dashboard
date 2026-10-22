@@ -459,3 +459,24 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   .report-actions,.tabs,.topbar,.sidebar{display:none !important}
   .report-text{border:0;background:#fff;padding:0}
 }
+
+/* ============================== 通报中心（v2 布局） ============================== */
+.rep-head{display:flex;align-items:center;gap:14px;padding:12px 16px;flex-wrap:wrap}
+.rep-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.rep-tab{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;
+  color:var(--ink-2);border-radius:999px;padding:6px 14px;font-size:12.5px;font-family:inherit;
+  cursor:pointer;transition:.16s var(--ease)}
+.rep-tab:hover:not(:disabled){border-color:#c5d5ee;color:var(--blue);background:#f8fbff}
+.rep-tab.on{background:linear-gradient(135deg,#d8112f,#ab0b23);border-color:transparent;color:#fff;
+  box-shadow:0 8px 18px -10px rgba(200,16,46,.9);font-weight:600}
+.rep-tab:disabled{opacity:.5;cursor:not-allowed;background:#fbfcfe}
+.rep-tab em{font-style:normal;font-size:9.5px;background:#eef2f8;color:var(--ink-3);border-radius:6px;padding:1px 5px}
+.rep-tab.on em{background:rgba(255,255,255,.2);color:#fff}
+.rep-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.rep-text-card{margin-top:14px}
+.rep-text{background:linear-gradient(180deg,#fbfcfe,#f7f9fd);border:1px solid var(--line-2);border-radius:12px;
+  padding:14px 16px;font-size:12.5px;line-height:2;color:var(--ink-2)}
+.tbl.rep td.hl-red{color:#c8102e;font-weight:700}
+.tbl.rep td.hl-green{color:#0b7a4f;font-weight:700}
+.chip.hl-red{background:var(--red-soft);color:#a80d26}
+.chip.hl-green{background:var(--green-soft);color:#0b7a4f}

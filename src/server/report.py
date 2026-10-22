@@ -55,6 +55,7 @@ def build_online(on: str | None = None) -> dict:
     order = {b: i for i, b in enumerate(BRANCH_ORDER)}
     rows = sorted(nets, key=lambda n: (order.get(n['branch'], 99), -(n.get('day_rate') or 0)))
     tot = d.get('kpi') or {}
+    annotate(rows)
     return {
         'ok': True, 'kind': 'online', 'title': f'网点线上服务能力提升通报（{d["as_of"][5:].replace("-", ".")}）',
         'as_of': d['as_of'], 'prev_as_of': d.get('prev_as_of'),
@@ -72,6 +73,25 @@ def build_online(on: str | None = None) -> dict:
         },
         'text': build_text(d, rows),
     }
+
+
+RATE_KEYS = ('day_rate', 'month_rate', 'real_rate', 'sign_rate', 'kh_rate')
+COUNT_KEYS = ('cust', 'add_today', 'add_month', 'auth_cust', 'auth_signed', 'kh', 'kh_signed')
+
+
+def annotate(rows: list[dict], n: int = 5) -> None:
+    """每列前 n 标红、后 n 标绿（与正式通报的着色规则一致）。"""
+    for r in rows:
+        r['_hl'] = {}
+    for key in RATE_KEYS + COUNT_KEYS:
+        vals = [(i, r.get(key)) for i, r in enumerate(rows) if isinstance(r.get(key), (int, float))]
+        if len(vals) <= n * 2:
+            continue
+        vals.sort(key=lambda x: x[1])
+        for i, _v in vals[-n:]:
+            rows[i]['_hl'][key] = 'red'
+        for i, _v in vals[:n]:
+            rows[i]['_hl'][key] = 'green'
 
 
 def build_text(d: dict, rows: list[dict]) -> str:
@@ -98,62 +118,59 @@ def build_text(d: dict, rows: list[dict]) -> str:
     return '\n\n'.join([p1, p2, p3, p4])
 
 
-# ---------------------------------------------------------------- Excel
+# ---------------------------------------------------------------- Excel（套用技能模板）
+TEMPLATE = Path(__file__).resolve().parent.parent / 'parsers' / 'icbc-xsfw' / 'assets' / 'template.xlsx'
+FMT = {'day_rate': '0.00%', 'month_rate': '0.00%', 'real_rate': '0.00%', 'sign_rate': '0.00%',
+       'kh_rate': '0.00%', 'cust': '#,##0', 'add_today': '#,##0', 'add_month': '#,##0',
+       'auth_cust': '#,##0', 'auth_signed': '#,##0', 'kh': '#,##0', 'kh_signed': '#,##0'}
+RED = 'FFFF0000'
+GREEN = 'FF008000'
+
+
 def online_xlsx(on: str | None = None) -> tuple[bytes, str]:
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
+    import openpyxl
+    from copy import copy
 
     d = build_online(on)
     if not d.get('ok'):
         raise RuntimeError('该日期没有线上服务数据')
-    wb = Workbook()
+    wb = openpyxl.load_workbook(TEMPLATE)
     ws = wb.active
-    ws.title = '通报'
+    ws['A1'] = d['title']
 
-    thin = Side(style='thin', color='D9D9D9')
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    by_name = {n['name']: n for n in d['rows']}
+    by_short = {_short(n['name']): n for n in d['rows']}
 
-    ncol = len(COLS)
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncol)
-    c = ws.cell(row=1, column=1, value=d['title'])
-    c.font = Font(bold=True, size=14)
-    c.alignment = center
-    ws.row_dimensions[1].height = 26
+    keys = ['day_rate', 'month_rate', 'cust', 'real_rate', 'add_today', 'add_month',
+            'auth_cust', 'auth_signed', 'sign_rate', 'kh', 'kh_signed', 'kh_rate']
+    total = d['totals']
 
-    for i, (title, _key, _ty, width) in enumerate(COLS, start=1):
-        cell = ws.cell(row=2, column=i, value=title)
-        cell.font = Font(bold=True, size=10)
-        cell.alignment = center
-        cell.fill = PatternFill('solid', fgColor='F2F4F8')
-        cell.border = border
-        ws.column_dimensions[get_column_letter(i)].width = width
-    ws.row_dimensions[2].height = 34
-
-    def put(row_i: int, rec: dict, bold=False):
-        for i, (_t, key, ty, _w) in enumerate(COLS, start=1):
+    for row_i in range(4, 44):
+        name = str(ws.cell(row=row_i, column=1).value or '').strip()
+        rec = by_name.get(name) or by_short.get(_short(name))
+        if not rec:
+            continue
+        for ci, key in enumerate(keys, start=2):
+            cell = ws.cell(row=row_i, column=ci)
             v = rec.get(key)
-            cell = ws.cell(row=row_i, column=i, value=v)
-            cell.border = border
-            cell.font = Font(bold=bold, size=10)
-            if ty == 'pct' and isinstance(v, (int, float)):
-                if abs(v) <= 1.5:
-                    cell.number_format = '0.00%'
-                else:
-                    cell.value = v / 100
-                    cell.number_format = '0.00%'
-            elif ty == 'int' and isinstance(v, (int, float)):
-                cell.number_format = '#,##0'
-            cell.alignment = Alignment(horizontal='left' if ty == 'text' else 'right', vertical='center')
+            if v is None:
+                continue
+            cell.value = v
+            cell.number_format = FMT[key]
+            hl = (rec.get('_hl') or {}).get(key)
+            if hl and cell.font:
+                f = copy(cell.font)
+                f.color = openpyxl.styles.Color(rgb=RED if hl == 'red' else GREEN)
+                cell.font = f
 
-    r = 3
-    for rec in d['rows']:
-        put(r, rec)
-        r += 1
-    put(r, d['totals'], bold=True)
+    for ci, key in enumerate(keys, start=2):
+        v = total.get(key)
+        if v is None:
+            continue
+        cell = ws.cell(row=44, column=ci)
+        cell.value = v
+        cell.number_format = FMT[key]
 
-    ws.freeze_panes = 'B3'
     buf = io.BytesIO()
     wb.save(buf)
     name = f"网点线上服务能力提升通报（{d['as_of'][5:].replace('-', '.')}）.xlsx"
