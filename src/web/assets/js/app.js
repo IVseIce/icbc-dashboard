@@ -18,7 +18,8 @@ import { modulePlaceholder, browse } from './pages/placeholder.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards };
 
-const state = { catalog: null, data: null, date: null, view: document.getElementById('view'), open: new Set(['jg']) };
+const state = { catalog: null, data: null, date: null, mode: 'day',
+  view: document.getElementById('view'), open: new Set(['jg']) };
 
 /* ---------------------------------------------------------------- 数据 */
 async function loadCatalog() {
@@ -44,11 +45,22 @@ function paintChrome() {
     ? `所选 ${state.date.slice(5)} · ${ok}/5 条线`
     : `数据截至 ${state.catalog?.latest || '—'}`;
   const pick = document.getElementById('datePick');
+  const mpick = document.getElementById('monthPick');
   if (pick) {
     pick.min = state.catalog?.earliest || '';
     pick.max = state.catalog?.latest || '';
     if (!pick.value) pick.value = state.date || state.catalog?.latest || '';
   }
+  if (mpick) {
+    mpick.min = (state.catalog?.earliest || '').slice(0, 7);
+    mpick.max = (state.catalog?.latest || '').slice(0, 7);
+    if (!mpick.value) mpick.value = (state.date || state.catalog?.latest || '').slice(0, 7);
+  }
+  document.getElementById('modeSeg')?.querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === state.mode);
+  });
+  if (pick) pick.style.display = state.mode === 'day' ? '' : 'none';
+  if (mpick) mpick.style.display = state.mode === 'month' ? '' : 'none';
 }
 
 /* ---------------------------------------------------------------- 导航 */
@@ -238,6 +250,25 @@ async function boot() {
     const v = e.target.value || null;
     await refresh(v);
     toast(v ? `已切换到 ${v}（取该日之前最近一期）` : '已回到最新数据');
+  });
+  document.getElementById('monthPick').addEventListener('change', async (e) => {
+    const m = e.target.value;
+    if (!m) return;
+    const [y, mm] = m.split('-').map(Number);
+    const last = new Date(y, mm, 0).getDate();
+    const date = `${m}-${String(last).padStart(2, '0')}`;
+    await refresh(date);
+    toast(`已切换到 ${m}（取该月内最新一期）`);
+  });
+  document.querySelectorAll('#modeSeg button').forEach((b) => {
+    b.onclick = async () => {
+      state.mode = b.dataset.mode;
+      paintChrome();
+      if (state.mode === 'month' && state.date) {
+        const m = state.date.slice(0, 7);
+        document.getElementById('monthPick').value = m;
+      }
+    };
   });
   document.getElementById('btnLatest').addEventListener('click', async () => {
     document.getElementById('datePick').value = state.catalog.latest || '';

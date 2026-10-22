@@ -263,7 +263,9 @@ def import_xsfw(files, line, root):
              'add_real': round(r['E'], 4) if r.get('E') is not None else None,
              'add_today': r.get('F') or 0, 'add_month': r.get('G') or 0,
              'sign_rate': round(r['J'], 4) if r.get('J') is not None else None,
-             'kh_rate': round(r['M'], 4) if r.get('M') is not None else None} for r in rows]
+             'kh_rate': round(r['M'], 4) if r.get('M') is not None else None,
+             'auth_cust': r.get('H'), 'auth_signed': r.get('I'),
+             'kh': r.get('K'), 'kh_signed': r.get('L')} for r in rows]
     tot = {'day_rate': round(total_row['B'], 4), 'month_rate': round(total_row['C'], 4),
            'cust': total_row['D'], 'add_today': total_row['F'], 'add_month': total_row['G']}
     dd = data['day_date']

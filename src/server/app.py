@@ -32,6 +32,7 @@ sys.path.insert(0, str(SRC))   # viz / parsers
 sys.path.insert(0, str(BASE))  # api（同目录）
 
 import api  # noqa: E402
+import report as report_mod  # noqa: E402
 import viz  # noqa: E402
 from domain import catalog as catalog_mod  # noqa: E402
 
@@ -85,6 +86,19 @@ class Handler(BaseHTTPRequestHandler):
                 cat['latest'] = all_dates[-1] if all_dates else None
                 cat['earliest'] = all_dates[0] if all_dates else None
                 return self._json(cat)
+            if path == '/api/report/online':
+                return self._json(report_mod.build_online(on))
+            if path == '/api/report/online.xlsx':
+                blob, name = report_mod.online_xlsx(on)
+                from urllib.parse import quote
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                self.send_header('Content-Disposition',
+                                 f"attachment; filename*=UTF-8''{quote(name)}")
+                self.send_header('Content-Length', str(len(blob)))
+                self.end_headers()
+                self.wfile.write(blob)
+                return
             if path == '/api/all':
                 return self._json(api.build_all(on))
             if path.startswith('/api/line/'):

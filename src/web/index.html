@@ -31,9 +31,14 @@
       <div class="crumbs" id="crumbs"><span>总览</span></div>
       <div class="topbar-right">
         <div class="asof" id="asof"><i></i><span>—</span></div>
+        <div class="seg" id="modeSeg">
+          <button data-mode="day" class="on">日</button>
+          <button data-mode="month">月</button>
+        </div>
         <label class="date-pick" title="选择日期：取该日之前最近一期">
           <svg viewBox="0 0 24 24" width="14" height="14"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 3.5v3M16 3.5v3M3.5 10h17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           <input type="date" id="datePick">
+          <input type="month" id="monthPick" style="display:none">
         </label>
         <button class="icon-btn" id="btnLatest" title="回到最新数据">
           <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.7M4 19v-6h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>

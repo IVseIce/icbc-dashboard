@@ -291,7 +291,9 @@ def build_online(on: str | None = None) -> dict:
                   'add_today': n.get('add_today') or 0, 'add_month': n.get('add_month') or 0,
                   'real_rate': _r((n.get('add_real') or 0) * 100, 2),
                   'sign_rate': _r((n.get('sign_rate') or 0) * 100, 2),
-                  'kh_rate': _r((n.get('kh_rate') or 0) * 100, 2)} for n in ranks],
+                  'kh_rate': _r((n.get('kh_rate') or 0) * 100, 2),
+                  'auth_cust': n.get('auth_cust'), 'auth_signed': n.get('auth_signed'),
+                  'kh': n.get('kh'), 'kh_signed': n.get('kh_signed')} for n in ranks],
     }
 
 
