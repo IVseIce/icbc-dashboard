@@ -23,7 +23,7 @@ from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 BASE = Path(__file__).resolve().parent      # src/server
 SRC = BASE.parent                            # src
@@ -33,6 +33,7 @@ sys.path.insert(0, str(BASE))  # api（同目录）
 
 import api  # noqa: E402
 import viz  # noqa: E402
+from domain import catalog as catalog_mod  # noqa: E402
 
 WEB = SRC / 'web'
 ROOT = viz.ROOT
@@ -60,7 +61,10 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- GET
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        qs = parse_qs(parsed.query)
+        on = (qs.get('date') or [None])[0] or None
         try:
             if path in ('/', '/index.html'):
                 return self._send((WEB / 'index.html').read_bytes(), 'text/html; charset=utf-8')
@@ -73,10 +77,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(f.read_bytes(), ctype,
                                       cache='public, max-age=3600' if '/vendor/' in path else 'no-store')
                 return self.send_error(404)
+            if path == '/api/catalog':
+                cat = catalog_mod.catalog()
+                dates = api.available_dates()
+                all_dates = sorted({d for v in dates.values() for d in v})
+                cat['dates'] = dates
+                cat['latest'] = all_dates[-1] if all_dates else None
+                cat['earliest'] = all_dates[0] if all_dates else None
+                return self._json(cat)
             if path == '/api/all':
-                return self._json(api.build_all())
+                return self._json(api.build_all(on))
             if path.startswith('/api/line/'):
-                return self._json(api.build_line(path.rsplit('/', 1)[-1]))
+                return self._json(api.build_line(path.rsplit('/', 1)[-1], on))
             if path == '/api/state':
                 lines = []
                 for k, meta in viz.LINES.items():

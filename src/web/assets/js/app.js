@@ -1,125 +1,211 @@
-/* app.js —— 壳：数据加载、导航、路由、刷新
-   页面模块契约：{ id, title, nav, icon, tag?, order, render(view, data, ctx) }
-   新增一个条线 = 写 pages/xxx.js + 在 PAGES 里登记（其余自动） */
-import { icon, toast } from './ui.js';
+/* app.js —— v3 壳：目录驱动导航 + 日期选择（取该日之前最近一期） + 路由
+   导航、首页卡片、上传两级选择都由 /api/catalog 生成；
+   模块页按 module.page 映射到 pages/* 的实现，未接入的统一走占位页。 */
+import { toast } from './ui.js';
 import { disposeAll } from './charts.js';
 
-import overview from './pages/overview.js';
+import home from './pages/home.js';
 import deposit from './pages/deposit.js';
 import online from './pages/online.js';
 import wallet from './pages/wallet.js';
 import salary from './pages/salary.js';
 import community from './pages/community.js';
 import importer from './pages/import.js';
+import report from './pages/report.js';
+import { modulePlaceholder, browse } from './pages/placeholder.js';
 
-const PAGES = [overview, deposit, online, wallet, salary, community, importer];
-const byId = Object.fromEntries(PAGES.map((p) => [p.id, p]));
+const RENDERERS = { deposit, online, wallet, salary, community };
 
-const store = { data: null, state: null };
-const view = document.getElementById('view');
+const state = { catalog: null, data: null, date: null, view: document.getElementById('view') };
 
 /* ---------------------------------------------------------------- 数据 */
-async function load(showToast = false) {
-  const [all, state] = await Promise.all([
-    fetch('/api/all', { cache: 'no-store' }).then((r) => r.json()),
-    fetch('/api/state', { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
-  ]);
-  store.data = all;
-  store.state = state;
-  if (showToast) toast('数据已刷新');
-  paintChrome();
-  return all;
+async function loadCatalog() {
+  state.catalog = await fetch('/api/catalog', { cache: 'no-store' }).then((r) => r.json());
+  return state.catalog;
 }
 
-function latestDate() {
-  const lines = store.data?.overview?.lines || {};
-  const ds = Object.values(lines).map((l) => l.as_of).filter(Boolean).sort();
-  return ds.length ? ds[ds.length - 1] : null;
+async function loadData(date) {
+  const url = date ? `/api/all?date=${encodeURIComponent(date)}` : '/api/all';
+  state.data = await fetch(url, { cache: 'no-store' }).then((r) => r.json());
+  state.date = date;
+  paintChrome();
+  return state.data;
 }
 
 function paintChrome() {
-  const asof = document.getElementById('asof');
-  const d = latestDate();
-  asof.querySelector('span').textContent = d ? `数据截至 ${d}` : '暂无数据';
-  const st = document.getElementById('sideStatus');
-  const ok = Object.values(store.data?.overview?.lines || {}).filter((l) => l.ok).length;
-  st.textContent = `${ok}/5 条线已就绪 · ${(store.data?.generated_at || '').slice(11, 16)}`;
+  const lines = state.data?.overview?.lines || {};
+  const ok = Object.values(lines).filter((l) => l.ok).length;
+  const el = document.getElementById('asof');
+  el.querySelector('span').textContent = state.date
+    ? `所选 ${state.date.slice(5)} · ${ok}/5 条线`
+    : `数据截至 ${state.catalog?.latest || '—'}`;
+  const pick = document.getElementById('datePick');
+  if (pick) {
+    pick.min = state.catalog?.earliest || '';
+    pick.max = state.catalog?.latest || '';
+    if (!pick.value) pick.value = state.date || state.catalog?.latest || '';
+  }
 }
 
 /* ---------------------------------------------------------------- 导航 */
+function moduleLink(m) {
+  const on = m.kind === 'metric';
+  return `<a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${on ? '' : 'dim'}">
+    <span class="nav-name">${m.name}</span>
+    ${on ? '' : '<em class="nav-badge">待接入</em>'}
+  </a>`;
+}
+
 function renderNav() {
   const nav = document.getElementById('nav');
-  const main = PAGES.filter((p) => p.nav);
-  const tool = PAGES.filter((p) => !p.nav);
-  const item = (p) => `<a href="#/${p.id}" data-id="${p.id}">
-      ${icon(p.icon)}
-      <span>${p.nav || p.title}</span>
-      ${p.tag ? `<em class="tag ${p.tag === '重点' ? 'hot' : ''}" style="font-style:normal">${p.tag}</em>` : ''}
-    </a>`;
+  const cat = state.catalog;
   nav.innerHTML = `
-    <div class="nav-label">经营条线</div>
-    ${main.map(item).join('')}
-    ${tool.length ? `<div class="nav-label">数据</div>${tool.map(item).join('')}` : ''}`;
+    <div class="nav-label">总览</div>
+    <a href="#/" data-id="home" class="nav-item"><span class="nav-name">经营总览</span></a>
+    ${cat.professionals.filter((p) => p.id !== 'project').map((p) => `
+      <div class="nav-label">${p.name}${p.status !== 'active' ? ' <em class="nav-badge">框架</em>' : ''}</div>
+      ${p.groups.map((g) => `
+        ${g.name ? `<div class="nav-sub">${g.name}</div>` : ''}
+        ${(g.modules || []).map(moduleLink).join('')}`).join('')}
+    `).join('')}
+    <div class="nav-label">专项</div>
+    <a href="#/p/project" data-id="project" class="nav-item"><span class="nav-name">重点项目</span></a>
+    <div class="nav-label">数据</div>
+    <a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span></a>
+    <a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span></a>`;
+
   nav.querySelectorAll('a').forEach((a) => {
     a.addEventListener('click', () => {
-      document.querySelectorAll('.nav a').forEach((x) => x.classList.remove('on'));
+      nav.querySelectorAll('a').forEach((x) => x.classList.remove('on'));
       a.classList.add('on');
     });
   });
 }
 
 /* ---------------------------------------------------------------- 路由 */
-function currentId() {
-  const m = location.hash.match(/^#\/([\w-]+)/);
-  return m ? m[1] : 'overview';
+function parseRoute() {
+  const h = location.hash.replace(/^#/, '') || '/';
+  const seg = h.split('/').filter(Boolean);
+  if (!seg.length) return { name: 'home' };
+  if (seg[0] === 'm') return { name: 'module', id: seg[1] };
+  if (seg[0] === 'p') return { name: 'prof', id: seg[1] };
+  if (seg[0] === 'g') return { name: 'group', prof: seg[1], id: seg[2] };
+  if (seg[0] === 'report') return { name: 'report' };
+  if (seg[0] === 'upload') return { name: 'upload' };
+  return { name: 'home' };
+}
+
+function findModule(id) {
+  for (const p of state.catalog.professionals) {
+    for (const g of p.groups) {
+      for (const m of g.modules || []) {
+        if (m.id === id) return { prof: p, group: g, module: m };
+      }
+    }
+  }
+  return null;
 }
 
 function render() {
-  const id = currentId();
-  const page = byId[id] || byId.overview;
+  const r = parseRoute();
+  const view = state.view;
   disposeAll();
   view.innerHTML = '';
   const host = document.createElement('div');
   host.className = 'page';
   view.appendChild(host);
-  document.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('on', a.dataset.id === page.id));
-  document.getElementById('crumbs').innerHTML = page.id === 'overview'
-    ? '<b>总览</b><span class="sep">·</span><span>全行五条线</span>'
-    : `<a href="#/overview" style="color:var(--ink-3)">总览</a><span class="sep">/</span><b>${page.title}</b>`;
-  document.title = `${page.title} · 个人金融经营驾驶舱`;
+  const ctx = { catalog: state.catalog, data: state.data, date: state.date, reload: refresh };
+
+  let title = '经营总览';
+  let crumb = '<b>经营总览</b>';
   try {
-    page.render(host, store.data, { store, reload: () => load(true), state: store.state });
+    if (r.name === 'module') {
+      const hit = findModule(r.id);
+      if (!hit) throw new Error('模块不存在');
+      title = hit.module.name;
+      crumb = `<a href="#/p/${hit.prof.id}" style="color:var(--ink-3)">${hit.prof.name}</a>
+        <span class="sep">/</span><b>${hit.module.name}</b>`;
+      const impl = RENDERERS[hit.module.page];
+      if (impl && hit.module.kind === 'metric') impl.render(host, state.data, ctx);
+      else modulePlaceholder(host, hit);
+    } else if (r.name === 'prof') {
+      const prof = state.catalog.professionals.find((p) => p.id === r.id);
+      if (!prof) throw new Error('板块不存在');
+      title = prof.name;
+      crumb = `<b>${prof.name}</b>`;
+      browse(host, { prof });
+    } else if (r.name === 'group') {
+      const prof = state.catalog.professionals.find((p) => p.id === r.prof);
+      const group = prof?.groups.find((g) => g.id === r.id);
+      if (!prof || !group) throw new Error('分组不存在');
+      title = `${prof.name} · ${group.name}`;
+      crumb = `<a href="#/p/${prof.id}" style="color:var(--ink-3)">${prof.name}</a>
+        <span class="sep">/</span><b>${group.name}</b>`;
+      browse(host, { prof, group });
+    } else if (r.name === 'report') {
+      title = '通报中心';
+      crumb = '<b>通报中心</b>';
+      report.render(host, state.data, ctx);
+    } else if (r.name === 'upload') {
+      title = '导入数据';
+      crumb = '<b>导入数据</b>';
+      importer.render(host, state.data, ctx);
+    } else {
+      home.render(host, ctx);
+    }
   } catch (err) {
     console.error(err);
-    host.innerHTML = `<div class="card"><div class="empty"><b>页面渲染出错</b>${String(err.message || err)}</div>
-      <pre style="font-size:11px;color:#a80d26;white-space:pre-wrap;text-align:left;max-width:900px;margin:10px auto">${String(err.stack || '').split('\n').slice(0, 6).join('\n')}</pre></div>`;
+    host.innerHTML = `<div class="card"><div class="empty"><b>页面渲染出错</b>${String(err.message || err)}</div></div>`;
   }
+  document.getElementById('crumbs').innerHTML = crumb;
+  document.title = `${title} · 经营驾驶舱`;
+  document.querySelectorAll('.nav a').forEach((a) => {
+    a.classList.toggle('on', a.dataset.id === r.id || (r.name === 'home' && a.dataset.id === 'home'));
+  });
+  host.querySelectorAll('[data-go]').forEach((el) => {
+    if (!el.onclick) el.onclick = () => { location.hash = el.dataset.go; };
+  });
+}
+
+async function refresh(date = state.date) {
+  await loadData(date);
+  render();
 }
 
 /* ---------------------------------------------------------------- 启动 */
 async function boot() {
-  renderNav();
-  window.addEventListener('hashchange', render);
-  document.getElementById('btnRefresh').addEventListener('click', async (e) => {
-    e.currentTarget.style.transform = 'rotate(360deg)';
-    setTimeout(() => { e.currentTarget.style.transform = ''; }, 420);
-    await load(true);
-    render();
-  });
-  document.querySelectorAll('[data-route]').forEach((b) => {
-    b.addEventListener('click', () => { location.hash = b.dataset.route; });
-  });
   try {
-    await load();
-    const bootEl = document.getElementById('boot');
-    bootEl.classList.add('gone');
-    setTimeout(() => bootEl.remove(), 420);
+    await loadCatalog();
+    await loadData(null);
   } catch (err) {
     document.getElementById('boot').innerHTML =
-      `<div class="empty"><b>无法连接服务</b>请通过 <code>python server/app.py</code> 启动后访问</div>`;
+      '<div class="empty"><b>无法连接服务</b>请用 <code>python run.py</code> 启动</div>';
     console.error(err);
     return;
   }
+  renderNav();
+  const bootEl = document.getElementById('boot');
+  bootEl.classList.add('gone');
+  setTimeout(() => bootEl.remove(), 420);
+
+  document.getElementById('datePick').addEventListener('change', async (e) => {
+    const v = e.target.value || null;
+    await refresh(v);
+    toast(v ? `已切换到 ${v}（取该日之前最近一期）` : '已回到最新数据');
+  });
+  document.getElementById('btnLatest').addEventListener('click', async () => {
+    document.getElementById('datePick').value = state.catalog.latest || '';
+    await refresh(null);
+    toast('已回到最新数据');
+  });
+  document.getElementById('btnRefresh').addEventListener('click', async (e) => {
+    e.currentTarget.style.transform = 'rotate(360deg)';
+    setTimeout(() => { e.currentTarget.style.transform = ''; }, 420);
+    await refresh();
+    toast('数据已刷新');
+  });
+
+  window.addEventListener('hashchange', render);
   render();
 }
 
