@@ -47,7 +47,7 @@ button{font-family:inherit}
   width:236px;flex:0 0 236px;position:sticky;top:0;height:100vh;
   background:linear-gradient(170deg,var(--nav-1) 0%,var(--nav-2) 100%);
   color:#cdd7e6;display:flex;flex-direction:column;padding:20px 14px 16px;
-  border-right:1px solid rgba(255,255,255,.05);
+  border-right:1px solid rgba(255,255,255,.05);overflow:hidden;
 }
 .brand{display:flex;align-items:center;gap:11px;padding:4px 8px 20px}
 .mark{
@@ -60,7 +60,14 @@ button{font-family:inherit}
 .brand-txt b{color:#fff;font-size:15px;letter-spacing:.3px}
 .brand-txt span{font-size:11px;color:#8fa2bd;letter-spacing:.4px}
 
-.nav{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:6px;flex:1 1 auto;min-height:0;
+  overflow-y:auto;overflow-x:hidden;padding:0 4px 14px 0;scrollbar-width:thin;overscroll-behavior:contain;
+  scrollbar-color:rgba(255,255,255,.18) transparent}
+.nav::-webkit-scrollbar{width:6px}
+.nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:6px;border:0}
+.nav::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.3)}
+.nav::-webkit-scrollbar-track{background:transparent}
+.nav:hover::-webkit-scrollbar-thumb{background:#4d6182}
 .nav-label{font-size:10.5px;color:#66799a;letter-spacing:1.4px;padding:14px 10px 6px}
 .nav a{
   position:relative;display:flex;align-items:center;gap:10px;
@@ -85,14 +92,6 @@ button{font-family:inherit}
 .live-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.16);
   animation:pulse 2.4s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
-.side-import{
-  width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
-  padding:9px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
-  background:rgba(255,255,255,.05);color:#e6edf7;font-size:12.5px;cursor:pointer;
-  transition:.18s var(--ease);
-}
-.side-import:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.3)}
-.side-import svg{width:15px;height:15px}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{
