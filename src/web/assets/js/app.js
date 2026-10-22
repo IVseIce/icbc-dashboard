@@ -248,6 +248,9 @@ async function boot() {
     toast('数据已刷新');
   });
 
+  const brand = document.querySelector('.brand');
+  if (brand) { brand.style.cursor = 'pointer'; brand.title = '返回总览'; brand.onclick = () => { location.hash = '#/'; }; }
+
   window.addEventListener('hashchange', render);
   render();
 }
