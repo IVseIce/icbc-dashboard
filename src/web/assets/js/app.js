@@ -16,7 +16,7 @@ import { modulePlaceholder, browse } from './pages/placeholder.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community };
 
-const state = { catalog: null, data: null, date: null, view: document.getElementById('view') };
+const state = { catalog: null, data: null, date: null, view: document.getElementById('view'), open: new Set(['jg']) };
 
 /* ---------------------------------------------------------------- 数据 */
 async function loadCatalog() {
@@ -35,6 +35,8 @@ async function loadData(date) {
 function paintChrome() {
   const lines = state.data?.overview?.lines || {};
   const ok = Object.values(lines).filter((l) => l.ok).length;
+  const side = document.getElementById('sideStatus');
+  if (side) side.textContent = `${ok}/5 条线已就绪`;
   const el = document.getElementById('asof');
   el.querySelector('span').textContent = state.date
     ? `所选 ${state.date.slice(5)} · ${ok}/5 条线`
@@ -59,27 +61,62 @@ function moduleLink(m) {
 function renderNav() {
   const nav = document.getElementById('nav');
   const cat = state.catalog;
+  const r = parseRoute();
+  // 当前路由所属板块默认展开
+  if (r.name === 'module') {
+    const hit = findModule(r.id);
+    if (hit) state.open.add(hit.prof.id);
+  }
+  if (r.name === 'prof' || r.name === 'group') state.open.add(r.prof || r.id);
+
+  const groups = cat.professionals.filter((p) => p.id !== 'project');
   nav.innerHTML = `
-    <div class="nav-label">总览</div>
     <a href="#/" data-id="home" class="nav-item"><span class="nav-name">经营总览</span></a>
-    ${cat.professionals.filter((p) => p.id !== 'project').map((p) => `
-      <div class="nav-label">${p.name}${p.status !== 'active' ? ' <em class="nav-badge">框架</em>' : ''}</div>
-      ${p.groups.map((g) => `
-        ${g.name ? `<div class="nav-sub">${g.name}</div>` : ''}
-        ${(g.modules || []).map(moduleLink).join('')}`).join('')}
-    `).join('')}
-    <div class="nav-label">专项</div>
-    <a href="#/p/project" data-id="project" class="nav-item"><span class="nav-name">重点项目</span></a>
-    <div class="nav-label">数据</div>
+    ${groups.map((p) => navSection(p)).join('')}
+    ${navSection(cat.professionals.find((p) => p.id === 'project'))}
+    <div class="nav-sep"></div>
     <a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span></a>
     <a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span></a>`;
 
-  nav.querySelectorAll('a').forEach((a) => {
+  nav.querySelectorAll('.nav-cat').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      const id = btn.dataset.cat;
+      if (state.open.has(id)) state.open.delete(id); else state.open.add(id);
+      btn.closest('.nav-group').classList.toggle('open', state.open.has(id));
+      btn.setAttribute('aria-expanded', state.open.has(id));
+    };
+  });
+  nav.querySelectorAll('a.nav-item').forEach((a) => {
     a.addEventListener('click', () => {
-      nav.querySelectorAll('a').forEach((x) => x.classList.remove('on'));
+      nav.querySelectorAll('a.nav-item').forEach((x) => x.classList.remove('on'));
       a.classList.add('on');
     });
   });
+}
+
+function navSection(p) {
+  if (!p) return '';
+  const open = state.open.has(p.id);
+  const mods = p.groups.flatMap((g) => (g.modules || []).map((m) => ({ ...m, _g: g.name })));
+  return `
+  <div class="nav-group ${open ? 'open' : ''}" data-group="${p.id}">
+    <button class="nav-cat" data-cat="${p.id}" aria-expanded="${open}">
+      <span class="nav-cat-name">${p.short || p.name}</span>
+      <span class="nav-count">${mods.filter((m) => m.kind === 'metric').length}/${mods.length}</span>
+      <svg class="nav-caret" viewBox="0 0 24 24" width="12" height="12"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="nav-sub-wrap">
+      <a href="#/p/${p.id}" class="nav-item nav-over">板块总览</a>
+      ${p.groups.map((g) => `
+        <div class="nav-sub">${g.name}</div>
+        ${(g.modules || []).map((m) => `
+          <a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${m.kind === 'metric' ? '' : 'dim'}">
+            <span class="nav-name">${m.name}</span>
+            ${m.kind === 'metric' ? '' : '<em class="nav-badge">待接入</em>'}
+          </a>`).join('')}`).join('')}
+    </div>
+  </div>`;
 }
 
 /* ---------------------------------------------------------------- 路由 */
