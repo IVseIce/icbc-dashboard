@@ -338,14 +338,14 @@ def import_qwsq(files, line, root):
         branches.append({'name': br + '支行', 'groups': v['g'], 'groups_d': v['g'] - p.get('g', 0),
                          'cust': v['c'], 'cust_d': v['c'] - p.get('c', 0),
                          'inter': v['x'], 'inter_d': v['x'] - p.get('x', 0),
-                         'rate': round(v['rate'], 5), 'rate_d': round(v['rate'] - p.get('rate', 0), 5)})
+                         'rate': v['rate'], 'rate_d': v['rate'] - p.get('rate', 0)})
     nets = []
     for nm, v in cur.items():
         p = prev.get(nm, {})
         nets.append({'name': nm, 'groups': v['g'], 'groups_d': v['g'] - p.get('g', 0),
                      'cust': v['c'], 'cust_d': v['c'] - p.get('c', 0),
                      'inter': v['x'], 'inter_d': v['x'] - p.get('x', 0),
-                     'rate': round(v['rate'], 5), 'rate_d': round(v['rate'] - p.get('rate', 0), 5)})
+                     'rate': v['rate'], 'rate_d': v['rate'] - p.get('rate', 0)})
     t = mod.totals(cur)
     tp = mod.totals(prev)
     dd = cur_d.isoformat()
@@ -354,8 +354,8 @@ def import_qwsq(files, line, root):
         'branches': sorted(branches, key=lambda b: -b['cust']), 'nets': nets,
         'total': {'name': '合计', 'groups': t['g'], 'groups_d': t['g'] - tp['g'],
                   'cust': t['c'], 'cust_d': t['c'] - tp['c'], 'inter': t['x'],
-                  'inter_d': t['x'] - tp['x'], 'rate': round(t['rate'], 5),
-                  'rate_d': round(t['rate'] - tp['rate'], 5)},
+                  'inter_d': t['x'] - tp['x'], 'rate': t['rate'],
+                  'rate_d': t['rate'] - tp['rate']},
         '_files': [{'name': n, 'role': ('本周 ' if n == cur_f.name else '上周 ') + str(cur_d if n == cur_f.name else prev_d)}
                    for n, _ in files],
         '_notes': [f'本周 {cur_d} / 上周 {prev_d}'],

@@ -246,7 +246,122 @@ def build_wallet(on: str | None = None) -> dict:
     }
 
 
-BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet}
+
+
+# ---------------------------------------------------------------- 定期存款
+DEPOSIT_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'deposit_base.xlsx'
+
+
+def build_deposit(on: str | None = None) -> dict:
+    snap = api._latest('dqzz', on)
+    if not snap:
+        nd = api.build_deposit(on)
+        return {'ok': False, 'error': nd.get('reason') or '该日期无定期存款数据', 'nearest': nd.get('nearest')}
+    d = {'ok': True, 'as_of': snap['as_of'], 'prev_as_of': snap.get('prev_as_of'),
+         'branches': snap['branches'], 'total': snap['total']}
+    t = snap['total']
+    k = {'balance': t['cur_bal'], 'inc': t['inc'], 'rate': t['rate'], 'prev_balance': t['prev_bal']}
+    as_of = d['as_of']
+    prev = d.get('prev_as_of')
+    title = f'{int(as_of[5:7])}月{int(as_of[8:10])}日阜阳分行定期增长情况表（单位：万元）'
+    cols = [
+        {'key': 'name', 'title': '支行', 'type': 'text'},
+        {'key': 'cur', 'title': '定期余额', 'type': 'num'},
+        {'key': 'inc', 'title': '当月增量', 'type': 'num'},
+        {'key': 'rate', 'title': '当月增幅', 'type': 'pct'},
+        {'key': 'prev', 'title': f'{int((prev or as_of)[5:7])}月定期余额', 'type': 'num'},
+    ]
+    by = {b['name']: b for b in d['branches']}
+    try:
+        order = _template_names(DEPOSIT_BASE, None, 3, 10)
+    except Exception:
+        order = list(by)
+    rows = [{'name': nm, 'cur': (by.get(nm) or {}).get('cur_bal'),
+             'inc': (by.get(nm) or {}).get('inc'), 'rate': (by.get(nm) or {}).get('rate'),
+             'prev': (by.get(nm) or {}).get('prev_bal')} for nm in order]
+    totals = {'name': '合计', 'cur': k['balance'], 'inc': k['inc'], 'rate': k['rate'],
+              'prev': k['prev_balance']}
+    text = (f'截至{int(as_of[5:7])}月{int(as_of[8:10])}日，全行定期存款余额 {k["balance"]:,.2f} 万元，'
+            f'当月增量 {k["inc"]:,.2f} 万元，当月增幅 {k["rate"] * 100:.2f}%'
+            f'（对照 {int((prev or as_of)[5:7])}月{int((prev or as_of)[8:10])}日 {k["prev_balance"]:,.2f} 万元）。\n'
+            f'增量前三：' + '、'.join(f'{b["name"]} {b["inc"]:+,.2f} 万元'
+                                     for b in sorted(rows, key=lambda x: -(x['inc'] or 0))[:3]) + '；'
+            f'负增长：' + ('、'.join(f'{b["name"]} {b["inc"]:,.2f} 万元'
+                                   for b in rows if (b['inc'] or 0) < 0) or '无') + '。')
+    return {'ok': True, 'kind': 'deposit', 'title': title, 'as_of': as_of,
+            'tables': [{'name': '通报', 'columns': cols, 'rows': rows, 'totals': totals}],
+            'text': text}
+
+
+# ---------------------------------------------------------------- 企微社群
+COMMUNITY_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'community_base.xlsx'
+
+
+def build_community(on: str | None = None) -> dict:
+    snap = api._latest('qwsq', on)
+    if not snap:
+        nd = api.build_community(on)
+        return {'ok': False, 'error': nd.get('reason') or '该日期无企微社群数据', 'nearest': nd.get('nearest')}
+    d = {'ok': True, 'as_of': snap['as_of'], 'branches': snap.get('branches') or [],
+         'nets': snap.get('nets') or [], 'total': snap.get('total') or {}}
+    t0 = d['total']
+    k = {'groups': t0.get('groups'), 'groups_d': t0.get('groups_d'), 'cust': t0.get('cust'),
+         'cust_d': t0.get('cust_d'), 'inter': t0.get('inter'), 'inter_d': t0.get('inter_d'),
+         'rate': t0.get('rate'), 'rate_d': t0.get('rate_d')}
+    as_of = d['as_of']
+    title = f'企微个微社群数据统计表（{int(as_of[5:7])}月{int(as_of[8:10])}日）'
+    cols = [
+        {'key': 'name', 'title': '机构', 'type': 'text'},
+        {'key': 'groups', 'title': '群数量', 'type': 'num'},
+        {'key': 'groups_d', 'title': '较上周', 'type': 'num'},
+        {'key': 'cust', 'title': '客户数', 'type': 'num'},
+        {'key': 'cust_d', 'title': '较上周', 'type': 'num'},
+        {'key': 'inter', 'title': '交互数', 'type': 'num'},
+        {'key': 'inter_d', 'title': '较上周', 'type': 'num'},
+        {'key': 'rate', 'title': '熟识率', 'type': 'pct'},
+        {'key': 'rate_d', 'title': '较上周', 'type': 'pct'},
+    ]
+
+    def rows_of(items, suffix=''):
+        return [{'name': (i['name'] or '') + suffix, 'groups': i['groups'], 'groups_d': i['groups_d'],
+                 'cust': i['cust'], 'cust_d': i['cust_d'], 'inter': i['inter'], 'inter_d': i['inter_d'],
+                 'rate': i['rate'], 'rate_d': i['rate_d']} for i in items]
+
+    try:
+        br_order = _template_names(COMMUNITY_BASE, '支行维度', 4, 11)
+        net_order = _template_names(COMMUNITY_BASE, '网点维度', 4, 43)
+    except Exception:
+        br_order = [b['name'] for b in d['branches']]
+        net_order = [n['name'] for n in d['nets']]
+    br_by = {b['name']: b for b in d['branches']}
+    net_by = {n['name']: n for n in d['nets']}
+    br_rows = [{**rows_of([br_by.get(nm)])[0]} if br_by.get(nm) else
+               {'name': nm, 'groups': 0, 'groups_d': 0, 'cust': 0, 'cust_d': 0,
+                'inter': 0, 'inter_d': 0, 'rate': 0, 'rate_d': 0} for nm in br_order]
+    net_rows = [{**rows_of([net_by.get(nm)])[0]} if net_by.get(nm) else
+                {'name': nm, 'groups': 0, 'groups_d': 0, 'cust': 0, 'cust_d': 0,
+                 'inter': 0, 'inter_d': 0, 'rate': 0, 'rate_d': 0} for nm in net_order]
+    tot = {'name': '合计', 'groups': k['groups'], 'groups_d': k['groups_d'],
+           'cust': k['cust'], 'cust_d': k['cust_d'], 'inter': k['inter'], 'inter_d': k['inter_d'],
+           'rate': k['rate'], 'rate_d': k['rate_d']}
+
+    top_cust = sorted(d['nets'], key=lambda n: -(n.get('cust') or 0))[:3]
+    top_grp = sorted(d['branches'], key=lambda b: -(b.get('groups') or 0))[:2]
+    text = '\n\n'.join([
+        f'企微个微社群数据统计（截至{as_of[:4]}年{int(as_of[5:7])}月{int(as_of[8:10])}日）',
+        f'累计建群 {k["groups"]} 个，较上周 {k["groups_d"]:+d} 个；客户数 {k["cust"]:,} 户，'
+        f'较上周 {k["cust_d"]:+d} 户；交互数 {k["inter"]:,} 条，较上周 {k["inter_d"]:+d} 条；'
+        f'熟识率 {k["rate"] * 100:.2f}%，较上周 {k["rate_d"] * 100:+.2f} 个百分点。',
+        '客户数前三网点：' + '、'.join(f'{n["name"]}（{n["cust"]}户）' for n in top_cust) + '。',
+        '建群领先支行：' + '、'.join(f'{b["name"]}建群{b["groups"]}个' for b in top_grp) + '。',
+    ])
+    return {'ok': True, 'kind': 'community', 'title': title, 'as_of': as_of,
+            'tables': [{'name': '支行维度', 'columns': cols, 'rows': br_rows, 'totals': tot},
+                       {'name': '网点维度', 'columns': cols, 'rows': net_rows, 'totals': tot}],
+            'text': text}
+
+BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
+            'deposit': build_deposit, 'community': build_community}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
 
@@ -410,7 +525,74 @@ def wallet_xlsx(on: str | None = None) -> tuple[bytes, str]:
     return buf.getvalue(), f"数字人民币个人钱包发展通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
 
-XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx}
+
+
+def deposit_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    import openpyxl
+    d = build_deposit(on)
+    if not d.get('ok'):
+        raise RuntimeError('该日期没有定期存款数据')
+    wb = openpyxl.load_workbook(DEPOSIT_BASE)
+    ws = wb.active
+    ws['A1'] = d['title']
+    rows = d['tables'][0]['rows']
+    by = {r['name']: r for r in rows}
+    for r in range(3, 11):
+        name = str(ws.cell(row=r, column=1).value or '').strip()
+        rec = by.get(name)
+        if not rec:
+            continue
+        for c, k, fmt in ((2, 'cur', '#,##0.00'), (3, 'inc', '#,##0.00'),
+                          (4, 'rate', '0.00%'), (5, 'prev', '#,##0.00')):
+            cell = ws.cell(row=r, column=c)
+            cell.value = rec.get(k)
+            cell.number_format = fmt
+    t = d['tables'][0]['totals']
+    for c, k, fmt in ((2, 'cur', '#,##0.00'), (3, 'inc', '#,##0.00'),
+                      (4, 'rate', '0.00%'), (5, 'prev', '#,##0.00')):
+        cell = ws.cell(row=11, column=c)
+        cell.value = t.get(k)
+        cell.number_format = fmt
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), f"定期存款增长（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
+
+
+def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    import openpyxl
+    d = build_community(on)
+    if not d.get('ok'):
+        raise RuntimeError('该日期没有企微社群数据')
+    wb = openpyxl.load_workbook(COMMUNITY_BASE)
+    keys = [(2, 'groups', '#,##0'), (3, 'groups_d', '#,##0'), (4, 'cust', '#,##0'),
+            (5, 'cust_d', '#,##0'), (6, 'inter', '#,##0'), (7, 'inter_d', '#,##0'),
+            (8, 'rate', '0.00%'), (9, 'rate_d', '0.00%')]
+    for idx, (sheet, r0, r1) in enumerate((('支行维度', 4, 11), ('网点维度', 4, 43))):
+        ws = wb[sheet]
+        ws['A1'] = d['title']
+        rows = d['tables'][idx]['rows']
+        by = {r['name']: r for r in rows}
+        for r in range(r0, r1 + 1):
+            name = str(ws.cell(row=r, column=1).value or '').strip()
+            rec = by.get(name)
+            if not rec:
+                continue
+            for c, k, fmt in keys:
+                cell = ws.cell(row=r, column=c)
+                cell.value = rec.get(k)
+                cell.number_format = fmt
+        t = d['tables'][0]['totals']
+        total_row = 12 if sheet == '支行维度' else 44
+        for c, k, fmt in keys:
+            cell = ws.cell(row=total_row, column=c)
+            cell.value = t.get(k)
+            cell.number_format = fmt
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), f"企微社群数据统计通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
+
+XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
+        'deposit': deposit_xlsx, 'community': community_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:

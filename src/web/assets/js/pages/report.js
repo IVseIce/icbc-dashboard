@@ -5,8 +5,8 @@ const LINES = [
   { id: 'online', name: '网点线上服务能力', ready: true },
   { id: 'salary', name: '薪管家聚薪行动', ready: true },
   { id: 'wallet', name: '数字人民币钱包', ready: true },
-  { id: 'deposit', name: '定期存款增长', ready: false },
-  { id: 'community', name: '企微社群运营', ready: false },
+  { id: 'deposit', name: '定期存款增长', ready: true },
+  { id: 'community', name: '企微社群运营', ready: true },
 ];
 
 export default {
@@ -81,7 +81,8 @@ export default {
       return `
       <div class="card" style="margin-top:14px">
         <div class="card-head"><h3>${payload.title}${t.name ? ' · ' + t.name : ''}</h3>
-          <div class="right">${i === 0 ? '<span class="chip hl-red">红：该列前 5 名</span><span class="chip hl-green">绿：该列后 5 名</span>' : ''}</div></div>
+          <div class="right">${i === 0 && t.rows.some((r) => r._hl && Object.keys(r._hl).length)
+            ? '<span class="chip hl-red">红：该列前 5 名</span><span class="chip hl-green">绿：该列后 5 名</span>' : ''}</div></div>
         <div class="tbl-wrap" style="max-height:none">
           <table class="tbl rep">
             <thead><tr>${t.columns.map((c) => `<th>${c.title}</th>`).join('')}</tr></thead>
