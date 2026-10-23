@@ -44,17 +44,16 @@ def build_online(on: str | None = None) -> dict:
     if not d.get('ok'):
         return {'ok': False, 'error': d.get('reason') or '该日期无线上服务数据',
                 'nearest': d.get('nearest')}
-    nets = d.get('nets') or []
-    # api 视图模型里网点比率是百分数（70.15），合计是小数（0.5185），这里统一成小数
+    # 直接用快照里的原始比率（6 位小数），避免 api 层为展示做的取整
+    snap = api._latest('xsfw', on)
+    nets = (snap or {}).get('nets') or []
     for n in nets:
-        for k in ('day_rate', 'month_rate', 'real_rate', 'sign_rate', 'kh_rate'):
-            v = n.get(k)
-            if isinstance(v, (int, float)) and abs(v) > 1.5:
-                n[k] = round(v / 100, 4)
+        n['name'] = n.get('label') or n.get('name') or ''
+        n['real_rate'] = n.get('add_real')
 
     order = {b: i for i, b in enumerate(BRANCH_ORDER)}
     rows = sorted(nets, key=lambda n: (order.get(n['branch'], 99), -(n.get('day_rate') or 0)))
-    tot = d.get('kpi') or {}
+    tot = (snap or {}).get('tot') or d.get('kpi') or {}
     annotate(rows)
     table = {
         'name': '网点明细',
@@ -65,14 +64,13 @@ def build_online(on: str | None = None) -> dict:
             'cust': tot.get('cust'), 'real_rate': tot.get('real_rate'),
             'add_today': tot.get('add_today'), 'add_month': tot.get('add_month'),
             'sign_rate': tot.get('sign_rate'), 'kh_rate': tot.get('kh_rate'),
-            'auth_cust': sum(n.get('auth_cust') or 0 for n in rows) or None,
-            'auth_signed': sum(n.get('auth_signed') or 0 for n in rows) or None,
-            'kh': sum(n.get('kh') or 0 for n in rows) or None,
-            'kh_signed': sum(n.get('kh_signed') or 0 for n in rows) or None,
+            'auth_cust': tot.get('auth_cust'), 'auth_signed': tot.get('auth_signed'),
+            'kh': tot.get('kh'), 'kh_signed': tot.get('kh_signed'),
         },
     }
     return {
-        'ok': True, 'kind': 'online', 'title': f'网点线上服务能力提升通报（{d["as_of"][5:].replace("-", ".")}）',
+        'ok': True, 'kind': 'online',
+        'title': f'阜阳分行“网点线上服务能力”提升通报（{d["as_of"][5:].replace("-", ".")}）',
         'as_of': d['as_of'], 'prev_as_of': d.get('prev_as_of'),
         'tables': [table], 'text': build_text(d, rows),
     }

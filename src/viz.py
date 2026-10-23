@@ -260,16 +260,21 @@ def import_xsfw(files, line, root):
     data = mod.compute(cls['roles'])
     rows = [r for r in data['rows'] if r.get('branch')]
     total_row = next((r for r in data['rows'] if not r.get('branch')), None)
-    nets = [{'label': r['label'], 'branch': r['branch'], 'day_rate': round(r['B'], 4),
-             'month_rate': round(r['C'], 4), 'cust': r['D'], 'cust_delta': r.get('cust_delta') or 0,
-             'add_real': round(r['E'], 4) if r.get('E') is not None else None,
+    nets = [{'label': r['label'], 'branch': r['branch'], 'day_rate': round(r['B'], 6),
+             'month_rate': round(r['C'], 6), 'cust': r['D'], 'cust_delta': r.get('cust_delta') or 0,
+             'add_real': round(r['E'], 6) if r.get('E') is not None else None,
              'add_today': r.get('F') or 0, 'add_month': r.get('G') or 0,
-             'sign_rate': round(r['J'], 4) if r.get('J') is not None else None,
-             'kh_rate': round(r['M'], 4) if r.get('M') is not None else None,
+             'sign_rate': round(r['J'], 6) if r.get('J') is not None else None,
+             'kh_rate': round(r['M'], 6) if r.get('M') is not None else None,
              'auth_cust': r.get('H'), 'auth_signed': r.get('I'),
              'kh': r.get('K'), 'kh_signed': r.get('L')} for r in rows]
-    tot = {'day_rate': round(total_row['B'], 4), 'month_rate': round(total_row['C'], 4),
-           'cust': total_row['D'], 'add_today': total_row['F'], 'add_month': total_row['G']}
+    tot = {'day_rate': round(total_row['B'], 6), 'month_rate': round(total_row['C'], 6),
+           'cust': total_row['D'], 'add_today': total_row['F'], 'add_month': total_row['G'],
+           'real_rate': round(total_row['E'], 6) if total_row.get('E') is not None else None,
+           'auth_cust': total_row.get('H'), 'auth_signed': total_row.get('I'),
+           'sign_rate': round(total_row['J'], 6) if total_row.get('J') is not None else None,
+           'kh': total_row.get('K'), 'kh_signed': total_row.get('L'),
+           'kh_rate': round(total_row['M'], 6) if total_row.get('M') is not None else None}
     dd = data['day_date']
     return dd, {
         'as_of': dd, 'as_of_cn': f'{int(dd[5:7])}月{int(dd[8:10])}日',
