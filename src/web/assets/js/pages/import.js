@@ -228,7 +228,9 @@ export default {
         <span class="tl-sub">${l.as_of ? fmt.date(l.as_of) : '—'} · ${l.snapshots} 期</span></div>`).join('');
 
       ledger = (st.ledger || []).filter((r) => allowedLines.has(r.line));
-      view.querySelector('#ledgerCount').textContent = `${ledger.length} 条`;
+      const total = st.db?.imports;
+      view.querySelector('#ledgerCount').textContent =
+        total ? `最近 ${ledger.length} 条 · 共 ${total} 条` : `${ledger.length} 条`;
       view.querySelector('#ledger').innerHTML = ledger.length ? `
         <div class="tbl-wrap" style="max-height:220px"><table class="tbl" style="table-layout:fixed;width:100%">
           <thead><tr><th style="width:92px">时间</th><th style="width:120px">条线</th>

@@ -202,9 +202,11 @@ function renderNav() {
   const sections = cat.professionals;
   const gateMark = auth.ok ? '' : `<em class="nav-lock" title="需要口令">${ICON_LOCK(11)}</em>`;
   nav.innerHTML = '<a href="#/" data-id="home" class="nav-item nav-home"><span class="nav-name">总览</span></a>'
-    + sections.map((p) => navSection(p)).join('')
-    + '<div class="nav-sep"></div>'
-    + `<a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span>${gateMark}</a>`
+    + sections.map((p) => navSection(p)).join('');
+
+  // 这两个固定在下半区，不随上面的模块列表滚动
+  const pinned = document.getElementById('navPinned');
+  pinned.innerHTML = `<a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span>${gateMark}</a>`
     + `<a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span>${gateMark}</a>`;
 
   // 大类：点名字进板块总览，点箭头只展开/收起
@@ -237,9 +239,9 @@ function renderNav() {
   nav.querySelectorAll('[data-subcat]').forEach((a) => {
     a.onclick = () => { state.openGroups.add(a.dataset.subcat); a.closest('.nav-subgroup').classList.add('open'); };
   });
-  nav.querySelectorAll('a.nav-item').forEach((a) => {
+  document.querySelectorAll('.sidebar a.nav-item').forEach((a) => {
     a.addEventListener('click', () => {
-      nav.querySelectorAll('a.nav-item').forEach((x) => x.classList.remove('on'));
+      document.querySelectorAll('.sidebar a.nav-item').forEach((x) => x.classList.remove('on'));
       a.classList.add('on');
     });
   });
@@ -368,7 +370,7 @@ function render() {
     host.querySelector('#gateOpen').onclick = () => startGate(r, true);
     paintTop(r);
     setAsof('待验证');
-    document.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('on', a.dataset.id === r.name));
+    document.querySelectorAll('.sidebar a[data-id]').forEach((a) => a.classList.toggle('on', a.dataset.id === r.name));
     if (!state.gating) startGate(r);
     return;
   }
@@ -423,7 +425,7 @@ function render() {
   }
   document.getElementById('crumbs').innerHTML = crumb;
   document.title = `${title} · 经营驾驶舱`;
-  document.querySelectorAll('.nav a').forEach((a) => {
+  document.querySelectorAll('.sidebar a[data-id]').forEach((a) => {
     a.classList.toggle('on', a.dataset.id === r.id || (r.name === 'home' && a.dataset.id === 'home')
       || (r.name === 'report' && a.dataset.id === 'report') || (r.name === 'upload' && a.dataset.id === 'upload'));
   });

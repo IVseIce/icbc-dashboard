@@ -34,6 +34,7 @@ sys.path.insert(0, str(BASE))  # api（同目录）
 import api  # noqa: E402
 import auth  # noqa: E402
 import report as report_mod  # noqa: E402
+import store  # noqa: E402
 import viz  # noqa: E402
 from domain import catalog as catalog_mod  # noqa: E402
 
@@ -140,28 +141,19 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess:
                     return
                 allowed = catalog_mod.lines_of(sess.get('scope'))
+                stats = {r['line']: r for r in store.line_stats()}
                 lines = []
                 for k, meta in viz.LINES.items():
                     if k not in allowed:
                         continue
-                    snaps = viz.load_snapshots(k)
+                    s = stats.get(k) or {}
                     lines.append({'id': k, 'label': meta['label'], 'hint': meta['hint'],
-                                  'as_of': snaps[-1].get('as_of') if snaps else None,
-                                  'snapshots': len(snaps)})
-                led = []
-                lp = ROOT / 'ledger.jsonl'
-                if lp.exists():
-                    for line in lp.read_text('utf-8').splitlines()[-12:]:
-                        try:
-                            rec = json.loads(line)
-                            if rec.get('line') not in allowed:
-                                continue
-                            rec['label'] = (viz.LINES.get(rec.get('line')) or {}).get('label', rec.get('line'))
-                            led.append(rec)
-                        except Exception:
-                            pass
+                                  'as_of': s.get('as_of'), 'snapshots': int(s.get('count') or 0)})
+                led = store.recent_imports(12, allowed)
+                for rec in led:
+                    rec['label'] = (viz.LINES.get(rec.get('line')) or {}).get('label', rec.get('line'))
                 return self._json({'ok': True, 'root': str(ROOT), 'lines': lines,
-                                   'ledger': list(reversed(led))})
+                                   'ledger': led, 'db': store.stats()})
             if path == '/api/health':
                 return self._json({'ok': True, 'root': str(ROOT)})
             # SPA 兜底：未知路径回首页（hash 路由不会走到这里，但保留）
@@ -249,7 +241,7 @@ def main():
     ap.add_argument('--root', default=str(viz.ROOT))
     a = ap.parse_args()
     ROOT = Path(a.root)
-    viz.paths(ROOT)
+    viz.use_root(ROOT)       # 同时同步 store 的库位置（--root 才真的生效）
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(json.dumps({'ok': True, 'url': f'http://{a.host}:{a.port}/', 'root': str(ROOT)},
                      ensure_ascii=False), flush=True)

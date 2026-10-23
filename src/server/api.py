@@ -13,6 +13,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+import store
 import viz
 
 BRANCHES = ['颍州', '颍泉', '颍东', '界首', '临泉', '阜南', '颍上', '太和']
@@ -73,7 +74,7 @@ def _hist(values: list[float], bins: int = 6) -> dict:
 
 def _no_data(line: str, on: str | None = None) -> dict:
     """该日期没有完整数据：告诉前端最近一期是哪天、可选日期有哪些。"""
-    all_dates = [x['as_of'] for x in _snaps(line)]
+    all_dates = store.dates(line)
     before = [d for d in all_dates if not on or d <= on]
     return {'ok': False, 'as_of': on, 'nearest': before[-1] if before else (all_dates[-1] if all_dates else None),
             'available': all_dates, 'reason': '该日期没有数据' if before else '所选日期早于最早数据'}
@@ -426,8 +427,8 @@ def build_line(line: str, on: str | None = None) -> dict:
 
 
 def available_dates() -> dict:
-    """各条线可选日期（供日期选择器显示范围）。"""
-    return {line: [s['as_of'] for s in _snaps(LINE_OF[line])] for line in BUILDERS}
+    """各条线可选日期（供日期选择器显示范围）——只查日期列，不解 payload。"""
+    return {line: store.dates(LINE_OF[line]) for line in BUILDERS}
 
 
 if __name__ == '__main__':

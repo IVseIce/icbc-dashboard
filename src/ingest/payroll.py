@@ -6,7 +6,7 @@
 列名在不同月份会变（资产、留存率、产品渗透、流失预警时有时无），
 所以按「列名规则」取数，缺列就跳过，不报错。
 
-输出：data/snapshots/dfmx/<YYYY-MM-DD>.json（月末日期作 as_of）
+输出：写入 SQLite（store.snapshot，line=dfmx，月末日期作 as_of）
       {as_of, month, nets:[{netno, branch, name, comps, cust, amt_month, amt_year,
                              new_year, tier:{...}, lost, warn}], totals:{...}, cols:[...]}
 """
@@ -165,9 +165,7 @@ def main() -> None:
         snap = parse_sheet(rows, month, no2info)
         if not snap.get('nets'):
             continue
-        f = viz.paths()['snapshots'] / 'dfmx' / f'{snap["as_of"]}.json'
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps(snap, ensure_ascii=False), encoding='utf-8')
+        viz.save_snapshot('dfmx', snap['as_of'], snap)
         saved.append((snap['month'], len(snap['nets']), snap['totals']['amt_year']))
         if not title or title == 'csv':
             break

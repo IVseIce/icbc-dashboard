@@ -376,7 +376,6 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .nav-badge{margin-left:auto;font-style:normal;font-size:9px;color:#8ea1bd;background:rgba(255,255,255,.08);
   border-radius:5px;padding:1px 5px}
 .nav-sub{font-size:10px;color:#6d81a0;padding:8px 10px 3px 22px;letter-spacing:.8px}
-.nav-sep{height:1px;background:rgba(255,255,255,.07);margin:8px 6px}
 
 .date-pick{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);
   border-radius:20px;padding:4px 10px;color:var(--ink-3);transition:.18s var(--ease)}
@@ -644,3 +643,9 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 /* 导入页大类卡里的时点：别复用顶栏 .asof 的胶囊样式 */
 .line-pick .asof{background:none;border:0;border-radius:0;padding:0;font-size:10.5px;color:var(--ink-4);margin-top:auto}
 .line-pick.locked .asof{color:var(--ink-4)}
+
+/* 侧栏下半区：通报中心 / 导入数据 固定，不随上面滚动 */
+.nav.side-pinned{flex:0 0 auto;overflow:visible;margin-top:0;padding:8px 4px 4px 0;
+  border-top:1px solid rgba(255,255,255,.08)}
+.nav.side-pinned a{padding:8px 10px}
+.nav.side-pinned a.nav-item.on{background:linear-gradient(90deg,rgba(200,16,46,.24),rgba(200,16,46,.04))}

@@ -3,7 +3,7 @@
 """fivecards.py —— 五卡汇总表（支行维度）解析。
 
 源表：第 1 行卡片名（合并单元格，需向右填充），第 2 行指标名，3–10 行支行，末行分行合计。
-输出：data/snapshots/wk/<YYYY-MM-DD>.json
+输出：写入 SQLite（store.snapshot，line=wk）
 """
 from __future__ import annotations
 
@@ -77,10 +77,8 @@ def main() -> None:
     src = Path(sys.argv[1] if len(sys.argv) > 1 else '/mnt/d/资料/ICBC/20260909五卡/五卡汇总表.xlsx')
     as_of = sys.argv[2] if len(sys.argv) > 2 else '2026-09-09'
     snap = parse(src, as_of)
-    f = viz.paths()['snapshots'] / 'wk' / f'{as_of}.json'
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(snap, ensure_ascii=False), encoding='utf-8')
-    print(json.dumps({'ok': True, 'file': str(f), 'cards': snap['cards'],
+    sid = viz.save_snapshot('wk', as_of, snap)
+    print(json.dumps({'ok': True, 'snapshot_id': sid, 'as_of': as_of, 'cards': snap['cards'],
                       'branches': len(snap['branches'])}, ensure_ascii=False))
 
 

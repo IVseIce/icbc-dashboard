@@ -1,20 +1,21 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-23（口令准入 + 按模块显示数据时点）
+> 最后更新：2026-10-23（口令准入 + 按模块显示时点 + 存储迁到 SQLite）
 
 ---
 
 ## 1. 一句话说明
 
 这是**阜阳分行个人金融条线的经营分析系统**：把原先散落在 5 个 `icbc-*` 技能里的"每天做通报"的活儿，升级成一个可浏览、可下钻、可按日期查、可上传、可导出通报的 Web 系统（FastAPI 不用，纯 Python 标准库 + 原生前端 + ECharts）。
+数据存在 **SQLite（`data/icbc.db`）**，不再是散落的 JSON 文件。
 
 浏览不设门槛；**「导入数据」「通报中心」要口令**：五个大类各一个口令（额外送「重点项目」），
-另有一个管理员口令（全量 + 重置口令）。详见 4.4。
+另有一个管理员口令（全量 + 重置口令）。详见 4.5。
 
 - 前端：原生 ES Modules + ECharts（本地内置）+ html2canvas（本地内置），无构建步骤
 - 后端：`http.server`，无第三方 Web 框架
-- 数据：JSON 快照（按日期、按条线），暂未上 SQLite
+- 数据：**SQLite**（`data/icbc.db`，一条线一天一行快照；元数据表化，见 4.1）
 - 解析：直接复用 5 个 `icbc-*` 技能的 `classify()/compute()`（代码已 vendor 进仓库，不再依赖 `~/.dsh/skills`）
 
 ---
@@ -28,6 +29,7 @@
 | 代码目录（WSL） | `/home/isee/projects/icbc-dashboard` |
 | Python | `/home/isee/.venvs/data-tools/bin/python`（openpyxl、xlrd 已装） |
 | 运行时数据 | `/home/isee/projects/icbc-dashboard/data`（`viz.ROOT`，可用 `--root` 覆盖） |
+| 主库 | `data/icbc.db`（SQLite，WAL；schema 版本见 `PRAGMA user_version`） |
 | 原始资料（Windows） | `/mnt/d/资料/ICBC/...` |
 | Chrome（截图/PDF） | `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe` |
 | GitHub | `git@github.com:IVseIce/icbc-dashboard.git`（私有，master） |
@@ -54,7 +56,9 @@ open http://127.0.0.1:8766/                       # 浏览器
 ### 2.3 自检（改完通报必跑）
 
 ```bash
-/home/isee/.venvs/data-tools/bin/python scripts/check_report_parity.py
+/home/isee/.venvs/data-tools/bin/python scripts/check_report_parity.py     # 与技能成表逐格对账
+/home/isee/.venvs/data-tools/bin/python scripts/migrate_to_sqlite.py --db-info   # 库现状（条数/最新/大小）
+/home/isee/.venvs/data-tools/bin/python scripts/backup_db.py               # 热备份（不用停服务）
 ```
 
 期望输出（当前基线）：
@@ -77,7 +81,8 @@ icbc-dashboard/
 ├─ requirements.txt          openpyxl / xlrd
 ├─ .gitignore                data/ 已忽略
 ├─ src/
-│  ├─ viz.py                 数据层：导入适配器、快照读写、台账、assemble
+│  ├─ store.py               SQLite 存储层：schema/迁移/快照读写/台账/备份
+│  ├─ viz.py                 导入适配层：解析器分发、归档、assemble
 │  ├─ server/
 │  │  ├─ app.py              HTTP：静态资源 + 全部 /api/*（约 260 行）
 │  │  ├─ auth.py             口令：六个身份组、会话、pbkdf2 哈希落盘
@@ -97,12 +102,15 @@ icbc-dashboard/
 │     ├─ assets/css/app.css  全部设计变量在 :root
 │     └─ assets/js/{app.js,ui.js,charts.js,pages/*}
 ├─ scripts/
-│  ├─ bootstrap.py           一次性把 automations 历史灌进 data/
+│  ├─ bootstrap.py           一次性把 automations 历史灌进库
+│  ├─ migrate_to_sqlite.py   旧 JSON → SQLite（一次性，可重跑）
+│  ├─ backup_db.py           热备份 data/icbc.db → data/backups/
 │  └─ check_report_parity.py 与技能成表逐格对账
 ├─ data/                     运行时数据（git 忽略）
-│  ├─ snapshots/<line>/<date>.json
+│  ├─ icbc.db                 主库（+ -wal / -shm；备份要连 wal 一起，或用 backup_db.py）
 │  ├─ imports/<line>/<stamp>/  上传原件留档
-│  ├─ ledger.jsonl             导入台账
+│  ├─ backups/                热备份（icbc-<时间戳>.db + auth-<时间戳>.json）
+│  ├─ legacy_json_<ts>/       迁移前的 JSON 快照留档（只读，确认后可删）
 │  └─ auth.json                口令哈希（pbkdf2，首次访问自动生成；删掉=恢复初始口令）
 ├─ legacy/                   v1 单文件版（build_v1.py + 旧 HTML + README 说明），只作留档
 ├─ docs/
@@ -113,11 +121,33 @@ icbc-dashboard/
 
 ---
 
-## 4. 数据模型
+## 4. 数据模型（SQLite）
 
-### 4.1 快照
+### 4.1 库结构（`src/store.py`，schema v1）
 
-`data/snapshots/<line>/<YYYY-MM-DD>.json`，一条线一天一个文件。
+`data/icbc.db`，四张表：
+
+| 表 | 作用 | 关键字段 |
+|---|---|---|
+| `snapshot` | **事实层**：一条线一天一行 | `line`+`as_of` 唯一；`month`、`partial`、`rows`、`payload`(JSON)、`payload_hash`、`source`、`created_at`/`updated_at` |
+| `source_file` | 上传原件台账 | `snapshot_id`、`name`、`sha256`、`bytes`、`path`、`archive` |
+| `import_log` | 导入台账（替代 `ledger.jsonl`） | `ts`、`line`、`data_date`、`ok`、`error`、`files`(JSON)、`snapshot_id` |
+| `setting` | 键值设置 | `key`、`value`(JSON)、`updated_at`（例如 `legacy_json_imported`） |
+
+**为什么事实层还是"文档"而不是宽表**：所有指标都是 as-of 语义，解析器已经把一份源表算成一个完整快照；
+而各线结构差异极大（数币=网点×4 等级、定期=支行×余额、代发=网点×十几列、五卡=支行×卡×指标），
+拆宽表会让"加一条线"变成改三次 schema。元数据（台账/原件）才是真表。
+将来要按指标做 SQL 分析，再加 v2 的 fact 表从 `payload` 派生，**本层接口不变**。
+
+约定：
+
+- 重复导入同一天 = **upsert**（覆盖 payload，保留 `created_at`），不会产生两行
+- `partial=1` 的历史回填快照只用于画趋势，详情页跳过（`store.latest(..., partial_ok=False)`）
+- 读多写少：WAL + 线程本地连接 + 3 秒 TTL 缓存（`store.load_snapshots` 返回的是缓存里的同一批 dict，**只读**）
+- 换数据目录：`viz.use_root(dir)`（会同步 `store`；`--root` 现在真的生效了）
+- schema 升级：改 `store.SCHEMA_VERSION` 并在 `init()` 里补升级分支；旧库会自动 `CREATE IF NOT EXISTS` 补表
+
+### 4.2 条线与日期基线
 
 | line | 含义 | 视图模型 | 数据日期基线 |
 |---|---|---|---|
@@ -133,19 +163,23 @@ icbc-dashboard/
 - 金额单位：存款/代发为万元，钱包为户；比率一律存**小数**（0.5578 而非 55.8）
 - **精度**：快照里比率保留 6 位（`round(x, 6)`），代发/五卡/企微的 ytd、rate 均为原始值；报表层**不要再四舍五入**，否则对账必挂
 
-### 4.2 组装与视图
+### 4.3 组装与视图
 
 - `viz.assemble()` 把最新快照拼成 `data/data/dashboard_data.json`（v1 兼容产物，v3 页面基本不用）
 - v3 页面走 `api.build_all(date)`：`date=None` 取最新；传日期则每条线取"**不晚于该日**的最新一期"
 - 每个 build_xxx 返回**扁平结构**（kpi/trend/rows），前端不关心计算
+- `/api/state` 的"数据时点/最近导入"直接查 `store.line_stats()` / `store.recent_imports()`，
+  不再解析全部 payload（日期选择器同理，只查 `as_of` 列）
 
-### 4.3 导入台账
+### 4.4 导入台账 / 原始文件
 
-`data/ledger.jsonl` 每行一条：`{ts, line, data_date, files, ok, error, archive}`。上传页"最近导入"就是读它。
+- 每次导入写一条 `import_log`（成功/失败都写），`files` 存原始文件名数组；上传页"最近导入"读它
+- 成功时把上传原件登记进 `source_file`（sha256 + 归档路径），可追溯"这期数据来自哪个文件"
+- 原件仍在 `data/imports/<line>/<stamp>/`，台账与磁盘文件一一对应
 
 ---
 
-### 4.4 口令与权限（大类准入）
+### 4.5 口令与权限（大类准入）
 
 不是账号体系，**只有"一组一个口令"**，登录即"本次打开网页内有效"。
 
@@ -295,11 +329,22 @@ icbc-dashboard/
 24. **新增通报/模块要挂大类**：`report.js` 的 `LINES[].cat`；不挂就是"哪个口令都看不到"。导入页的大类权限靠 `auth.can(prof)`。
 25. **管理口令只有管理员能改**（`POST /api/auth/password` 会校验 `sess.admin`）；忘记管理员口令的兜底是删 `data/auth.json`（回到初始口令）。
 
-### 8.5 环境
+### 8.5 存储（SQLite）
 
-26. WSL 下 Node 的 `--check` 可用来快速验 JS 语法：`node --input-type=module --check < file.js`。
-27. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
-28. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
+26. **别在业务代码里直接写文件快照**：一律 `viz.save_snapshot()`（内部走 `store`）。
+   早期 `ingest/payroll.py`、`ingest/fivecards.py` 直接往 `data/snapshots/` 写 JSON，迁移时已改掉。
+27. **备份要连 WAL**：`cp icbc.db` 可能丢最近的写入。用 `scripts/backup_db.py`（SQLite 在线备份 API），
+   或整包打包时把 `icbc.db-wal` 一起带上。
+28. **`store.load_snapshots()` 返回缓存里的同一个 list**：只读，要改先 `dict()` 拷一份。
+   缓存 TTL 3 秒，**本进程写入会立刻失效**，别的进程（CLI 脚本）写入最多 3 秒后可见。
+29. **旧 JSON 只读一次**：`store.import_legacy()` 靠 `setting.legacy_json_imported` 幂等；
+   挪走 `legacy_json_*` 后不会再灌。别把 `snapshots/` 手工放回 `data/`，否则空库启动会自动导入一遍。
+
+### 8.6 环境
+
+30. WSL 下 Node 的 `--check` 可用来快速验 JS 语法：`node --input-type=module --check < file.js`。
+31. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
+32. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
 
 ---
 
@@ -316,6 +361,9 @@ icbc-dashboard/
   选日期筛选时显示"数据截至 X · 所选 ≤Y"），日期控件的值也跟着本页时点走
 - 口令准入：六个身份组、大类过滤（导入页灰掉无权大类、通报中心不显示无权通报）、
   管理员改口令、右上角身份胶囊（五大类=重新验证，管理员=管理密码/重新验证）
+- **存储迁到 SQLite**：`data/icbc.db`（snapshot / source_file / import_log / setting），
+  迁移脚本 + 对账脚本 + 热备份脚本齐备；旧的 `data/snapshots/*.json` 已挪到 `data/legacy_json_*`
+- 侧栏下半区固定「通报中心 / 导入数据」，上方模块列表照常滚动
 
 ### 未完成 / 待定
 
@@ -328,14 +376,15 @@ icbc-dashboard/
 | 个贷、银行卡、私银 | 占位 | 数据源 |
 | 账号级身份 | 未做：只有"一组一口令"，不记谁导的 | 需要追责时再加姓名/工号 |
 | 导航级权限 | 未做：侧栏仍可浏览所有板块（口令只拦两个管理模块） | 若要求"没口令连板块都不给看"，需在 `render()` 前置门槛 |
-| SQLite | 未做（仍 JSON 快照） | 数据量大到需要再迁 |
 | 通报日期 vs 数据日期 | 线上服务标题差 1 处 | 导入时加"通报日期"字段即可 |
 | 自动启动/部署 | 手工 nohup | 上服务器时做服务化 |
 
 ### 备份
 
-- 代码+数据整包：`/mnt/d/资料/ICBC/icbc-dashboard-备份-20261022.tar.gz`（9.3 MB，含当时 data/）
-- 旧数据目录：`/mnt/d/资料/ICBC/Visualizations.migrated-20261021`（迁移到 `data/` 后的保险副本，可删）
+- 日常热备份：`python scripts/backup_db.py` → `data/backups/icbc-<时间戳>.db`（默认留最近 20 份）
+- 迁移前留档：`data/legacy_json_<时间戳>/`（旧 JSON 快照 + ledger.jsonl，确认无误后可删）
+- 代码+数据整包：`/mnt/d/资料/ICBC/icbc-dashboard-备份-20261022.tar.gz`（9.3 MB，迁移前的版本）
+- 更旧的保险副本：`/mnt/d/资料/ICBC/Visualizations.migrated-20261021`（可删）
 
 ---
 
@@ -347,10 +396,12 @@ icbc-dashboard/
 | 导航层级（是否子目录） | 同上 `nested: True`；渲染在 `app.js` 的 `navSection()` |
 | 某模块的数字卡 | 对应 `pages/*.js`（如 `jg.js` 的 `statsFor`） |
 | 图表样式/配色 | `src/web/assets/css/app.css` 的 `:root`、`charts.js` 的 `PALETTE` |
-| 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器 |
+| 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器（存库走 `viz.save_snapshot`，别写文件） |
 | 新增一条通报 | `report.py` 加 `build_xxx`/`xxx_xlsx` + `report.js` 的 `LINES` |
 | 报表样式 | 换 `src/report/assets/<line>_base.xlsx`（务必是"成表清数据"） |
 | 口令 / 身份组 | `src/server/auth.py` 的 `ROLES`/`DEFAULTS`；前端表现看 `auth.js`、`app.js` 的 `paintTop()/startGate()` |
+| 表结构 / 加指标表 | `src/store.py`（`SCHEMA_SQL` + `SCHEMA_VERSION` + `init()` 升级分支） |
+| 查库/排障 | `python scripts/migrate_to_sqlite.py --db-info`，或 `sqlite3 data/icbc.db "select line,max(as_of),count(*) from snapshot group by line"` |
 | 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 
 ---
@@ -360,6 +411,7 @@ icbc-dashboard/
 1. `git log --oneline -5` 看到 `0821eef` 或更新
 2. 起服务 → `curl /api/health` 返回 ok
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
+   `python scripts/migrate_to_sqlite.py --db-info` → 7 条线、最新 2026-10-22、schema v1
 4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time` 各看一眼（顶栏"数据截至"应分别是 10/22、10/22、10/15）
 5. `#/report` 应弹口令框；输 `gejin2026` 只看到「定期存款增长 / 薪管家」两项；刷新页面应重新要口令
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」

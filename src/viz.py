@@ -4,15 +4,16 @@
 
 只做两件事：
 1. 把上传的文件（按用户选定的大类）交给对应 icbc-* 技能的**解析函数**（classify/compute），
-   得到与正式通报一致的规范化结果，存成 snapshots/<line>/<data_date>.json；
-2. 把各条线的最新快照组装成 dashboard_data.json，交给 build.py 渲染。
+   得到与正式通报一致的规范化结果，写进 SQLite（`store.py`，一行 = 一条线的一天）；
+2. 把各条线的最新快照组装成 dashboard_data.json（v1 遗留产物，v3 页面不再读它）。
 
-目录（默认 D:\\资料\\ICBC\\Visualizations）：
+目录（默认 <项目>/data）：
+  icbc.db                          主库（snapshot / source_file / import_log / setting）
   imports/<line>/<stamp>/<原件>    原件留档，不改名不覆盖
-  snapshots/<line>/<data_date>.json
-  data/dashboard_data.json
+  auth.json                        口令哈希
+  data/dashboard_data.json         兼容产物
   out/*.html
-  ledger.jsonl
+  legacy_json_<时间戳>/            迁移前的 JSON 快照留档（只读，不再使用）
 """
 from __future__ import annotations
 
@@ -25,6 +26,8 @@ import sys
 import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+import store
 
 PROJECT = Path(__file__).resolve().parent.parent
 ROOT = PROJECT / 'data'
@@ -60,40 +63,38 @@ def skill(sid: str):
     return mod
 
 
+def use_root(root: Path | str | None = None) -> dict:
+    """切换数据根目录（--root / 测试用）。库里没有数据而旧 JSON 还在时，自动做一次迁移。"""
+    global ROOT
+    if root:
+        ROOT = Path(root)
+    store.use(ROOT)
+    store.init()
+    store.import_legacy(ROOT)
+    return paths(ROOT)
+
+
 def paths(root: Path | None = None) -> dict:
     r = Path(root or ROOT)
-    p = {k: r / k for k in ('imports', 'snapshots', 'data', 'out')}
+    p = {k: r / k for k in ('imports', 'data', 'out')}
     p['root'] = r
     for v in p.values():
         v.mkdir(parents=True, exist_ok=True)
     return p
 
 
-def ledger(line: str, rec: dict, root: Path | None = None) -> None:
-    p = paths(root)
-    rec = {'ts': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'line': line, **rec}
-    with (p['root'] / 'ledger.jsonl').open('a', encoding='utf-8') as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+def ledger(line: str, rec: dict, root: Path | None = None) -> int:
+    return store.log_import({'ts': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'line': line, **rec})
 
 
-def save_snapshot(line: str, data_date: str, snap: dict, root: Path | None = None) -> Path:
-    p = paths(root)['snapshots'] / line
-    p.mkdir(parents=True, exist_ok=True)
-    f = p / f'{data_date}.json'
-    f.write_text(json.dumps(snap, ensure_ascii=False), encoding='utf-8')
-    return f
+def save_snapshot(line: str, data_date: str, snap: dict, root: Path | None = None) -> int:
+    """写入/覆盖一期快照，返回 snapshot.id。"""
+    return store.save_snapshot(line, data_date, snap)
 
 
 def load_snapshots(line: str, root: Path | None = None) -> list[dict]:
-    p = paths(root)['snapshots'] / line
-    out = []
-    for f in sorted(p.glob('*.json')):
-        try:
-            d = json.loads(f.read_text('utf-8'))
-            out.append(d)
-        except Exception:
-            continue
-    return out
+    """按 as_of 升序；返回缓存里的同一批 dict，只读。"""
+    return store.load_snapshots(line)
 
 
 def archive(line: str, files: list[tuple[str, bytes]], root: Path | None = None) -> Path:
@@ -101,8 +102,7 @@ def archive(line: str, files: list[tuple[str, bytes]], root: Path | None = None)
     d = paths(root)['imports'] / line / stamp
     d.mkdir(parents=True, exist_ok=True)
     for name, blob in files:
-        safe = re.sub(r'[\\/:*?"<>|]', '_', name)
-        (d / safe).write_bytes(blob)
+        (d / store.safe_name(name)).write_bytes(blob)
     return d
 
 
@@ -418,7 +418,8 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
               root: Path | None = None) -> dict:
     if line not in IMPORTERS:
         return {'ok': False, 'error': f'未知大类：{line}'}
-    arch = archive(line, files, root)
+    originals = list(files)                      # 归档用原始文件名（store.source_file 要对得上）
+    arch = archive(line, originals, root)
 
     # 统一格式：按内容纠正扩展名（CSV 被存成 xlsx 这类），并在失败时兜底转 xlsx
     from ingest import readers
@@ -438,10 +439,11 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
             dd, snap = IMPORTERS[line](files, line, root)
         snap['line'] = line
         snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        save_snapshot(line, dd, snap, root)
+        sid = save_snapshot(line, dd, snap, root)
+        store.add_source_files(line, sid, originals, arch)
         data = assemble(root)
         ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
-                      'archive': str(arch)}, root)
+                      'archive': str(arch), 'snapshot_id': sid}, root)
         return {'ok': True, 'line': line, 'label': LINES[line]['label'], 'data_date': dd,
                 'files': snap.get('_files', []), 'notes': fmt_notes + list(snap.get('_notes') or []),
                 'archive': str(arch), 'summary': data['meta']}
@@ -455,17 +457,20 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                             if line in ('xgj', 'wk', 'dfmx') else IMPORTERS[line](conv, line, root))
                 snap['line'] = line
                 snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                save_snapshot(line, dd, snap, root)
+                sid = save_snapshot(line, dd, snap, root)
+                store.add_source_files(line, sid, originals, arch)
                 data = assemble(root)
                 ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
-                              'archive': str(arch), 'note': '按文本转 xlsx 兜底'}, root)
+                              'archive': str(arch), 'note': '按文本转 xlsx 兜底',
+                              'snapshot_id': sid}, root)
                 fmt_notes.append('按文本内容转成 xlsx 后识别成功')
                 return {'ok': True, 'line': line, 'label': LINES[line]['label'], 'data_date': dd,
                         'files': snap.get('_files', []), 'notes': fmt_notes + (snap.get('_notes') or []),
                         'archive': str(arch), 'summary': data['meta']}
             except Exception:
                 pass
-        ledger(line, {'files': [n for n, _ in files], 'ok': False, 'error': str(exc)}, root)
+        ledger(line, {'files': [n for n, _ in files], 'ok': False, 'error': str(exc),
+                      'archive': str(arch)}, root)
         return {'ok': False, 'line': line, 'error': str(exc),
                 'trace': traceback.format_exc()[-800:], 'archive': str(arch)}
 
@@ -552,5 +557,9 @@ def _branch_xsfw(obj):
     return out
 
 
+use_root(ROOT)
+
+
 if __name__ == '__main__':
-    print(json.dumps({'root': str(ROOT), 'lines': list(LINES)}, ensure_ascii=False, indent=1))
+    print(json.dumps({'root': str(ROOT), 'db': str(store.db_path()),
+                      'lines': list(LINES)}, ensure_ascii=False, indent=1))
