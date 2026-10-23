@@ -146,7 +146,8 @@ function navSection(p) {
       </button>
     </div>
     <div class="nav-sub-wrap">
-      ${multi ? p.groups.map((g) => navGroup(p, g)).join('') : (p.groups[0]?.modules || []).map((m) => navItem(m)).join('')}
+      ${multi ? p.groups.map((g) => navGroup(p, g)).join('')
+              : p.groups.flatMap((g) => g.modules || []).map((m) => navItem(m)).join('')}
     </div>
   </div>`;
 }
