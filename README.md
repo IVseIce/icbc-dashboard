@@ -83,6 +83,16 @@ icbc-dashboard/
 - 新增可上传模块 = catalog 里给该模块加 `as_line` + 在 `viz.IMPORTERS` 注册解析器
 - 代发明细、五卡唤醒已接入上传（代发按多 sheet 逐月入库；五卡日期取“日期”或文件名）
 
+## 通报中心（三条线）
+
+- 已实现：网点线上服务 / 薪管家 / 数币；其余两条先占位
+- 每条线各自套用“成表样式母版”：`src/report/assets/{online,salary,wallet}_base.xlsx`
+  - 线上服务：微软雅黑 11、13 列
+  - 薪管家：仿宋_GB2312、支行/网点双 sheet
+  - 数币：等线 11、9 列
+- 网页与 Excel 同源同数；文案按现有定稿口径生成；支持复制文案、下载 Excel、复制图片、导出图片
+- 深链：`#/report/online`、`#/report/salary`、`#/report/wallet`
+
 ## 页面逻辑
 
 | 路由 | 页面 | 说明 |

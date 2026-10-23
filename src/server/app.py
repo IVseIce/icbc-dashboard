@@ -86,10 +86,13 @@ class Handler(BaseHTTPRequestHandler):
                 cat['latest'] = all_dates[-1] if all_dates else None
                 cat['earliest'] = all_dates[0] if all_dates else None
                 return self._json(cat)
-            if path == '/api/report/online':
-                return self._json(report_mod.build_online(on))
-            if path == '/api/report/online.xlsx':
-                blob, name = report_mod.online_xlsx(on)
+            if path.startswith('/api/report/'):
+                rest = path[len('/api/report/'):]
+                is_xlsx = rest.endswith('.xlsx')
+                kind = rest[:-5] if is_xlsx else rest
+                if not is_xlsx:
+                    return self._json(report_mod.build(kind, on))
+                blob, name = report_mod.xlsx(kind, on)
                 from urllib.parse import quote
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

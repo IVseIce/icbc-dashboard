@@ -148,7 +148,7 @@ function parseRoute() {
   if (seg[0] === 'm') return { name: 'module', id: seg[1] };
   if (seg[0] === 'p') return { name: 'prof', id: seg[1] };
   if (seg[0] === 'g') return { name: 'group', prof: seg[1], id: seg[2] };
-  if (seg[0] === 'report') return { name: 'report' };
+  if (seg[0] === 'report') return { name: 'report', kind: seg[1] };
   if (seg[0] === 'upload') return { name: 'upload' };
   return { name: 'home' };
 }
