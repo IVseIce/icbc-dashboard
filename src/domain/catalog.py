@@ -12,7 +12,7 @@ from __future__ import annotations
 # status: active / planned
 PROFESSIONALS = [
     {
-        'id': 'jg', 'name': '个人金融', 'short': '个金', 'color': 'violet', 'status': 'active',
+        'id': 'jg', 'name': '个人金融', 'short': '个金', 'color': 'violet', 'status': 'active', 'nested': True,
         'desc': '增存 · 增客 · 增收',
         'groups': [
             {
@@ -67,21 +67,21 @@ PROFESSIONALS = [
         'groups': [
             {
                 'id': 'wj-online', 'name': '线上服务', 'status': 'active', 'modules': [
-                    {'id': 'wj-online-svc', 'name': '网点线上服务能力', 'page': 'online', 'kind': 'metric',
+                    {'id': 'wj-online-svc', 'name': '线上服务', 'page': 'online', 'kind': 'metric',
                      'source': '动户率×2 + 企微明细×3 + 营销授权', 'level': '网点', 'freq': '日', 'as_line': 'xsfw',
                      'desc': '到店动户率、企微添客、签约率'},
                 ],
             },
             {
-                'id': 'wj-digital', 'name': '数字人民币', 'status': 'active', 'modules': [
-                    {'id': 'wj-wallet', 'name': '个人钱包', 'page': 'wallet', 'kind': 'metric',
+                'id': 'wj-digital', 'name': '数币钱包', 'status': 'active', 'modules': [
+                    {'id': 'wj-wallet', 'name': '数币钱包', 'page': 'wallet', 'kind': 'metric',
                      'source': '钱包开立明细', 'level': '网点', 'freq': '日', 'as_line': 'sbqb',
                      'desc': '累计开立、当日/当月新增、等级结构'},
                 ],
             },
             {
                 'id': 'wj-wecom', 'name': '企微社群', 'status': 'active', 'modules': [
-                    {'id': 'wj-wecom-social', 'name': '社群运营', 'page': 'community', 'kind': 'metric',
+                    {'id': 'wj-wecom-social', 'name': '企微社群', 'page': 'community', 'kind': 'metric',
                      'source': '成员群聊数据统计（本周+上周）', 'level': '支行 + 网点', 'freq': '周', 'as_line': 'qwsq',
                      'desc': '群数、客户数、交互、熟识率'},
                 ],
@@ -114,24 +114,20 @@ PROFESSIONALS = [
         'desc': '方案推进与专项攻坚',
         'groups': [
             {
-                'id': 'pj-grow', 'name': '拓客争先', 'status': 'active', 'modules': [
-                    {'id': 'pj-contend', 'name': '网点争先', 'kind': 'placeholder', 'group': '拓客争先',
+                'id': 'pj-main', 'name': '重点项目', 'status': 'active', 'modules': [
+                    {'id': 'pj-contend', 'name': '网点争先', 'kind': 'placeholder',
                      'desc': '网点竞赛排名与积分（待接入）'},
                     {'id': 'pj-allcustomer', 'name': '全量客户拓展', 'kind': 'planned', 'level': '支行',
-                     'source': '全量客户场景攻坚成效图', 'freq': '周', 'group': '拓客争先',
+                     'source': '全量客户场景攻坚成效图', 'freq': '周',
                      'desc': '六大场景落地/推进（当前为文字进度）'},
-                    {'id': 'pj-100', 'name': '挑战回访100位客户', 'kind': 'placeholder',
-                     'group': '拓客争先', 'desc': '回访进度与转化（待接入）'},
-                ],
-            },
-            {
-                'id': 'pj-digital', 'name': '数字化运营', 'status': 'active', 'modules': [
                     {'id': 'pj-wecom', 'name': '企微社群运营', 'page': 'community', 'kind': 'metric',
-                     'as_line': 'qwsq', 'level': '支行 + 网点', 'freq': '周', 'group': '数字化运营',
+                     'as_line': 'qwsq', 'level': '支行 + 网点', 'freq': '周',
                      'source': '成员群聊数据统计（本周+上周）', 'desc': '群数、客户数、交互、熟识率'},
                     {'id': 'pj-fivecards', 'name': '五卡唤醒', 'page': 'fivecards', 'kind': 'metric',
-                     'as_line': 'wk', 'level': '支行', 'freq': '不定期', 'group': '数字化运营',
+                     'as_line': 'wk', 'level': '支行', 'freq': '不定期',
                      'source': '五卡汇总表', 'desc': '5 类卡存量/长尾/未交易（与增客共用）'},
+                    {'id': 'pj-100', 'name': '挑战回访100位客户', 'kind': 'placeholder',
+                     'desc': '回访进度与转化（待接入）'},
                 ],
             },
         ],

@@ -40,7 +40,7 @@ function paintChrome() {
   const lines = state.data?.overview?.lines || {};
   const ok = Object.values(lines).filter((l) => l.ok).length;
   const side = document.getElementById('sideStatus');
-  if (side) side.textContent = `${ok}/5 条线已就绪`;
+  if (side) side.textContent = `${ok}/${Object.keys(lines).length || 5} 条线已就绪`;
   const el = document.getElementById('asof');
   el.querySelector('span').textContent = state.date
     ? `所选 ${state.date.slice(5)} · ${ok}/5 条线`
@@ -133,7 +133,7 @@ function navSection(p) {
   if (!p) return '';
   const open = state.open.has(p.id);
   const mods = p.groups.flatMap((g) => (g.modules || []).map((m) => ({ ...m, _g: g.name })));
-  const multi = p.groups.length > 1;
+  const multi = !!p.nested && p.groups.length > 1;
   return `
   <div class="nav-group ${open ? 'open' : ''}" data-group="${p.id}">
     <div class="nav-cat">
