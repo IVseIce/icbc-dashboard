@@ -133,6 +133,24 @@ def build_salary(on: str | None = None) -> dict:
     nets = d['nets']
     as_of = d['as_of']
     title = f'工银薪管家“聚薪行动”日通报（截至{as_of[:4]}.{as_of[5:7]}.{as_of[8:10]}）'
+    try:
+        br_names = _template_names(SALARY_BASE, '支行', 4, 11)
+        net_names = _template_names(SALARY_BASE, '网点', 4, 43)
+    except Exception:
+        br_names, net_names = [b['full'] for b in brs], [n['name'] for n in nets]
+    br_by = {b['full']: b for b in brs}
+    net_by = {n['name']: n for n in nets}
+    br_rows = []
+    for nm in br_names:
+        b = br_by.get(nm) or {}
+        br_rows.append({'name': nm, 'year': b.get('year') or 0, 'month': b.get('month') or 0,
+                        'ent_year': b.get('ent_year') or 0, 'ent_month': b.get('ent_month') or 0})
+    net_rows = []
+    for nm in net_names:
+        n = net_by.get(nm) or {}
+        net_rows.append({'name': nm, 'year': n.get('year') or 0, 'month': n.get('month') or 0,
+                         'ent_year': n.get('ent_year') or 0, 'ent_month': n.get('ent_month') or 0})
+
     br_cols = [
         {'key': 'name', 'title': '支行', 'type': 'text'},
         {'key': 'year', 'title': '全年代发金额(万元)', 'type': 'num'},
@@ -160,14 +178,10 @@ def build_salary(on: str | None = None) -> dict:
     return {
         'ok': True, 'kind': 'salary', 'title': title, 'as_of': as_of,
         'tables': [
-            {'name': '支行', 'columns': br_cols,
-             'rows': [{'name': b['full'], 'year': b.get('year'), 'month': b.get('month'),
-                       'ent_year': b.get('ent_year'), 'ent_month': b.get('ent_month')} for b in brs],
+            {'name': '支行', 'columns': br_cols, 'rows': br_rows,
              'totals': {'name': '总计', 'year': k['year'], 'month': k['month'],
                         'ent_year': k['ent_year'], 'ent_month': k['ent_month']}},
-            {'name': '网点（有报数）', 'columns': net_cols,
-             'rows': [{'name': n['name'], 'year': n.get('year'), 'month': n.get('month'),
-                       'ent_year': n.get('ent_year'), 'ent_month': n.get('ent_month')} for n in nets],
+            {'name': '网点', 'columns': net_cols, 'rows': net_rows,
              'totals': {'name': '总计', 'year': k['year'], 'month': k['month'],
                         'ent_year': k['ent_year'], 'ent_month': k['ent_month']}},
         ],
@@ -194,9 +208,22 @@ def build_wallet(on: str | None = None) -> dict:
         {'key': 'month', 'title': '当月新增', 'type': 'num'},
         {'key': 'day', 'title': '当日新增', 'type': 'num'},
     ]
-    rows = [{'branch': n['branch'], 'name': n['name'], 'lv1': n['lv'][0], 'lv2': n['lv'][1],
-             'lv3': n['lv'][2], 'lv4': n['lv'][3], 'total': n['total'],
-             'month': n['month'], 'day': n['day']} for n in d['nets']]
+    by = {_key(n['name']): n for n in d['nets']}
+    by.update({n['name']: n for n in d['nets']})
+    try:
+        names = _template_names(WALLET_BASE, None, 3, 42, col=2)
+    except Exception:
+        names = [n['name'] for n in d['nets']]
+    rows = []
+    for nm in names:
+        n = _match(nm, by)
+        if n:
+            rows.append({'branch': n['branch'], 'name': nm, 'lv1': n['lv'][0], 'lv2': n['lv'][1],
+                         'lv3': n['lv'][2], 'lv4': n['lv'][3], 'total': n['total'],
+                         'month': n['month'], 'day': n['day']})
+        else:
+            rows.append({'branch': '', 'name': nm, 'lv1': 0, 'lv2': 0, 'lv3': 0, 'lv4': 0,
+                         'total': 0, 'month': 0, 'day': 0})
     ranked = sorted(rows, key=lambda x: -x['total'])
     best = ranked[:3]
     worst = ranked[-3:][::-1]
@@ -291,6 +318,37 @@ def online_xlsx(on: str | None = None) -> tuple[bytes, str]:
     return buf.getvalue(), name
 
 
+
+BRANCH_PREFIX = ('颍州', '颍泉', '颍东', '界首', '临泉', '阜南', '颍上', '太和')
+
+
+def _key(name: str) -> str:
+    """网点名归一：只去「阜阳」前缀（支行前缀可能有也可能没有，另做后缀匹配）。"""
+    n = (name or '').strip()
+    return n[2:] if n.startswith('阜阳') else n
+
+
+def _match(name: str, pool: dict) -> dict | None:
+    """先精确、再忽略「阜阳」、最后按后缀唯一匹配（岳家湖支行 ↔ 颍东岳家湖支行）。"""
+    if name in pool:
+        return pool[name]
+    k = _key(name)
+    if k in pool:
+        return pool[k]
+    cands = [v for kk, v in pool.items() if kk.endswith(k) or k.endswith(kk)]
+    return cands[0] if len(cands) == 1 else None
+
+
+def _template_names(path: Path, sheet: str | None, r0: int, r1: int, col: int = 1) -> list[str]:
+    """从样式母版里取行名（网点/支行），用来保证行序与正式通报表一致。"""
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True)
+    ws = wb[sheet] if sheet else wb.active
+    names = [str(ws.cell(row=r, column=col).value or '').strip() for r in range(r0, r1 + 1)]
+    wb.close()
+    return [n for n in names if n]
+
+
 SALARY_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'salary_base.xlsx'
 WALLET_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'wallet_base.xlsx'
 
@@ -306,8 +364,8 @@ def salary_xlsx(on: str | None = None) -> tuple[bytes, str]:
         ws['A1'] = d['title']
         rows = d['tables'][key]['rows']
         by = {r['name']: r for r in rows}
-        last = 12 if sn == '支行' else 43
-        for r in range(4, last if sn == '网点' else 12):
+        last = 12 if sn == '支行' else 44      # 网点是 4..43（含）
+        for r in range(4, last):
             name = str(ws.cell(row=r, column=1).value or '').strip()
             rec = by.get(name)
             if not rec:
@@ -332,18 +390,20 @@ def wallet_xlsx(on: str | None = None) -> tuple[bytes, str]:
     ws = wb.active
     ws['A1'] = d['title']
     rows = d['tables'][0]['rows']
-    by = {(r['name'] or '').replace('阜阳', ''): r for r in rows}
+    by = {r['name']: r for r in rows}
+    by.update({_key(r['name']): r for r in rows})
     # 模板里 A 列（支行）有纵向合并，先拆开再逐个网点填
     for rng in list(ws.merged_cells.ranges):
         if rng.min_col == 1 and rng.max_col == 1:
             ws.unmerge_cells(str(rng))
-    seen = set()
+    last_br = None
     for r in range(3, 43):
-        name = str(ws.cell(row=r, column=2).value or '').strip().replace('阜阳', '')
-        rec = by.get(name)
+        rec = _match(str(ws.cell(row=r, column=2).value or ''), by)
         if not rec:
             continue
-        ws.cell(row=r, column=1).value = rec.get('branch') or ''
+        br = rec.get('branch') or ''
+        ws.cell(row=r, column=1).value = br if br != last_br else None
+        last_br = br
         for c, k in ((3, 'lv1'), (4, 'lv2'), (5, 'lv3'), (6, 'lv4'),
                      (7, 'total'), (8, 'month'), (9, 'day')):
             ws.cell(row=r, column=c).value = rec.get(k) or 0
