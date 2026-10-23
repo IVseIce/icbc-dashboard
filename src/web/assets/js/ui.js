@@ -72,6 +72,22 @@ export function toast(msg, type = '') {
   toastTimer = setTimeout(() => { el.className = 'toast'; }, 2600);
 }
 
+/** 顶栏"数据截至"：各页面按自己模块的时点改文案（不要再用全局最新日期） */
+export function setAsof(text) {
+  const el = document.getElementById('asof');
+  const span = el && el.querySelector('span');
+  if (span) span.textContent = text;
+}
+
+/** 日期控件对齐到本页实际时点（只改显示，不触发筛选） */
+export function setDatePickers(iso) {
+  if (!iso) return;
+  const d = document.getElementById('datePick');
+  const m = document.getElementById('monthPick');
+  if (d) d.value = iso;
+  if (m) m.value = iso.slice(0, 7);
+}
+
 /** 数字滚动（首屏用，克制：700ms） */
 export function countUp(el, value, { decimals = 0, suffix = '', prefix = '' } = {}) {
   if (!el) return;

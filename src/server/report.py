@@ -364,6 +364,9 @@ BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wall
             'deposit': build_deposit, 'community': build_community}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
+# 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
+CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj'}
+
 
 def build(kind: str, on: str | None = None) -> dict:
     fn = BUILDERS.get(kind)

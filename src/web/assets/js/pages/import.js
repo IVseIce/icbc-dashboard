@@ -1,6 +1,9 @@
-/* 数据导入：两级选择（专业/大类 → 小模块）→ 上传 → 识别 → 入库
-   模块清单来自 /api/catalog，能上传的模块 = 配了 as_line 的 metric 模块。 */
+/* 数据导入：两级选择（大类 → 模块）→ 上传 → 识别 → 入库
+   能进这一步说明口令已通过；没权限的大类置灰、不可点（管理员全开）。 */
 import { fmt, toast, icon, empty } from '../ui.js';
+import { auth, authFetch } from '../auth.js';
+
+const LOCK = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4.5" y="10" width="15" height="10.5" rx="3"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg>';
 
 export default {
   id: 'import',
@@ -12,24 +15,28 @@ export default {
     let mod = null;
     let ledger = [];
 
+    const canSee = (p) => auth.can(p.id);
+    const who = auth.admin ? '管理员 · 全部板块' : `${auth.label} · 含重点项目`;
+
     view.innerHTML = `
       <div class="page-head">
         <div><h1>数据导入</h1>
-          <p>选专业 → 选模块 → 放源表；系统按模块口径识别、归档、入库</p></div>
+          <p>选大类 → 选模块 → 放源表；系统按模块口径识别、归档、入库</p></div>
         <div class="spacer"></div>
+        <span class="chip ${auth.admin ? 'red' : 'green'}" id="impWho">${who}</span>
         <span class="chip" id="impStatus">读取中…</span>
       </div>
 
       <div class="card">
-        <div class="card-head"><h3>① 选择专业</h3>
-          <div class="right"><span class="chip">六大板块</span></div></div>
+        <div class="card-head"><h3>① 选择大类</h3>
+          <div class="right"><span class="chip">灰色 = 当前口令无权访问</span></div></div>
         <div class="import-grid" id="profGrid"></div>
       </div>
 
       <div class="card" style="margin-top:14px">
         <div class="card-head"><h3>② 选择模块</h3>
-          <div class="right" id="modHint"><span class="chip">先选专业</span></div></div>
-        <div class="mod-grid" id="modGrid"><div class="empty" style="padding:26px">先选上面的专业</div></div>
+          <div class="right" id="modHint"><span class="chip">先选大类</span></div></div>
+        <div class="mod-grid" id="modGrid"><div class="empty" style="padding:26px">先选上面的模块</div></div>
       </div>
 
       <div class="grid g-7-5" style="margin-top:14px">
@@ -58,7 +65,7 @@ export default {
 
         <div class="card">
           <div class="card-head"><h3>数据时点</h3>
-            <div class="right"><span class="chip">导入后自动更新</span></div></div>
+            <div class="right"><span class="chip">仅显示有权限的条线</span></div></div>
           <div class="timeline" id="impTimeline"></div>
         </div>
       </div>
@@ -72,28 +79,37 @@ export default {
     const profGrid = view.querySelector('#profGrid');
     const modGrid = view.querySelector('#modGrid');
 
-    // ---------- ① 专业
-    const profs = cat.professionals.filter((p) => p.id !== 'project');
-    profGrid.innerHTML = profs.map((p) => `
-      <div class="line-pick" data-id="${p.id}">
-        <b>${p.short || p.name}</b>
-        <small>${p.desc || ''}</small>
-        <span class="asof" data-asof="${p.id}">—</span>
-      </div>`).join('') + `
-      <div class="line-pick" data-id="project">
-        <b>重点项目</b><small>跨条线专项</small><span class="asof" data-asof="project">—</span>
+    // 有权限的条线（用于过滤"数据时点"和"最近导入"）
+    const allowedLines = new Set(cat.professionals.filter(canSee)
+      .flatMap((p) => p.groups).flatMap((g) => g.modules || [])
+      .map((m) => m.as_line).filter(Boolean));
+
+    // ---------- ① 大类
+    profGrid.innerHTML = cat.professionals.map((p) => {
+      const ok = canSee(p);
+      return `<div class="line-pick ${ok ? '' : 'locked'}" data-id="${p.id}">
+        <b>${p.short || p.name}${ok ? '' : ` <em class="lp-lock">${LOCK}</em>`}</b>
+        <small>${ok ? (p.desc || '') : '需要该大类的口令'}</small>
+        <span class="asof" ${ok ? `data-asof="${p.id}"` : ''}>${ok ? '—' : '未授权'}</span>
       </div>`;
+    }).join('');
+
     profGrid.querySelectorAll('.line-pick').forEach((el) => {
       el.onclick = () => {
-        profGrid.querySelectorAll('.line-pick').forEach((x) => x.classList.remove('on'));
-        el.classList.add('on');
-        prof = cat.professionals.find((p) => p.id === el.dataset.id);
-        mod = null;
-        renderModules();
+        if (el.classList.contains('locked')) { toast('该大类需要对应的口令', 'err'); return; }
+        selectProf(cat.professionals.find((p) => p.id === el.dataset.id));
       };
     });
 
     // ---------- ② 模块
+    function selectProf(p, pick) {
+      prof = p;
+      mod = null;
+      profGrid.querySelectorAll('.line-pick').forEach((x) => x.classList.toggle('on', x.dataset.id === p.id));
+      renderModules();
+      if (pick?.as_line) pickModule(pick);
+    }
+
     function renderModules() {
       if (!prof) return;
       const groups = prof.groups || [];
@@ -111,13 +127,14 @@ export default {
       modGrid.querySelectorAll('.mod-pick').forEach((el) => {
         const m = mods.find((x) => x.id === el.dataset.id);
         if (!m?.as_line) return;
-        el.onclick = () => {
-          modGrid.querySelectorAll('.mod-pick').forEach((x) => x.classList.remove('on'));
-          el.classList.add('on');
-          mod = m;
-          sync();
-        };
+        el.onclick = () => pickModule(m);
       });
+    }
+
+    function pickModule(m) {
+      mod = m;
+      modGrid.querySelectorAll('.mod-pick').forEach((x) => x.classList.toggle('on', x.dataset.id === m.id));
+      sync();
     }
 
     // ---------- ③ 文件
@@ -162,7 +179,8 @@ export default {
       if (dt) fd.append('date', dt);
       files.forEach((f) => fd.append('files', f, f.name));
       try {
-        const r = await fetch('/api/import', { method: 'POST', body: fd }).then((x) => x.json());
+        const res = await authFetch('/api/import', { method: 'POST', body: fd });
+        const r = await res.json();
         if (r.ok) {
           box.innerHTML = `<div class="result ok">
             <h4>导入成功 · ${mod.name} · 数据日期 ${fmt.date(r.data_date)}</h4>
@@ -172,13 +190,14 @@ export default {
           </div>`;
           toast('导入成功');
           files.length = 0; sync();
-          await ctx.reload();
+          if (ctx.reloadData) await ctx.reloadData();
           paint();
         } else {
           box.innerHTML = `<div class="result bad"><h4>导入失败</h4><p>${r.error || '未知错误'}</p></div>`;
           btn.disabled = false;
         }
       } catch (err) {
+        if (err.auth) return;                       // 口令失效：全局会弹口令框
         box.innerHTML = `<div class="result bad"><h4>请求失败</h4><p>${err.message}</p></div>`;
         btn.disabled = false;
       }
@@ -186,25 +205,29 @@ export default {
 
     // ---------- 状态
     async function paint() {
-      const st = await fetch('/api/state', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
+      let st = null;
+      try {
+        st = await authFetch('/api/state', { cache: 'no-store' }).then((r) => r.json());
+      } catch (err) {
+        if (err.auth) return;
+      }
       if (!st?.ok) { view.querySelector('#impStatus').textContent = '服务未连接'; return; }
       view.querySelector('#impStatus').textContent =
         `已连接 ${st.root.replace(/^\/mnt\/([a-z])\//, (m, d) => d.toUpperCase() + ':\\\\').replace(/\//g, '\\\\')}`;
       const by = Object.fromEntries(st.lines.map((l) => [l.id, l]));
-      document.querySelectorAll('[data-asof]').forEach((el) => {
+      view.querySelectorAll('[data-asof]').forEach((el) => {
         const p = cat.professionals.find((x) => x.id === el.dataset.asof);
         const lines = (p?.groups || []).flatMap((g) => (g.modules || []).map((m) => m.as_line)).filter(Boolean);
         const dates = lines.map((l) => by[l]?.as_of).filter(Boolean).sort();
-        el.textContent = dates.length ? `最新 ${dates[dates.length - 1]}` : '尚未导入';
+        el.textContent = dates.length ? `最新 ${dates[dates.length - 1].slice(5)}` : '尚未导入';
       });
-      view.querySelector('#impTimeline').innerHTML = st.lines.map((l) => {
-        const color = Object.entries(by).length ? '#2563eb' : '#94a3b8';
-        return `<div class="tl-item" style="--accent:${color}"><i class="tl-dot"></i>
-          <span class="tl-name">${l.label}</span>
-          <span class="chip ${l.as_of ? 'green' : 'red'}" style="font-size:10px">${l.as_of ? '已就绪' : '待导入'}</span>
-          <span class="tl-sub">${l.as_of ? fmt.date(l.as_of) : '—'} · ${l.snapshots} 期</span></div>`;
-      }).join('');
-      ledger = st.ledger || [];
+      const lines = st.lines.filter((l) => allowedLines.has(l.id));
+      view.querySelector('#impTimeline').innerHTML = lines.map((l) => `<div class="tl-item" style="--accent:#2563eb"><i class="tl-dot"></i>
+        <span class="tl-name">${l.label}</span>
+        <span class="chip ${l.as_of ? 'green' : 'red'}" style="font-size:10px">${l.as_of ? '已就绪' : '待导入'}</span>
+        <span class="tl-sub">${l.as_of ? fmt.date(l.as_of) : '—'} · ${l.snapshots} 期</span></div>`).join('');
+
+      ledger = (st.ledger || []).filter((r) => allowedLines.has(r.line));
       view.querySelector('#ledgerCount').textContent = `${ledger.length} 条`;
       view.querySelector('#ledger').innerHTML = ledger.length ? `
         <div class="tbl-wrap" style="max-height:220px"><table class="tbl" style="table-layout:fixed;width:100%">
@@ -218,6 +241,22 @@ export default {
             <td>${r.ok ? '<span class="chip green">成功</span>' : '<span class="chip red">失败</span>'}</td>
           </tr>`).join('')}</tbody></table></div>` : empty('还没有导入记录');
     }
+
+    // 预选：优先「从模块页点导入」带过来的模块，否则落到自己有权限的大类
+    const locate = (id) => {
+      for (const p of cat.professionals) {
+        for (const g of p.groups) {
+          for (const m of g.modules || []) {
+            if (m.id === id) return { prof: p, group: g, module: m };
+          }
+        }
+      }
+      return null;
+    };
+    const wanted = ctx.moduleId ? locate(ctx.moduleId) : null;
+    const own = cat.professionals.find((p) => p.id === auth.role && canSee(p));
+    if (wanted && canSee(wanted.prof)) selectProf(wanted.prof, wanted.module);
+    else if (own) selectProf(own);
 
     paint();
     sync();

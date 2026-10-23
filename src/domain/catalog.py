@@ -148,3 +148,10 @@ def catalog() -> dict:
 
 def module_map() -> dict:
     return {m['id']: (p, g, m) for p, g, m in iter_modules()}
+
+
+def lines_of(prof_ids) -> set[str]:
+    """这些大类下所有可上传条线（id 集合）。用于按权限裁剪导入页的"数据时点"。"""
+    ids = set(prof_ids or ())
+    return {m['as_line'] for p, _g, m in iter_modules()
+            if p['id'] in ids and m.get('as_line')}

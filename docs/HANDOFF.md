@@ -1,13 +1,16 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-23（对应 commit `0821eef`）
+> 最后更新：2026-10-23（口令准入 + 按模块显示数据时点）
 
 ---
 
 ## 1. 一句话说明
 
 这是**阜阳分行个人金融条线的经营分析系统**：把原先散落在 5 个 `icbc-*` 技能里的"每天做通报"的活儿，升级成一个可浏览、可下钻、可按日期查、可上传、可导出通报的 Web 系统（FastAPI 不用，纯 Python 标准库 + 原生前端 + ECharts）。
+
+浏览不设门槛；**「导入数据」「通报中心」要口令**：五个大类各一个口令（额外送「重点项目」），
+另有一个管理员口令（全量 + 重置口令）。详见 4.4。
 
 - 前端：原生 ES Modules + ECharts（本地内置）+ html2canvas（本地内置），无构建步骤
 - 后端：`http.server`，无第三方 Web 框架
@@ -76,7 +79,8 @@ icbc-dashboard/
 ├─ src/
 │  ├─ viz.py                 数据层：导入适配器、快照读写、台账、assemble
 │  ├─ server/
-│  │  ├─ app.py              HTTP：静态资源 + 全部 /api/*（约 200 行）
+│  │  ├─ app.py              HTTP：静态资源 + 全部 /api/*（约 260 行）
+│  │  ├─ auth.py             口令：六个身份组、会话、pbkdf2 哈希落盘
 │  │  ├─ api.py              视图模型：每条线一个 build_xxx()
 │  │  └─ report.py           通报：表格/文案/Excel（5 条线）
 │  ├─ domain/catalog.py      唯一的目录配置（导航/首页/上传/路由都读它）
@@ -98,7 +102,8 @@ icbc-dashboard/
 ├─ data/                     运行时数据（git 忽略）
 │  ├─ snapshots/<line>/<date>.json
 │  ├─ imports/<line>/<stamp>/  上传原件留档
-│  └─ ledger.jsonl             导入台账
+│  ├─ ledger.jsonl             导入台账
+│  └─ auth.json                口令哈希（pbkdf2，首次访问自动生成；删掉=恢复初始口令）
 ├─ legacy/                   v1 单文件版（build_v1.py + 旧 HTML + README 说明），只作留档
 ├─ docs/
 │  ├─ HANDOFF.md              本文件（唯一权威的现状说明）
@@ -140,6 +145,32 @@ icbc-dashboard/
 
 ---
 
+### 4.4 口令与权限（大类准入）
+
+不是账号体系，**只有"一组一个口令"**，登录即"本次打开网页内有效"。
+
+| 身份组 | 初始口令 | 能看 |
+|---|---|---|
+| 个金 `jg` | `gejin2026` | 个金 + 重点项目 |
+| 网金 `wj` | `wangjin2026` | 网金 + 重点项目 |
+| 个贷 `loan` | `gedai2026` | 个贷 + 重点项目 |
+| 银行卡 `card` | `yinhangka2026` | 银行卡 + 重点项目 |
+| 私银 `pbs` | `siyin2026` | 私银 + 重点项目 |
+| 管理员 `admin` | `admin2026` | 全部六个板块 + 管理口令 |
+
+- 初始口令写在 `src/server/auth.py` 的 `DEFAULTS`；**上线后让管理员在「管理密码」里改掉**
+- 哈希存 `data/auth.json`（salt + pbkdf2-120k，`chmod 600`，git 忽略）；文件损坏会改名 `.json.bad` 后回落到初始口令
+- **会话只活在两处内存**：服务端 `_sessions`（闲置 12h 过期）+ 前端 `auth.js` 的模块变量。
+  刷新页面 / 关掉标签页 / 重启服务 → 都要重新验证。这是需求，不要"优化"成 localStorage
+- 前端：`auth.js` 提供 `auth.can(prof)`、`authFetch()`（自动带 `X-Auth`，401 时清权限并广播 `dash:auth-lost`）、
+  `askPassword()`（口令框）、`openPasswordManager()`（管理员改口令）
+- 后端：`/api/auth/login|password|logout`；`/api/report/*`、`/api/state`、`/api/import` 必须带 `X-Auth`
+  （也接受 `?token=`，方便调试）。其余接口（`/api/catalog`、`/api/all`、`/api/line/*`）不设门槛
+- 界面：进这两个模块先弹口令框（背景是带锁的占位卡）；通过后右上角出现身份胶囊，
+  五大类点它=重新验证，管理员点它=下拉「管理密码 / 重新验证」
+
+---
+
 ## 5. 目录 / 导航结构（`src/domain/catalog.py`）
 
 六大板块：个金、网金、个贷、银行卡、私银、重点项目。
@@ -175,23 +206,29 @@ icbc-dashboard/
 #/g/<prof>/<group> 分组页（只有个金有）
 #/m/<moduleId>     模块页（按 page 分发到 RENDERERS）
 #/report[/<kind>]  通报中心（kind: online/salary/wallet/deposit/community）
-#/upload           上传
+#/upload           上传（两级选择，默认落到自己大类）
+#/upload/<moduleId> 上传并预选该模块（模块页右上角"导入数据"就跳这里）
 ```
 
 ---
 
 ## 6. 后端 API（`src/server/app.py`）
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/`、`/assets/*`、`/vendor/*` | SPA 与静态资源 |
-| GET | `/api/catalog` | 目录 + 各线可选日期 + latest/earliest |
-| GET | `/api/all?date=YYYY-MM-DD` | 全量视图模型（首屏一次拉完） |
-| GET | `/api/line/<line>` | 单条线 |
-| GET | `/api/report/<kind>` | 通报数据（表格 + 文案） |
-| GET | `/api/report/<kind>.xlsx` | 通报 Excel（按样式母版填） |
-| GET | `/api/state` | 各线时点、期数、最近导入台账 |
-| POST | `/api/import` | multipart：`line`、`date?`、`files[]` |
+| 方法 | 路径 | 验口令 | 说明 |
+|---|---|---|---|
+| GET | `/`、`/assets/*`、`/vendor/*` | — | SPA 与静态资源 |
+| GET | `/api/catalog` | — | 目录 + 可选日期 + latest/earliest + `line_keys`（条线→视图 key）+ `roles` |
+| GET | `/api/all?date=YYYY-MM-DD` | — | 全量视图模型（首屏一次拉完） |
+| GET | `/api/line/<line>` | — | 单条线 |
+| POST | `/api/auth/login` | — | `{password}` → `{token, role, label, admin, scope}`；错口令 401 |
+| POST | `/api/auth/password` | 管理员 | `{role, password}` 重置某个身份组 |
+| POST | `/api/auth/logout` | token | 注销当前 token |
+| GET | `/api/report/<kind>` | ✅ | 通报数据（表格 + 文案） |
+| GET | `/api/report/<kind>.xlsx` | ✅ | 通报 Excel（按样式母版填） |
+| GET | `/api/state` | ✅ | 各线时点、期数、最近导入台账 |
+| POST | `/api/import` | ✅ | multipart：`line`、`date?`、`files[]` |
+
+口令不对或过期时，这几个接口回 `401 {"ok":false,"auth":true}`；前端据此弹口令框。
 
 导入走 `viz.do_import(line, files, data_date)`：
 `归档原件 → readers.normalize（纠扩展名）→ 技能 classify/compute（dfmx/wk 是自写解析）→ 写快照 → assemble → 记台账`。
@@ -210,6 +247,9 @@ icbc-dashboard/
     deposit：方正黑体_GBK；community：宋体 11（支行/网点双 sheet）
 - 红绿：目前只有 online 做（每列前 5 红 / 后 5 绿，`annotate()`），前端与 Excel 同源
 - 前端：`pages/report.js`，页签 → 取 `/api/report/<kind>`；支持复制文案、下载 Excel、复制图片、导出图片（html2canvas）
+- **按口令过滤大类**：`LINES` 里每条通报带 `cat`（jg / wj），页面只渲染 `auth.can(cat)` 的通报；
+  可见大类 >1 时顶部出现大类胶囊（管理员能看到「个金 2 / 网金 3」，单一身份组不显示胶囊）
+- Excel 现在走 `fetch` + blob 下载（`<a href>` 带不了 token）；新增通报别忘了登记 `cat`
 - 新增一条线：写 `build_xxx` + `xxx_xlsx`，登记 `BUILDERS` / `XLSX`，再在 `report.js` 的 `LINES` 里 `ready: true`
 
 ---
@@ -245,11 +285,21 @@ icbc-dashboard/
 19. 图表统一在 `charts.js`（`barRank` 支持负值向左+绿色、`splitRank` 做"头尾突出"、`bigTable` 做全屏大表）。
 20. 抽屉、全屏表、提示都在 `ui.js`；新增页面照 `pages/*.js` 的默认导出结构写。
 
-### 8.4 环境
+### 8.4 口令 / 权限
 
-21. WSL 下 Node 的 `--check` 可用来快速验 JS 语法：`node --input-type=module --check < file.js`。
-22. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
-23. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
+21. **权限只存在内存**：`auth.js` 的模块变量 + 服务端 `_sessions`。刷新即失效是需求；不要改 `sessionStorage`/`localStorage`。
+22. **带 token 才有数据**：`/api/report/*`、`/api/state`、`/api/import` 全部要 `X-Auth`。页面里一律用 `authFetch()`，
+    别直接 `fetch`；Excel 下载也必须 `fetch`+blob（`<a href>` 带不上 header，会 401 却"看起来没反应"）。
+23. **401 的统一处理**：`authFetch` 清权限 → 派发 `dash:auth-lost` → `app.js` 重渲染并重新弹口令框。
+    页面自己的 `catch` 里遇到 `err.auth` 要**安静返回**，别再往已经被销毁的 DOM 写错误。
+24. **新增通报/模块要挂大类**：`report.js` 的 `LINES[].cat`；不挂就是"哪个口令都看不到"。导入页的大类权限靠 `auth.can(prof)`。
+25. **管理口令只有管理员能改**（`POST /api/auth/password` 会校验 `sess.admin`）；忘记管理员口令的兜底是删 `data/auth.json`（回到初始口令）。
+
+### 8.5 环境
+
+26. WSL 下 Node 的 `--check` 可用来快速验 JS 语法：`node --input-type=module --check < file.js`。
+27. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
+28. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
 
 ---
 
@@ -262,6 +312,10 @@ icbc-dashboard/
 - 上传两级（专业→模块）+ 多格式读取 + 台账
 - 通报中心 5 条线（表格/文案/Excel/图片），对账脚本全绿（1 处标题日期差异）
 - 日/月切换；红涨绿跌；头尾突出排行；全屏大表
+- 顶栏"数据截至"改为**按当前页面模块自己的时点**（模块取 `as_of`，板块取该板块各模块最大值；
+  选日期筛选时显示"数据截至 X · 所选 ≤Y"），日期控件的值也跟着本页时点走
+- 口令准入：六个身份组、大类过滤（导入页灰掉无权大类、通报中心不显示无权通报）、
+  管理员改口令、右上角身份胶囊（五大类=重新验证，管理员=管理密码/重新验证）
 
 ### 未完成 / 待定
 
@@ -272,7 +326,8 @@ icbc-dashboard/
 | 定期承接、行外吸金、降级挽回、经理队伍、一卡一户、全量客户 | 占位 | 数据源 |
 | 基保理、三方支付（增收） | 占位 | 数据源；基保理=基金/保险/理财 |
 | 个贷、银行卡、私银 | 占位 | 数据源 |
-| 上传人/权限 | 未做（无账号体系） | 是否需要先记姓名 |
+| 账号级身份 | 未做：只有"一组一口令"，不记谁导的 | 需要追责时再加姓名/工号 |
+| 导航级权限 | 未做：侧栏仍可浏览所有板块（口令只拦两个管理模块） | 若要求"没口令连板块都不给看"，需在 `render()` 前置门槛 |
 | SQLite | 未做（仍 JSON 快照） | 数据量大到需要再迁 |
 | 通报日期 vs 数据日期 | 线上服务标题差 1 处 | 导入时加"通报日期"字段即可 |
 | 自动启动/部署 | 手工 nohup | 上服务器时做服务化 |
@@ -295,6 +350,8 @@ icbc-dashboard/
 | 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器 |
 | 新增一条通报 | `report.py` 加 `build_xxx`/`xxx_xlsx` + `report.js` 的 `LINES` |
 | 报表样式 | 换 `src/report/assets/<line>_base.xlsx`（务必是"成表清数据"） |
+| 口令 / 身份组 | `src/server/auth.py` 的 `ROLES`/`DEFAULTS`；前端表现看 `auth.js`、`app.js` 的 `paintTop()/startGate()` |
+| 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 
 ---
 
@@ -303,7 +360,9 @@ icbc-dashboard/
 1. `git log --oneline -5` 看到 `0821eef` 或更新
 2. 起服务 → `curl /api/health` 返回 ok
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
-4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time`、`#/report/salary`、`#/upload` 各看一眼
-5. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time` 各看一眼（顶栏"数据截至"应分别是 10/22、10/22、10/15）
+5. `#/report` 应弹口令框；输 `gejin2026` 只看到「定期存款增长 / 薪管家」两项；刷新页面应重新要口令
+6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
+7. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

@@ -1,12 +1,21 @@
-/* 通报中心：线上服务 / 薪管家 / 数币（表格 + 文案 + Excel + 图片） */
-import { icon, toast, fmt } from '../ui.js';
+/* 通报中心：先按大类过滤（口令决定可见范围），再选通报 → 表格 + 文案 + Excel + 图片 */
+import { icon, toast, fmt, setAsof, setDatePickers } from '../ui.js';
+import { auth, authFetch } from '../auth.js';
+
+const CATS = [
+  { id: 'jg', name: '个金' },
+  { id: 'wj', name: '网金' },
+  { id: 'loan', name: '个贷' },
+  { id: 'card', name: '银行卡' },
+  { id: 'pbs', name: '私银' },
+];
 
 const LINES = [
-  { id: 'online', name: '网点线上服务能力', ready: true },
-  { id: 'salary', name: '薪管家聚薪行动', ready: true },
-  { id: 'wallet', name: '数字人民币钱包', ready: true },
-  { id: 'deposit', name: '定期存款增长', ready: true },
-  { id: 'community', name: '企微社群运营', ready: true },
+  { id: 'deposit', name: '定期存款增长', cat: 'jg' },
+  { id: 'salary', name: '薪管家聚薪行动', cat: 'jg' },
+  { id: 'online', name: '网点线上服务能力', cat: 'wj' },
+  { id: 'wallet', name: '数字人民币钱包', cat: 'wj' },
+  { id: 'community', name: '企微社群运营', cat: 'wj' },
 ];
 
 export default {
@@ -14,52 +23,95 @@ export default {
   title: '通报中心',
   render(view, _data, ctx) {
     const date = ctx.date;
-    const q = (kind) => (date ? `?date=${encodeURIComponent(date)}` : '');
-    let kind = (location.hash.split('/')[2] || 'online');
+    const q = (k) => (date ? `?date=${encodeURIComponent(date)}` : '');
+    const visible = LINES.filter((l) => auth.can(l.cat));
+    const cats = CATS.filter((c) => auth.can(c.id))
+      .map((c) => ({ ...c, lines: visible.filter((l) => l.cat === c.id) }))
+      .filter((c) => c.lines.length);
+
     let payload = null;
+    let kind = String(location.hash.split('/')[2] || '');
+    if (!visible.some((l) => l.id === kind)) kind = visible[0]?.id || '';
+    let catId = visible.find((l) => l.id === kind)?.cat || cats[0]?.id || '';
 
     view.innerHTML = `
       <div class="page-head">
-        <div><h1>通报中心</h1><p>选日期 → 表格与文案 → 复制 / 下载</p></div>
+        <div><h1>通报中心</h1><p>按大类查看 · 复制文案 / 下载 Excel / 导出图片</p></div>
         <div class="spacer"></div>
         <span class="chip">${date ? '所选 ' + fmt.date(date) : '最新一期'}</span>
       </div>
 
-      <div class="card rep-head">
-        <div class="rep-tabs" id="tabs">
-          ${LINES.map((l) => `<button class="rep-tab ${l.id === kind ? 'on' : ''}" data-k="${l.id}" ${l.ready ? '' : 'disabled'}>
-            ${l.name}${l.ready ? '' : '<em>待做</em>'}</button>`).join('')}
-        </div>
+      ${cats.length > 1 ? `<div class="rep-cats" id="cats">
+        ${cats.map((c) => `<button class="rep-cat ${c.id === catId ? 'on' : ''}" data-c="${c.id}">
+          ${c.name}<em>${c.lines.length}</em></button>`).join('')}
+      </div>` : ''}
+
+      ${visible.length ? `<div class="card rep-head">
+        <div class="rep-tabs" id="tabs"></div>
         <div class="rep-actions">
           <button class="btn btn-primary" id="copyText">${icon('file', 14)} 复制文案</button>
-          <a class="btn" id="dlExcel" href="#">${icon('arrow', 14)} 下载 Excel</a>
+          <button class="btn" id="dlExcel">${icon('down', 14)} 下载 Excel</button>
           <button class="btn" id="copyImg">${icon('spark', 14)} 复制图片</button>
           <button class="btn" id="saveImg">${icon('down', 14)} 导出图片</button>
         </div>
-      </div>
+      </div>` : ''}
 
       <div id="reportBody"><div class="empty">加载中…</div></div>`;
 
     const body = view.querySelector('#reportBody');
-    view.querySelectorAll('.rep-tab').forEach((b) => {
+    const tabs = view.querySelector('#tabs');   // 无可见通报时为 null
+
+    view.querySelectorAll('.rep-cat').forEach((b) => {
       b.onclick = () => {
-        if (b.disabled) return;
-        view.querySelectorAll('.rep-tab').forEach((x) => x.classList.remove('on'));
-        b.classList.add('on');
-        kind = b.dataset.k;
+        catId = b.dataset.c;
+        view.querySelectorAll('.rep-cat').forEach((x) => x.classList.toggle('on', x === b));
+        const first = cats.find((c) => c.id === catId)?.lines[0];
+        if (!first) return;
+        kind = first.id;
+        paintTabs();
         load();
       };
     });
 
+    function paintTabs() {
+      if (!tabs) return;
+      const lines = cats.find((c) => c.id === catId)?.lines || [];
+      tabs.innerHTML = lines.map((l) => `<button class="rep-tab ${l.id === kind ? 'on' : ''}" data-k="${l.id}">
+        ${l.name}</button>`).join('');
+      tabs.querySelectorAll('.rep-tab').forEach((b) => {
+        b.onclick = () => {
+          tabs.querySelectorAll('.rep-tab').forEach((x) => x.classList.remove('on'));
+          b.classList.add('on');
+          kind = b.dataset.k;
+          load();
+        };
+      });
+    }
+
     async function load() {
+      if (!kind) {
+        setAsof('暂无可查看的通报');
+        body.innerHTML = `<div class="card"><div class="empty"><b>当前身份暂无可查看的通报</b>
+          ${auth.label} 口令下还没有已接入的通报</div></div>`;
+        return;
+      }
       body.innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
-      const r = await fetch(`/api/report/${kind}${q(kind)}`).then((x) => x.json());
+      let r;
+      try {
+        const res = await authFetch(`/api/report/${kind}${q(kind)}`);
+        r = await res.json();
+      } catch (err) {
+        if (!err.auth) body.innerHTML = `<div class="card"><div class="empty"><b>加载失败</b>${err.message}</div></div>`;
+        return;
+      }
       if (!r.ok) {
         body.innerHTML = `<div class="card"><div class="empty"><b>该日期没有这份通报</b>${r.error || ''}</div></div>`;
         return;
       }
       payload = r;
-      view.querySelector('#dlExcel').href = `/api/report/${kind}.xlsx${q(kind)}`;
+      const asof = r.as_of ? `数据截至 ${fmt.date(r.as_of)}${date ? ` · 所选 ≤${fmt.date(date)}` : ''}` : '';
+      setAsof(asof || '—');
+      if (!date && r.as_of) setDatePickers(r.as_of);
       body.innerHTML = `
         <div class="card rep-text-card">
           <div class="card-head"><h3>通报文案</h3>
@@ -74,6 +126,29 @@ export default {
       };
       view.querySelector('#saveImg').onclick = () => exportImage('download');
       view.querySelector('#copyImg').onclick = () => exportImage('copy');
+      view.querySelector('#dlExcel').onclick = downloadExcel;
+    }
+
+    async function downloadExcel() {
+      const btn = view.querySelector('#dlExcel');
+      btn.disabled = true;
+      try {
+        const res = await authFetch(`/api/report/${kind}.xlsx${q(kind)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const cd = res.headers.get('Content-Disposition') || '';
+        const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const name = m ? decodeURIComponent(m[1]) : `${payload?.title || kind}.xlsx`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = name; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+        toast('Excel 已下载');
+      } catch (err) {
+        if (!err.auth) toast(`下载失败：${err.message}`, 'err');
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     function tableCard(t, i) {
@@ -128,6 +203,7 @@ export default {
       }
     }
 
+    paintTabs();
     load();
   },
 };

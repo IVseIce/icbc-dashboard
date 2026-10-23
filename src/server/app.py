@@ -32,6 +32,7 @@ sys.path.insert(0, str(SRC))   # viz / parsers
 sys.path.insert(0, str(BASE))  # api（同目录）
 
 import api  # noqa: E402
+import auth  # noqa: E402
 import report as report_mod  # noqa: E402
 import viz  # noqa: E402
 from domain import catalog as catalog_mod  # noqa: E402
@@ -60,6 +61,25 @@ class Handler(BaseHTTPRequestHandler):
         self._send(json.dumps(obj, ensure_ascii=False).encode('utf-8'),
                    'application/json; charset=utf-8', code)
 
+    # ---------------------------------------------------------------- 口令
+    def _token(self) -> str | None:
+        t = (self.headers.get('X-Auth') or '').strip()
+        if t:
+            return t
+        qs = parse_qs(urlparse(self.path).query)
+        return (qs.get('token') or [None])[0]
+
+    def _session(self) -> dict | None:
+        return auth.session(self._token())
+
+    def _need_auth(self) -> dict | None:
+        """校验 token；不合格时直接回 401（前端据此清权限、弹口令框）。"""
+        sess = self._session()
+        if not sess:
+            self._json({'ok': False, 'auth': True, 'error': '需要验证口令'}, 401)
+            return None
+        return sess
+
     # ---------------------------------------------------------------- GET
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -85,11 +105,20 @@ class Handler(BaseHTTPRequestHandler):
                 cat['dates'] = dates
                 cat['latest'] = all_dates[-1] if all_dates else None
                 cat['earliest'] = all_dates[0] if all_dates else None
+                # 条线 → 视图模型 key（页面按模块显示"数据截至"，前端不必硬编码）
+                cat['line_keys'] = {line: key for key, line in api.LINE_OF.items()}
+                cat['roles'] = auth.ROLES
                 return self._json(cat)
             if path.startswith('/api/report/'):
+                sess = self._need_auth()
+                if not sess:
+                    return
                 rest = path[len('/api/report/'):]
                 is_xlsx = rest.endswith('.xlsx')
                 kind = rest[:-5] if is_xlsx else rest
+                prof = report_mod.CAT_OF.get(kind)
+                if prof and not auth.can(sess, prof):
+                    return self._json({'ok': False, 'error': '当前身份组没有该大类的通报权限'}, 403)
                 if not is_xlsx:
                     return self._json(report_mod.build(kind, on))
                 blob, name = report_mod.xlsx(kind, on)
@@ -107,8 +136,14 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/api/line/'):
                 return self._json(api.build_line(path.rsplit('/', 1)[-1], on))
             if path == '/api/state':
+                sess = self._need_auth()
+                if not sess:
+                    return
+                allowed = catalog_mod.lines_of(sess.get('scope'))
                 lines = []
                 for k, meta in viz.LINES.items():
+                    if k not in allowed:
+                        continue
                     snaps = viz.load_snapshots(k)
                     lines.append({'id': k, 'label': meta['label'], 'hint': meta['hint'],
                                   'as_of': snaps[-1].get('as_of') if snaps else None,
@@ -119,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
                     for line in lp.read_text('utf-8').splitlines()[-12:]:
                         try:
                             rec = json.loads(line)
+                            if rec.get('line') not in allowed:
+                                continue
                             rec['label'] = (viz.LINES.get(rec.get('line')) or {}).get('label', rec.get('line'))
                             led.append(rec)
                         except Exception:
@@ -139,9 +176,40 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         n = int(self.headers.get('Content-Length') or 0)
         body = self.rfile.read(n) if n else b''
+        if path == '/api/auth/login':
+            return self._login(body)
+        if path == '/api/auth/password':
+            return self._set_password(body)
+        if path == '/api/auth/logout':
+            auth.logout(self._token())
+            return self._json({'ok': True})
         if path == '/api/import':
+            if not self._need_auth():
+                return
             return self._import(body)
         return self.send_error(404)
+
+    def _payload(self, body: bytes) -> dict:
+        try:
+            obj = json.loads(body.decode('utf-8') or '{}')
+            return obj if isinstance(obj, dict) else {}
+        except Exception:
+            return {}
+
+    def _login(self, body: bytes):
+        info = auth.login(self._payload(body).get('password') or '')
+        if not info:
+            return self._json({'ok': False, 'error': '口令不正确'}, 401)
+        return self._json({'ok': True, **info})
+
+    def _set_password(self, body: bytes):
+        sess = self._need_auth()
+        if not sess:
+            return
+        if not sess.get('admin'):
+            return self._json({'ok': False, 'error': '只有管理员能改口令'}, 403)
+        p = self._payload(body)
+        return self._json(auth.set_password(p.get('role') or '', p.get('password') or ''))
 
     def _import(self, body: bytes):
         try:
