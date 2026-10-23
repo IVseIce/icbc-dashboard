@@ -36,7 +36,7 @@ export default {
       <div class="card" style="margin-top:14px">
         <div class="card-head"><h3>② 选择模块</h3>
           <div class="right" id="modHint"><span class="chip">先选大类</span></div></div>
-        <div class="mod-grid" id="modGrid"><div class="empty" style="padding:26px">先选上面的模块</div></div>
+        <div class="mod-grid" id="modGrid"><div class="empty" style="padding:26px">先选上面的分类</div></div>
       </div>
 
       <div class="grid g-7-5" style="margin-top:14px">
