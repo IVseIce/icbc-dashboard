@@ -427,8 +427,8 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .mini-plan i{width:5px;height:5px;border-radius:50%;background:#cbd5e1;display:inline-block}
 
 /* 重点项目：横向四列 */
-.pj-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:8px}
-@media (max-width:1100px){.pj-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.pj-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:8px}
+@media (max-width:1200px){.pj-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pj-tile{border:1px solid var(--line-2);background:#fbfcfe;border-radius:12px;padding:11px 12px;cursor:pointer;
   display:flex;flex-direction:column;gap:5px;transition:.18s var(--ease)}
 .pj-tile:hover{background:#f5f8fe;border-color:#dbe5f4;transform:translateY(-1px)}
@@ -508,3 +508,42 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .mp-top{display:flex;align-items:center;gap:8px}
 .mp-top b{font-size:13px}
 .mod-pick small{color:var(--ink-3);font-size:11px;line-height:1.4}
+
+/* ============================== 个金总览 ============================== */
+.jg-base-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:4px}
+@media (max-width:1200px){.jg-base-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.jg-bt{background:#fafbfe;border:1px solid var(--line-2);border-left:3px solid var(--accent,#2563eb);
+  border-radius:10px;padding:10px 12px}
+.jg-bt-l{font-size:11px;color:var(--ink-3)}
+.jg-bt-v{font-size:20px;font-weight:700;letter-spacing:-.4px;margin:2px 0}
+.jg-bt-v small{font-size:10.5px;color:var(--ink-3);margin-left:2px;font-weight:600}
+.jg-bt-v .muted{color:var(--ink-4)}
+.jg-bt-f{font-size:10.5px;color:var(--ink-3)}
+
+.jg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:6px}
+.jg-mod{border:1px solid var(--line-2);border-radius:12px;padding:12px;background:#fff;
+  display:flex;flex-direction:column;gap:8px;transition:.18s var(--ease);cursor:pointer}
+.jg-mod:hover{border-color:#d7e0ee;box-shadow:var(--shadow);transform:translateY(-1px)}
+.jg-mod.off{cursor:default;background:#fbfcfe}
+.jg-mod.off:hover{transform:none;box-shadow:none;border-color:var(--line-2)}
+.jg-mod-top{display:flex;align-items:center;gap:8px}
+.jg-mod-top b{font-size:13px}
+.jg-mod-top .chip{margin-left:auto}
+.jg-mod-stats{display:flex;gap:14px;flex-wrap:wrap}
+.jg-mod-stats>div{display:flex;flex-direction:column}
+.jg-mod-stats i{font-style:normal;font-size:16px;font-weight:700;letter-spacing:-.3px}
+.jg-mod-stats i small{font-size:9.5px;color:var(--ink-3);margin-left:1px}
+.jg-mod-stats span{font-size:10px;color:var(--ink-3)}
+.jg-mod-empty{color:var(--ink-4);font-size:11.5px;display:flex;align-items:center;gap:5px;min-height:34px}
+
+/* 三级导航：子目录 */
+.nav-subgroup{margin:1px 0}
+.nav-subcat{display:flex;align-items:center}
+.nav a.nav-subcat-link{flex:1;display:flex;align-items:center;gap:6px;padding:5px 8px 5px 14px;
+  font-size:11.5px;color:#9fb0c8;border-radius:8px}
+.nav a.nav-subcat-link:hover{color:#fff}
+.nav-subgroup.open>.nav-subcat .nav-subcat-link{color:#dbe4f0}
+.nav-caret-btn.small{padding:3px 7px}
+.nav-sub-wrap2{max-height:0;overflow:hidden;transition:max-height .25s var(--ease)}
+.nav-subgroup.open>.nav-sub-wrap2{max-height:600px}
+.nav-subgroup .nav-item{padding-left:28px}

@@ -71,7 +71,7 @@ function heroCard(p, L, id) {
 }
 
 function jgTiles(p, L) {
-  const d = L.deposit?.kpi, x = L.salary?.kpi;
+  const d = L.deposit?.kpi, x = L.salary?.kpi, c = L.community?.kpi;
   return `
     <div class="ptile" data-stop data-go="#/g/jg/jg-deposit">
       <span class="pt-k">增存</span>
@@ -86,12 +86,7 @@ function jgTiles(p, L) {
     <div class="ptile off" data-stop data-go="#/g/jg/jg-income">
       <span class="pt-k">增收</span>
       <span class="pt-v muted">—</span>
-      <span class="pt-s">待接入</span>
-    </div>
-    <div class="ptile off" data-stop data-go="#/g/jg/jg-loan">
-      <span class="pt-k">增贷</span>
-      <span class="pt-v muted">—</span>
-      <span class="pt-s">暂不涉及</span>
+      <span class="pt-s">基保理 · 三方支付 待接入</span>
     </div>`;
 }
 
@@ -171,6 +166,8 @@ function timeline(L) {
     ['wallet', '数字人民币', C.blue],
     ['salary', '薪管家', C.teal],
     ['community', '企微社群', C.amber],
+    ['payroll', '代发工资', C.green],
+    ['fivecards', '五卡唤醒', C.violet],
   ];
   return `
   <div class="card">
@@ -193,7 +190,7 @@ function noteCard() {
   <div class="card">
     <div class="card-head"><h3>说明</h3></div>
     <div style="color:var(--ink-2);font-size:12px;line-height:1.95">
-      <div>· 个金按 <b>增存 / 增客 / 增收 / 增贷</b> 组织，增贷暂不涉及</div>
+      <div>· 个金按 <b>增存 / 增客 / 增收</b> 组织，共 12 个模块</div>
       <div>· 网金含 <b>线上服务 / 数币 / 企微</b>，企微同时是重点项目</div>
       <div>· 个贷 / 银行卡 / 私银已留框架，数据接入后自动出现</div>
       <div style="margin-top:8px"><span class="chip">红=增长 / 绿=下降（银行口径）</span></div>

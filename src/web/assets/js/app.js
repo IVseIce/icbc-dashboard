@@ -14,12 +14,13 @@ import payroll from './pages/payroll.js';
 import fivecards from './pages/fivecards.js';
 import importer from './pages/import.js';
 import report from './pages/report.js';
+import jgPage from './pages/jg.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards };
 
 const state = { catalog: null, data: null, date: null, mode: 'day',
-  view: document.getElementById('view'), open: new Set(['jg']) };
+  view: document.getElementById('view'), open: new Set(['jg']), openGroups: new Set(['jg/jg-deposit']) };
 
 /* ---------------------------------------------------------------- 数据 */
 async function loadCatalog() {
@@ -78,8 +79,9 @@ function renderNav() {
   const r = parseRoute();
   if (r.name === 'module') {
     const hit = findModule(r.id);
-    if (hit) state.open.add(hit.prof.id);
+    if (hit) { state.open.add(hit.prof.id); state.openGroups.add(`${hit.prof.id}/${hit.group.id}`); }
   }
+  if (r.name === 'group') state.openGroups.add(`${r.prof}/${r.id}`);
   if (r.name === 'prof' || r.name === 'group') state.open.add(r.prof || r.id);
 
   const sections = cat.professionals;
@@ -107,6 +109,18 @@ function renderNav() {
       else { state.open.add(id); grp.classList.add('open'); }
     };
   });
+  nav.querySelectorAll('[data-subcaret]').forEach((b) => {
+    b.onclick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const key = b.dataset.subcaret;
+      const box = b.closest('.nav-subgroup');
+      if (state.openGroups.has(key)) { state.openGroups.delete(key); box.classList.remove('open'); }
+      else { state.openGroups.add(key); box.classList.add('open'); }
+    };
+  });
+  nav.querySelectorAll('[data-subcat]').forEach((a) => {
+    a.onclick = () => { state.openGroups.add(a.dataset.subcat); a.closest('.nav-subgroup').classList.add('open'); };
+  });
   nav.querySelectorAll('a.nav-item').forEach((a) => {
     a.addEventListener('click', () => {
       nav.querySelectorAll('a.nav-item').forEach((x) => x.classList.remove('on'));
@@ -118,7 +132,8 @@ function renderNav() {
 function navSection(p) {
   if (!p) return '';
   const open = state.open.has(p.id);
-  const mods = p.groups.flatMap((g) => g.modules || []);
+  const mods = p.groups.flatMap((g) => (g.modules || []).map((m) => ({ ...m, _g: g.name })));
+  const multi = p.groups.length > 1;
   return `
   <div class="nav-group ${open ? 'open' : ''}" data-group="${p.id}">
     <div class="nav-cat">
@@ -131,12 +146,35 @@ function navSection(p) {
       </button>
     </div>
     <div class="nav-sub-wrap">
-      ${mods.map((m) => `
-        <a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${m.kind === 'metric' ? '' : 'dim'}">
-          <span class="nav-name">${m.name}</span>
-          ${m.kind === 'metric' ? '' : '<em class="nav-badge">待接入</em>'}
-        </a>`).join('')}
+      ${multi ? p.groups.map((g) => navGroup(p, g)).join('') : (p.groups[0]?.modules || []).map((m) => navItem(m)).join('')}
     </div>
+  </div>`;
+}
+
+function navItem(m) {
+  return `<a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${m.kind === 'metric' ? '' : 'dim'}">
+    <span class="nav-name">${m.name}</span>
+    ${m.kind === 'metric' ? '' : '<em class="nav-badge">待接入</em>'}
+  </a>`;
+}
+
+function navGroup(p, g) {
+  const key = `${p.id}/${g.id}`;
+  const open = state.openGroups.has(key);
+  const mods = g.modules || [];
+  const active = mods.some((m) => m.kind === 'metric');
+  return `
+  <div class="nav-subgroup ${open ? 'open' : ''}">
+    <div class="nav-subcat">
+      <a class="nav-subcat-link" href="#/g/${p.id}/${g.id}" data-subcat="${key}">
+        ${g.name}
+        <em class="nav-count">${mods.filter((m) => m.kind === 'metric').length}/${mods.length}</em>
+      </a>
+      <button class="nav-caret-btn small" data-subcaret="${key}" aria-label="展开/收起">
+        <svg viewBox="0 0 24 24" width="11" height="11"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="nav-sub-wrap2">${mods.map(navItem).join('')}</div>
   </div>`;
 }
 
@@ -191,7 +229,8 @@ function render() {
       if (!prof) throw new Error('板块不存在');
       title = prof.name;
       crumb = `<b>${prof.name}</b>`;
-      browse(host, { prof });
+      if (prof.id === 'jg') jgPage.render(host, state.data, ctx);
+      else browse(host, { prof });
     } else if (r.name === 'group') {
       const prof = state.catalog.professionals.find((p) => p.id === r.prof);
       const group = prof?.groups.find((g) => g.id === r.id);

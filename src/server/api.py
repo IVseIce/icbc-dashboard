@@ -385,6 +385,7 @@ LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
 def build_overview(on: str | None = None) -> dict:
     d, o = build_deposit(on), build_online(on)
     w, s, c = build_wallet(on), build_salary(on), build_community(on)
+    p, f = build_payroll(on), build_fivecards(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -396,6 +397,10 @@ def build_overview(on: str | None = None) -> dict:
                    'spark': (s.get('trend') or [])[-12:]},
         'community': {'ok': c.get('ok'), 'as_of': c.get('as_of'), 'kpi': c.get('kpi'),
                       'spark': (c.get('trend') or [])[-12:]},
+        'payroll': {'ok': p.get('ok'), 'as_of': p.get('as_of'), 'kpi': p.get('kpi'),
+                    'nearest': p.get('nearest')},
+        'fivecards': {'ok': f.get('ok'), 'as_of': f.get('as_of'), 'kpi': f.get('kpi'),
+                      'nearest': f.get('nearest')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,
