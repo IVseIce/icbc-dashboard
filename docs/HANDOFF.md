@@ -99,8 +99,11 @@ icbc-dashboard/
 │  ├─ snapshots/<line>/<date>.json
 │  ├─ imports/<line>/<stamp>/  上传原件留档
 │  └─ ledger.jsonl             导入台账
-├─ legacy/                   v1 单文件版（build_v1.py + 旧 HTML），只作留档
-└─ docs/{PLAN.md,HANDOFF.md,screenshots/}
+├─ legacy/                   v1 单文件版（build_v1.py + 旧 HTML + README 说明），只作留档
+├─ docs/
+│  ├─ HANDOFF.md              本文件（唯一权威的现状说明）
+│  ├─ screenshots/            当前页面截图（home / jg / report-salary / upload）
+│  └─ archive/PLAN-20261021.md  初版规划，已过时，勿作依据
 ```
 
 ---
@@ -301,6 +304,6 @@ icbc-dashboard/
 2. 起服务 → `curl /api/health` 返回 ok
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
 4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time`、`#/report/salary`、`#/upload` 各看一眼
-5. 需要改动前先读 `docs/PLAN.md`（更早的规划，部分已过时）和本文件第 8 节
+5. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。
