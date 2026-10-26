@@ -94,6 +94,21 @@ legacy/                v1 单文件版，仅存档，不再维护
 
 ![身份验证](docs/screenshots/login.png)
 
+## 新增模块
+
+按固定流程走，不要凭记忆改（7 处接线 + 自检 + 模块文档）：
+
+```bash
+# 在 fork 出来的会话里直接说 /dashboard-new-module，或看
+cat docs/skills/dashboard-new-module/SKILL.md
+# 改完必须跑
+python scripts/check_modules.py --write     # 接线自检 + 刷新 docs/MODULES.md
+python scripts/selftest.py --root data
+python scripts/check_report_parity.py
+```
+
+模块总表在 [docs/MODULES.md](docs/MODULES.md)，每个模块的源表/口径/坑写在 `docs/modules/<id>.md`。
+
 ## 约定
 
 - 数字以**正式通报成表**为准；页面、图片、Excel 三处同源同值

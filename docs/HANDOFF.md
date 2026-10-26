@@ -111,6 +111,7 @@ icbc-dashboard/
 │  ├─ backup_db.py           热备份 data/icbc.db → data/backups/
 │  ├─ export_db.py           对外导出 .db + 清单
 │  ├─ selftest.py            解释器/依赖/数据库自检（install/update 都调它）
+│  ├─ check_modules.py       模块接线自检 + 生成 docs/MODULES.md
 │  ├─ package_release.py     打 U 盘发布包（VERSION + SHA256SUMS，可带 runtime）
 │  └─ check_report_parity.py 与技能成表逐格对账
 ├─ data/                     运行时数据（git 忽略）
@@ -125,6 +126,9 @@ icbc-dashboard/
 ├─ docs/
 │  ├─ HANDOFF.md              本文件（唯一权威的现状说明）
 │  ├─ DEPLOY.md               部署形态与运维 runbook（内网机/U 盘/更新/回滚/导出）
+│  ├─ MODULES.md              模块总表（自动生成，别手改）
+│  ├─ modules/<id>.md         每个模块的数据源/口径/坑（新增模块必写）
+│  ├─ skills/dashboard-new-module/  新增模块的标准流程（也是 ~/.dsh/skills 里的同名 skill）
 │  ├─ screenshots/            当前页面截图（home / jg / report-salary / upload）
 │  └─ archive/PLAN-20261021.md  初版规划，已过时，勿作依据
 ```
@@ -218,6 +222,7 @@ icbc-dashboard/
 ## 5. 目录 / 导航结构（`src/domain/catalog.py`）
 
 七大板块：个金、网金、个贷、银行卡、私银、**实用工具**、重点项目。
+模块全表见 `docs/MODULES.md`（自动生成），新增模块的固定流程见 `docs/skills/dashboard-new-module/`。
 
 > 「实用工具」是**工具板块**（`tool`），不是数据条线：`upload: False`（导入页不出现）、
 > 模块 `kind: 'tool'`（侧栏标"开发中"、没有 as_of、走 `pages/tool.js` 渲染）。
@@ -426,7 +431,9 @@ icbc-dashboard/
 | 导航层级（是否子目录） | 同上 `nested: True`；渲染在 `app.js` 的 `navSection()` |
 | 某模块的数字卡 | 对应 `pages/*.js`（如 `jg.js` 的 `statsFor`） |
 | 图表样式/配色 | `src/web/assets/css/app.css` 的 `:root`、`charts.js` 的 `PALETTE` |
+| 新增一个模块（完整流程） | 读 `docs/skills/dashboard-new-module/SKILL.md`，按 7 步接线，最后跑 `python scripts/check_modules.py --write` |
 | 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器（存库走 `viz.save_snapshot`，别写文件） |
+| 查"哪个模块没接好" | `python scripts/check_modules.py`（id 重复/页面缺失/条线未注册/通报未登记都会报） |
 | 新增一条通报 | `report.py` 加 `build_xxx`/`xxx_xlsx` + `report.js` 的 `LINES` |
 | 报表样式 | 换 `src/report/assets/<line>_base.xlsx`（务必是"成表清数据"） |
 | 部署/升级脚本 | `deploy/`（`install.sh` / `update.sh` / `bin/*.sh`），结构见 `docs/DEPLOY.md` |
@@ -448,7 +455,8 @@ icbc-dashboard/
 4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time` 各看一眼（顶栏"数据截至"应分别是 10/22、10/22、10/15）
 5. `#/report` 应弹口令框；输 `gejin2026` 只看到「定期存款增长 / 薪管家」两项；刷新页面应重新要口令
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
-7. `python scripts/selftest.py --root data` → OK；打包前 `python scripts/package_release.py` 能从干净提交出包
+7. `python scripts/selftest.py --root data` → OK；`python scripts/check_modules.py` → OK；
+   打包前 `python scripts/package_release.py --seed` 能从干净提交出包
 8. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

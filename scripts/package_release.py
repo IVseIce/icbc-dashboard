@@ -3,9 +3,8 @@
 """package_release.py —— 打一个可以拷进 U 盘的发布包。
 
 产出（默认在 dist/）：
-  icbc-dashboard/                      目录（固定名字，版本看里面的 VERSION）
-  icbc-dashboard.tar.gz                初版（--seed）用这个名字，不带版本后缀
-  icbc-dashboard-<版本>.tar.gz          升级包用这个名字
+  icbc-dashboard-<版本>/               目录（**带版本号**，新旧版本各占一个，互不覆盖）
+  icbc-dashboard-<版本>.tar.gz         压缩包（同样带版本号）
   *.sha256                             校验用（拷到内网机后先核对）
 
 版本号取仓库根目录的 `VERSION`（语义化：0.1.0 → 0.1.1 …），构建信息写 `BUILD`（日期-git短sha）。
@@ -179,7 +178,7 @@ def main() -> None:
         print('!! 警告：工作区是 dirty 状态，包内含未提交改动', file=sys.stderr)
 
     DIST.mkdir(exist_ok=True)
-    stage = DIST / NAME                      # 目录名始终是 icbc-dashboard，版本在 VERSION 里
+    stage = DIST / f'{NAME}-{version}'       # 带版本号：不同版本各占一个目录，不会互相覆盖
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
@@ -225,12 +224,14 @@ def main() -> None:
     seed_note = ('\n本包带初始数据（seed/）：首次安装会把它导入到 shared/data/；\n'
                  '目标机已有数据库时不会覆盖。\n') if a.seed else ''
     (stage / 'HOW-TO-INSTALL.txt').write_text(
-        '整个目录名固定是 icbc-dashboard，版本看 VERSION。\n'
-        '把目录（或 tar.gz）拷到内网机后执行：\n'
+        f'版本 {version}（构建 {build}）\n\n'
+        '把整个目录（或 tar.gz）拷到内网机，然后执行：\n'
         f'  bash {stage.name}/deploy/install.sh {stage.name}\n'
-        '以后升级（新包）执行：\n'
-        f'  bash ~/icbc-dashboard/bin/update.sh {stage.name}-<版本>.tar.gz\n'
+        '以后升级（新版本包）：\n'
+        f'  bash ~/icbc-dashboard/bin/update.sh {stage.name}.tar.gz\n'
         + seed_note +
+        '装到目标机的布局（不是在包里）：\n'
+        '  ~/icbc-dashboard/{current -> releases/<版本>, shared/data, bin}\n'
         '日常运维全部在 ~/icbc-dashboard/bin/ 下：status / start / stop / restart / backup / export-db\n',
         'utf-8')
 
@@ -239,7 +240,7 @@ def main() -> None:
     print(f'目录：{stage}  （{size / 1048576:.1f} MB）')
 
     if not a.no_tar:
-        tar_path = DIST / (f'{NAME}.tar.gz' if a.seed else f'{NAME}-{version}.tar.gz')
+        tar_path = DIST / f'{NAME}-{version}.tar.gz'
         tar_path.unlink(missing_ok=True)
         with tarfile.open(tar_path, 'w:gz') as tf:
             tf.add(stage, arcname=stage.name)
