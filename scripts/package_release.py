@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -128,19 +129,27 @@ def main() -> None:
 
     if a.runtime:
         rt = Path(a.runtime).expanduser().resolve()
-        py = rt / 'bin' / 'python3'
-        if not py.exists():
-            print(f'!! 运行时里找不到 {py}', file=sys.stderr)
+        entry = rt / 'bin' / 'python3'
+        if not entry.exists():
+            print(f'!! 运行时里找不到 {entry}', file=sys.stderr)
             sys.exit(2)
-        real = elf_arch(py)
+        real = elf_arch(entry)
         if real != a.arch:
             print(f'!! 运行时架构是 {real}，与 --arch {a.arch} 不一致（拷到目标机会跑不起来）',
                   file=sys.stderr)
             sys.exit(2)
-        copy_tree(rt, stage / 'runtime')
+        # 便携运行时里 bin/python3 通常是指向 python3.x 的软链；U 盘（exFAT）会存坏软链，
+        # 所以直接不复制它，改成在 PYTHON 文件里写明真实入口，少一份 20+MB 的重复二进制。
+        real_entry = Path(os.path.realpath(entry)).relative_to(rt).as_posix()
+        def ignore_runtime(d, names):
+            # 只跳过"软链形式的 bin/python3"；真实文件要留着（打包机可能已经解引用过）
+            if Path(d).name == 'bin' and (Path(d) / 'python3').is_symlink():
+                return {'python3'}
+            return set()
+        shutil.copytree(rt, stage / 'runtime', ignore=ignore_runtime, dirs_exist_ok=True)
         (stage / 'runtime' / 'ARCH').write_text(a.arch + '\n', 'utf-8')
-        (stage / 'runtime' / 'PYTHON').write_text('bin/python3\n', 'utf-8')
-        print(f'  运行时：{rt} → runtime/（{a.arch}）')
+        (stage / 'runtime' / 'PYTHON').write_text(real_entry + '\n', 'utf-8')
+        print(f'  运行时：{rt} → runtime/（{a.arch}，入口 {real_entry}）')
 
     (stage / 'VERSION').write_text(version + '\n', 'utf-8')
     # 给目录里加一句怎么装，免得 U 盘里翻文档

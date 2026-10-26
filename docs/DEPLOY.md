@@ -129,7 +129,22 @@ bash ~/icbc-dashboard/bin/export-db.sh /media/usb # → icbc-<时间戳>.db + .j
 
 `.db` 可以直接在内网机或开发机上用 sqlite3 打开复盘；清单里带版本、schema、各条线期数与最新日期。
 
-### 3.5 查看状态 / 起停
+### 3.5 准备内置运行时（可选，一次即可）
+
+```bash
+# 1) 取一份便携 CPython（python-build-standalone 的 install_only 包）解压
+#    当前已备好：~/.cache/icbc-python/runtime-arm64（3.12.15，aarch64，glibc>=2.17，56 MB）
+# 2) 裁剪（去 tkinter/tcl、pip/setuptools、测试与头文件），写 ARCH / PYTHON 标记
+python scripts/prepare_runtime.py --src /tmp/arm-python --out ~/.cache/icbc-python/runtime-arm64 --arch aarch64
+# 3) 打包时带上
+python scripts/package_release.py --runtime ~/.cache/icbc-python/runtime-arm64 --arch aarch64
+```
+
+`prepare_runtime.py` 会静态检查 ELF 架构和所需 glibc（当前 arm64 包只要 **GLIBC_2.17**，
+麒麟 V10 SP1 是 2.28，够用），但**不能在这里执行 arm64 二进制**——真正能不能跑由安装时的
+`selftest.py` 判定，跑不起来自动回退系统 python3。
+
+### 3.6 查看状态 / 起停
 
 ```bash
 bash ~/icbc-dashboard/bin/status.sh    # 进程、版本、健康、库大小、自检
@@ -176,7 +191,7 @@ bash ~/icbc-dashboard/bin/restart.sh
 
 | 项 | 说明 | 处理 |
 |---|---|---|
-| arm64 运行时未实测 | 开发机 x86，无法执行验证 | 首次装到机器上后用 `status.sh` 看 `解释器` 是不是 runtime；不对就删 `runtime/` 重装回退 |
+| arm64 运行时未实测 | 开发机 x86，无法执行验证；已按 `prepare_runtime.py` 裁好（glibc≥2.17） | 首次装完看 `bin/status.sh` 的"解释器"：是 runtime 就成，是系统 python3 说明自检没过（能跑，但没用到内置环境） |
 | 开机自启依赖登录 | XDG autostart 要有人登录桌面 | 若需要"无人登录也跑"，得申请 root 上 systemd |
 | Excel/CSV 导出 | 用户列为低优先级 | 待明确需要的表口径后加 `scripts/export_xlsx.py` |
 | 磁盘增长 | `imports/` 原件只增不减 | 目前 14 MB；到 GB 级再考虑保留策略 |

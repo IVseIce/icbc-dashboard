@@ -14,7 +14,9 @@ _selftest_ok() {  # $1=解释器 $2=release 目录 $3=数据目录
 pick_python() {   # 成功时把路径打到 stdout
     _rel=$1
     _data=$2
-    _bundled="$_rel/runtime/bin/python3"
+    _entry="bin/python3"
+    [ -f "$_rel/runtime/PYTHON" ] && _entry=$(tr -d ' \r\n' < "$_rel/runtime/PYTHON")
+    _bundled="$_rel/runtime/$_entry"
 
     if [ -f "$_rel/runtime/ARCH" ] && [ -x "$_bundled" ]; then
         _arch=$(cat "$_rel/runtime/ARCH" 2>/dev/null)
