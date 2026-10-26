@@ -4,11 +4,11 @@
 |---|---|
 | 板块 / 分组 | 个人金融 / 增存 |
 | 类型 | 数据模块（metric） |
-| 数据源 | ①客编资产明细（客编 / 基期·末期资产·存款 / 月日均 / 数据日期）②客编→支行/网点映射（客编 / 支行 / 网点） |
+| 数据源 | **只需一张**：客编资产明细（客编 / 基期·末期资产·存款 / 月日均 / 数据日期）。客编→支行/网点映射**已内置**（`src/report/assets/downgrade_map.json`，1749 条） |
 | 粒度 | 支行（8 家）+ 网点（40 个） |
 | 频率 | 旬（每旬一期，含基期与末期两个时点） |
 | as_of | 明细表里的 **数据日期**（= 基期）；末期 = 基期 + 6 天 |
-| 导入 | `viz.import_downgrade` → `IMPORTERS['jjwh']`；两份表按表头自动分辨角色 |
+| 导入 | `viz.import_downgrade` → `IMPORTERS['jjwh']`；只传明细表即可，误传映射表会被忽略并提示 |
 | 视图 | `api.build_downgrade` → `BUILDERS['downgrade']`、`LINE_OF['downgrade']='jjwh'` |
 | 页面 | `pages/downgrade.js`，路由 `#/m/jg-deposit-jiangji` |
 | 通报 | `report.build_downgrade` / `downgrade_xlsx`；`CAT_OF['downgrade']='jg'`；母版 `downgrade_base.xlsx`（通报 + 网点明细 双 sheet） |
@@ -22,7 +22,7 @@
 | `基期资产` / `末期资产` | `asset` | 两者相减后 ÷10000 得万元 |
 | `基期存款` / `末期存款` | `dep` | 同上 |
 | `数据日期` | `as_of` / `base_date` | 一期只有一个日期，多个会报错 |
-| 映射表 `支行` / `网点` | `branch` / `net` | 网点归支行；`支行营业室` 与 `支行` 都算实体网点 |
+| 内置映射 `支行` / `网点` | `branch` / `net` | 网点归支行；`XX支行营业室` 与 `XX支行` 都算实体网点 |
 
 ## 口径（2026-10-26 与业务确认）
 
@@ -47,7 +47,7 @@
 
 1. `src/ingest/downgrade.py`（口径全在里面，顶部注释就是规格）
 2. `src/server/report.py::build_downgrade / downgrade_xlsx`
-3. `src/report/assets/downgrade_base.xlsx`（两个 sheet 的行区间）
+3. `src/report/assets/downgrade_base.xlsx`（两个 sheet 的行区间：通报左表 4..11+合计12、右表 4..8；明细 3..）
 4. `src/web/assets/js/pages/downgrade.js`
 
 ## 数据核对（首期 0914-0920）

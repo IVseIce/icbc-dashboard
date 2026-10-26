@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """downgrade.py —— 降级挽回：客编级资产/存款变化 → 支行 / 网点汇总与排行。
 
-两张源表：
-  A 明细：客编, 基期资产, 基期存款, 基期月日均资产, 基期月日均存款,
-          末期资产, 末期存款, 末期月日均资产, 末期月日均存款, 数据日期
-  B 映射：客编, 支行, 网点
+源数据只有一张表：
+  明细：客编, 基期资产, 基期存款, 基期月日均资产, 基期月日均存款,
+        末期资产, 末期存款, 末期月日均资产, 末期月日均存款, 数据日期
+客编 → 支行/网点 的映射是**固定的**，已内置在 src/report/assets/downgrade_map.json，
+不再需要每次上传（新增客编时才需要更新那份 json）。
 
 口径（2026-10-26 与业务确认）：
   * 用**时点**列：本旬提升 = 末期 − 基期（元 → 万元）
@@ -18,9 +19,12 @@
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date, timedelta
+from pathlib import Path
 
+MAP_PATH = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'downgrade_map.json'
 EXCLUDE_SUFFIX = ('部',)          # 运行管理部这类非营业网点
 REPORT_SHIFT = 1                  # 通报期间相对数据日期整体后移的天数
 SPAN_DAYS = 6                     # 末期 = 基期 + 6
@@ -68,34 +72,48 @@ def _header_index(rows: list[list], must: tuple[str, ...]) -> int | None:
     return None
 
 
+_MAP_CACHE: dict | None = None
+
+
+def builtin_mapping() -> dict[str, tuple[str, str]]:
+    """内置的 客编 → (支行, 网点) 映射。"""
+    global _MAP_CACHE
+    if _MAP_CACHE is None:
+        rows = json.loads(MAP_PATH.read_text('utf-8'))
+        _MAP_CACHE = {r[0]: (r[1], r[2]) for r in rows if r and r[0]}
+    return _MAP_CACHE
+
+
 def is_entity_net(name: str) -> bool:
     """实体营业网点：以"支行 / 营业室"结尾。"""
     n = (name or '').strip()
     return bool(n) and not n.endswith(EXCLUDE_SUFFIX) and (n.endswith('支行') or n.endswith('营业室'))
 
 
-def parse(data_rows: list[list], map_rows: list[list], as_of: str | None = None) -> dict:
-    """data_rows / map_rows 都是二维表（含表头）。返回快照 dict。"""
+def parse(data_rows: list[list], map_rows: list[list] | None = None,
+          as_of: str | None = None, mapping: dict | None = None) -> dict:
+    """明细行 + 映射（不传则用内置的 downgrade_map.json）。返回快照 dict。"""
     di = _header_index(data_rows, ('客编', '基期资产', '末期资产'))
-    mi = _header_index(map_rows, ('客编', '支行', '网点'))
     if di is None:
         raise ValueError('明细表缺少「客编 / 基期资产 / 末期资产」列')
-    if mi is None:
-        raise ValueError('映射表缺少「客编 / 支行 / 网点」列')
 
     dh = [str(c).strip() if c is not None else '' for c in data_rows[di]]
-    mh = [str(c).strip() if c is not None else '' for c in map_rows[mi]]
     col = {name: i for i, name in enumerate(dh)}
-    mcol = {name: i for i, name in enumerate(mh)}
 
-    mapping: dict[str, tuple[str, str]] = {}
-    for row in map_rows[mi + 1:]:
-        if not row or row[mcol['客编']] in (None, ''):
-            continue
-        key = str(row[mcol['客编']]).strip()
-        if not key:
-            continue
-        mapping[key] = (str(row[mcol['支行']]).strip(), str(row[mcol['网点']]).strip())
+    if mapping is None:
+        mapping = builtin_mapping() if map_rows is None else {}
+        if map_rows is not None:
+            mi = _header_index(map_rows, ('客编', '支行', '网点'))
+            if mi is None:
+                raise ValueError('映射表缺少「客编 / 支行 / 网点」列')
+            mcol = {name: i for i, name in enumerate(
+                str(c).strip() if c is not None else '' for c in map_rows[mi])}
+            for row in map_rows[mi + 1:]:
+                if not row or row[mcol['客编']] in (None, ''):
+                    continue
+                key = str(row[mcol['客编']]).strip()
+                if key:
+                    mapping[key] = (str(row[mcol['支行']]).strip(), str(row[mcol['网点']]).strip())
 
     # 网点 → 支行（只保留实体网点）
     nets_of: dict[str, set] = defaultdict(set)
@@ -222,29 +240,29 @@ def parse(data_rows: list[list], map_rows: list[list], as_of: str | None = None)
 
 
 def parse_files(files, as_of: str | None = None) -> tuple[str, dict]:
-    """从上传的两个文件里自动分辨「明细表」与「客编映射表」。"""
+    """只收一张明细表；映射用内置的。若误传了映射表，自动忽略。"""
     from ingest import readers
 
-    data_tbl = data_name = None
-    map_tbl = map_name = None
+    data_tbl = None
     used = []
+    extra_map = None
     for name, blob in files:
         rows = readers.read_table(blob, name)
         head = ' '.join(str(c) for c in (rows[0] if rows else [])[:12])
-        if '支行' in head and '网点' in head:
-            map_tbl, map_name = rows, name
-            used.append({'name': name, 'role': '客编 → 支行/网点 映射'})
-        elif '基期' in head and '末期' in head:
-            data_tbl, data_name = rows, name
+        if '基期' in head and '末期' in head:
+            data_tbl = rows
             used.append({'name': name, 'role': '客编资产/存款明细'})
+        elif '支行' in head and '网点' in head:
+            extra_map = rows
+            used.append({'name': name, 'role': '映射表已内置，忽略该文件'})
         else:
             used.append({'name': name, 'role': '未识别（忽略）'})
 
     if data_tbl is None:
         raise ValueError('没有找到明细表（需含 客编 / 基期资产 / 末期资产 列）')
-    if map_tbl is None:
-        raise ValueError('没有找到客编映射表（需含 客编 / 支行 / 网点 列）')
 
-    snap = parse(data_tbl, map_tbl, as_of=as_of)
+    snap = parse(data_tbl, extra_map, as_of=as_of)
     snap['_files'] = used
+    if extra_map is None:
+        snap['_notes'].append('客编映射使用内置表（src/report/assets/downgrade_map.json）')
     return snap['as_of'], snap

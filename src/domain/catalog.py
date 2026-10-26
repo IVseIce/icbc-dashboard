@@ -27,7 +27,7 @@ PROFESSIONALS = [
                     {'id': 'jg-deposit-waihang', 'name': '行外吸金', 'kind': 'placeholder', 'group': '增存',
                      'desc': '行外资金流入、他行转介（待接入）'},
                     {'id': 'jg-deposit-jiangji', 'name': '降级挽回', 'page': 'downgrade', 'kind': 'metric',
-                     'source': '客编资产明细 + 客编→支行/网点映射', 'level': '支行 + 网点',
+                     'source': '客编资产明细（客编→支行/网点映射已内置）', 'level': '支行 + 网点',
                      'freq': '旬', 'as_line': 'jjwh', 'group': '增存',
                      'desc': '本旬资产/存款提升、网均与头部尾部网点'},
                     {'id': 'jg-deposit-team', 'name': '经理队伍', 'kind': 'placeholder', 'group': '增存',

@@ -444,6 +444,7 @@ def build_downgrade(on: str | None = None) -> dict:
 
 
 def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    """按正式成表（0914-0920 那份）的版式写数：左 8 支行 + 合计，右 5 个先锋网点。"""
     import openpyxl
     d = build_downgrade(on)
     if not d.get('ok'):
@@ -452,51 +453,44 @@ def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
     ws = wb['通报']
     ws['A1'] = d['title']
 
-    # 左表：8 家支行，4..11 行；第 12 行合计
+    # 左表：4..11 行 = 8 家支行（按综合评分名次），12 行合计（A12:B12 已合并）
     br = d['tables'][0]
     by_rank = {b['rank']: b for b in br['rows']}
     for r in range(4, 12):
         rec = by_rank.get(r - 3)
         if not rec:
             continue
-        vals = [rec['rank'], rec['name'], rec['nets'], rec['score'], rec['asset'],
-                rec['asset_avg'], rec['dep'], rec['dep_avg']]
-        for ci, v in enumerate(vals, start=1):
-            cell = ws.cell(row=r, column=ci, value=v)
-            if ci >= 4:
-                cell.number_format = '#,##0.0'
+        for ci, v in enumerate([rec['rank'], rec['name'], rec['nets'], rec['score'],
+                                rec['asset'], rec['asset_avg'], rec['dep'], rec['dep_avg']],
+                               start=1):
+            ws.cell(row=r, column=ci, value=v)
         hl = rec.get('hl')
         if hl:
-            color = 'FFF2A8' if hl == 'yellow' else 'C6E0B4'
-            ws.cell(row=r, column=4).fill = openpyxl.styles.PatternFill('solid', fgColor=color)
+            ws.cell(row=r, column=4).fill = openpyxl.styles.PatternFill(
+                'solid', fgColor='FFF2A8' if hl == 'yellow' else 'C6E0B4')
 
     t = br['totals']
-    for ci, v in enumerate([t['name'], t['nets'], t['score'], t['asset'], t['asset_avg'],
-                            t['dep'], t['dep_avg']], start=1):
-        cell = ws.cell(row=12, column=ci, value=v)
-        if ci >= 3:
-            cell.number_format = '#,##0.0'
+    for ci, v in enumerate([None, None, t['nets'], t['score'], t['asset'],
+                            t['asset_avg'], t['dep'], t['dep_avg']], start=1):
+        if v is not None:
+            ws.cell(row=12, column=ci, value=v)
 
-    # 右表：营销先锋 5 行，4..8
-    top = d['tables'][1]['rows'][:5]
-    for i, rec in enumerate(top):
+    # 右表：4..8 行 = 营销先锋前 5
+    for i, rec in enumerate(d['tables'][1]['rows'][:5]):
         r = 4 + i
         ws.cell(row=r, column=9, value=rec['rank'])
         ws.cell(row=r, column=10, value=rec['name'])
-        c11 = ws.cell(row=r, column=11, value=rec['asset']); c11.number_format = '#,##0.0'
-        c12 = ws.cell(row=r, column=12, value=rec['dep']); c12.number_format = '#,##0.0'
+        ws.cell(row=r, column=11, value=rec['asset'])
+        ws.cell(row=r, column=12, value=rec['dep'])
 
     # 第二个 sheet：网点明细（按支行分组，组内资产降序）
     ws2 = wb['网点明细']
     ws2['A1'] = f'阜阳分行“降级挽回”网点明细（{d["period"]["label"]}）'
-    rows = d['tables'][2]['rows']
-    for i, rec in enumerate(rows):
+    for i, rec in enumerate(d['tables'][2]['rows']):
         r = 3 + i
-        vals = [rec['branch'], rec['net'], rec['customers'], rec['asset'], rec['dep'], rec['score']]
-        for ci, v in enumerate(vals, start=1):
-            cell = ws2.cell(row=r, column=ci, value=v)
-            if ci >= 3:
-                cell.number_format = '#,##0.0'
+        for ci, v in enumerate([rec['branch'], rec['net'], rec['customers'],
+                                rec['asset'], rec['dep'], rec['score']], start=1):
+            ws2.cell(row=r, column=ci, value=v)
 
     buf = io.BytesIO()
     wb.save(buf)
