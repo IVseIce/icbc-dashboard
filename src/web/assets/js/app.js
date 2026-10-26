@@ -54,7 +54,11 @@ function paintChrome() {
   const side = document.getElementById('sideStatus');
   if (side) side.textContent = `${ok}/${Object.keys(lines).length} 个条线已就绪`;
   const ver = document.getElementById('sideVer');
-  if (ver) ver.textContent = state.catalog?.version ? `v${state.catalog.version}` : '';
+  if (ver) {
+    ver.textContent = state.catalog?.version ? `v${state.catalog.version}` : '';
+    // 悬停可以看到构建号与浏览器信息（内网机排查"某台机器显示不对"时很有用）
+    ver.title = `build ${state.catalog?.build || 'dev'}\n${navigator.userAgent}`;
+  }
   const pick = document.getElementById('datePick');
   const mpick = document.getElementById('monthPick');
   if (pick) {
@@ -363,12 +367,20 @@ async function startGate(r, force = false) {
   if (state.gating) return;
   state.gating = true;
   const label = r.name === 'report' ? '通报中心' : '导入数据';
-  const ok = await askPassword({
-    title: `${label} · 身份验证`,
-    sub: '输入分管大类的口令进入；管理员口令可访问全部',
-    note: '五大类口令 → 对应大类，均可看「重点项目」<br>管理员口令 → 全部大类',
-  });
-  state.gating = false;
+  let ok = false;
+  try {
+    ok = await askPassword({
+      title: `${label} · 身份验证`,
+      sub: '输入分管大类的口令进入；管理员口令可访问全部',
+      note: '五大类口令 → 对应大类，均可看「重点项目」<br>管理员口令 → 全部大类',
+    });
+  } catch (err) {
+    // 弹窗都建不起来时，至少别把 gating 卡死（否则之后点"输入口令"永远没反应）
+    console.error('[auth] 口令框异常', err);
+    toast('验证窗口没能打开，请刷新页面重试', 'err');
+  } finally {
+    state.gating = false;
+  }
   if (ok) {
     renderNav();
     render();

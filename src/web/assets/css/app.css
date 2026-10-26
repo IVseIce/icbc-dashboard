@@ -178,7 +178,7 @@ button{font-family:inherit}
 .delta.up{color:var(--red)}      /* 银行口径：红涨 */
 .delta.down{color:var(--green)}  /* 绿跌 */
 .delta.flat{color:var(--ink-3)}
-.heroline{position:absolute;inset:0 0 auto 0;height:3px;background:var(--accent,var(--blue));opacity:.9}
+.heroline{position:absolute;top:0;right:0;left:0;height:3px;background:var(--accent,var(--blue));opacity:.9}
 
 /* 重点卡片（首页两大块） */
 .hero-card{padding:20px 20px 8px;display:flex;flex-direction:column}
@@ -269,7 +269,7 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .result ul{margin:8px 0 0;padding-left:18px;color:var(--ink-2)}
 
 /* ============================== 抽屉 ============================== */
-.drawer-mask{position:fixed;inset:0;background:rgba(11,18,32,.42);backdrop-filter:blur(2px);z-index:60;
+.drawer-mask{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(11,18,32,.42);backdrop-filter:blur(2px);z-index:60;
   opacity:0;pointer-events:none;transition:opacity .25s var(--ease)}
 .drawer-mask.on{opacity:1;pointer-events:auto}
 .drawer{position:fixed;top:0;right:0;height:100vh;width:min(460px,100%);background:#fff;z-index:61;
@@ -291,7 +291,7 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 .toast.err{background:#8f0f24}
 
-.boot{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;
+.boot{position:fixed;top:0;right:0;bottom:0;left:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:16px;z-index:90;transition:opacity .4s var(--ease)}
 .boot.gone{opacity:0;pointer-events:none;visibility:hidden;transition:opacity .3s var(--ease), visibility 0s .3s}
 .boot-mark{width:56px;height:56px;border-radius:16px;background:linear-gradient(145deg,#e01634,#a30c24);
@@ -321,9 +321,10 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 }
 
 /* ============================== 全屏大表 ============================== */
-.table-modal{position:fixed;inset:0;z-index:70;background:rgba(11,18,32,.5);backdrop-filter:blur(3px);
-  display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;transition:opacity .22s var(--ease)}
-.table-modal.on{opacity:1}
+.table-modal{position:fixed;top:0;right:0;bottom:0;left:0;z-index:70;background:rgba(11,18,32,.5);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;pointer-events:none;
+  transition:opacity .22s var(--ease)}
+.table-modal.on{opacity:1;pointer-events:auto}
 .tm-panel{background:#fff;border-radius:18px;width:min(1400px,96vw);max-height:92vh;display:flex;flex-direction:column;
   box-shadow:0 40px 90px -30px rgba(11,18,32,.5);transform:translateY(10px) scale(.99);transition:transform .24s var(--ease);
   overflow:hidden}
@@ -575,13 +576,15 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .nav-lock{margin-left:auto;display:inline-flex;color:#5f7392}
 
 /* 口令框 */
-.gate-mask{position:fixed;inset:0;z-index:78;background:rgba(11,18,32,.5);backdrop-filter:blur(5px);
-  display:grid;place-items:center;padding:20px;opacity:0;transition:opacity .22s var(--ease)}
-.gate-mask.on{opacity:1}
-.gate-card{position:relative;background:#fff;border-radius:20px;width:min(428px,100%);padding:28px 26px 20px;
-  box-shadow:0 44px 90px -30px rgba(11,18,32,.55);transform:translateY(12px) scale(.985);
-  transition:transform .24s var(--ease)}
-.gate-mask.on .gate-card{transform:none}
+.gate-mask{position:fixed;top:0;right:0;bottom:0;left:0;z-index:78;
+  background:rgba(11,18,32,.5);backdrop-filter:blur(5px);
+  display:flex;align-items:center;justify-content:center;padding:20px}
+/* 注意：这层不要用 opacity 动画——老内核里动画/合成层一旦没跑起来，
+   会导致"遮罩透明但挡住点击"的假死现象。要动效只动里面的卡片位移。 */
+.gate-card{position:relative;background:#fff;border-radius:20px;width:428px;max-width:100%;padding:28px 26px 20px;
+  box-shadow:0 44px 90px -30px rgba(11,18,32,.55);
+  animation:gateCardIn .22s var(--ease) both}
+@keyframes gateCardIn{from{transform:translateY(10px) scale(.99)}to{transform:none}}
 .gate-card.wide{width:min(590px,100%)}
 .gate-card.shake{animation:gateShake .42s var(--ease)}
 @keyframes gateShake{0%,100%{transform:none}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}

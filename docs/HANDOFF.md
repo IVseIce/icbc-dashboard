@@ -362,6 +362,18 @@ icbc-dashboard/
 31. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
 32. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
 
+### 8.7 老浏览器兼容（内网机踩过）
+
+33. **不要用 `inset` 简写**：目标机有一台的 Chromium 内核在 84–86 之间，不认 `inset`，
+   所有 `position:fixed` 浮层会掉到文档流末尾（看不见、点不到）。已改成
+   `top/right/bottom/left` 四边；新增浮层也照这个写。
+34. **浮层可见性不要依赖"JS 加 `.on` + opacity 动画"**：动画/合成层没跑起来时会出现
+   "遮罩透明但仍挡住点击"的假死（症状：按钮点了没反应）。口令框现在默认不透明，
+   动效只做卡片位移；添加浮层时按同样方式。
+35. 快速判断：`getComputedStyle(mask).opacity === '0'` 且 rect 覆盖全屏 = 假死；
+   rect 为 0 或在视口外 = 布局没生效（`inset` 这类问题）。左下角版本号悬停能看到
+   `build` 与 `navigator.userAgent`，让对方发个截图即可定位内核。
+
 ---
 
 ## 9. 当前状态 / 卡在哪

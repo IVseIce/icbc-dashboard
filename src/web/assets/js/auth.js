@@ -74,7 +74,6 @@ export function askPassword({ title = '身份验证', sub = '', note = '' } = {}
       </div>`;
     document.body.appendChild(mask);
     maskEl = mask;
-    requestAnimationFrame(() => mask.classList.add('on'));
 
     const input = mask.querySelector('#gateInput');
     const go = mask.querySelector('#gateGo');
@@ -85,8 +84,7 @@ export function askPassword({ title = '身份验证', sub = '', note = '' } = {}
       if (done) return;
       done = true;
       document.removeEventListener('keydown', esc);
-      mask.classList.remove('on');
-      setTimeout(() => mask.remove(), 220);
+      mask.remove();
       if (maskEl === mask) maskEl = null;
       resolve(ok);
     };
@@ -169,12 +167,10 @@ export function openPasswordManager(roles) {
     </div>`;
   document.body.appendChild(mask);
   maskEl = mask;
-  requestAnimationFrame(() => mask.classList.add('on'));
 
   const close = () => {
     document.removeEventListener('keydown', esc);
-    mask.classList.remove('on');
-    setTimeout(() => mask.remove(), 220);
+    mask.remove();
     if (maskEl === mask) maskEl = null;
   };
   mask.querySelector('.gate-x').onclick = close;
