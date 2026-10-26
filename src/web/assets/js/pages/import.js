@@ -84,8 +84,10 @@ export default {
       .flatMap((p) => p.groups).flatMap((g) => g.modules || [])
       .map((m) => m.as_line).filter(Boolean));
 
-    // ---------- ① 大类
-    profGrid.innerHTML = cat.professionals.map((p) => {
+    // ---------- ① 大类（没有模块的板块，比如"实用工具"，不在这里出现）
+    const uploadable = cat.professionals.filter((p) => p.upload !== false
+      && (p.groups || []).some((g) => (g.modules || []).length));
+    profGrid.innerHTML = uploadable.map((p) => {
       const ok = canSee(p);
       return `<div class="line-pick ${ok ? '' : 'locked'}" data-id="${p.id}">
         <b>${p.short || p.name}${ok ? '' : ` <em class="lp-lock">${LOCK}</em>`}</b>

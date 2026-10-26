@@ -110,6 +110,17 @@ PROFESSIONALS = [
         ]}],
     },
     {
+        'id': 'tool', 'name': '实用工具', 'short': '工具', 'color': 'slate', 'status': 'active',
+        'upload': False,                      # 工具类不与数据条线挂钩，导入页不显示
+        'desc': '常用小工具',
+        'groups': [{'id': 'tool-main', 'name': '实用工具', 'status': 'active', 'modules': [
+            {'id': 'tool-date-diff', 'name': '时日差计算', 'page': 'tool', 'kind': 'tool',
+             'group': '实用工具', 'desc': '待实现'},
+            {'id': 'tool-deviation', 'name': '偏离度计算', 'page': 'tool', 'kind': 'tool',
+             'group': '实用工具', 'desc': '待实现'},
+        ]}],
+    },
+    {
         'id': 'project', 'name': '重点项目', 'short': '重点项目', 'color': 'green', 'status': 'active',
         'desc': '方案推进与专项攻坚',
         'groups': [

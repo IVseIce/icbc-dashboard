@@ -3,7 +3,7 @@ export const PALETTE = ['#c8102e', '#2563eb', '#0ea5a5', '#e8960c', '#7c5cff', '
 export const C = {
   red: '#c8102e', blue: '#2563eb', teal: '#0ea5a5', amber: '#e8960c',
   violet: '#7c5cff', green: '#12a06a', ink: '#0d1b31', ink2: '#3d4c63',
-  ink3: '#8494ab', line: '#eef1f7', grid: '#eef1f7',
+  ink3: '#8494ab', line: '#eef1f7', grid: '#eef1f7', slate: '#64748b',
 };
 
 const FONT = '"Inter","Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif';

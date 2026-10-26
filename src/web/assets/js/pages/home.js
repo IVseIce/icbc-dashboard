@@ -3,7 +3,7 @@
 import { fmt, icon, countUp } from '../ui.js';
 import { sparkline, C } from '../charts.js';
 
-const COLORS = { violet: C.violet, blue: C.blue, teal: C.teal, red: C.red, amber: C.amber, green: C.green };
+const COLORS = { violet: C.violet, blue: C.blue, teal: C.teal, red: C.red, amber: C.amber, green: C.green, slate: C.slate };
 
 export default {
   id: 'home',
@@ -27,10 +27,11 @@ export default {
         ${heroCard(byId.wj, L, 'wj')}
       </div>
 
-      <div class="grid g3" style="margin-top:16px" id="secondRow">
+      <div class="grid g4" style="margin-top:16px" id="secondRow">
         ${smallCard(byId.loan, 'loan')}
         ${smallCard(byId.card, 'card')}
         ${smallCard(byId.pbs, 'pbs')}
+        ${smallCard(byId.tool, 'tool')}
       </div>
 
       <div style="margin-top:16px">${projectCard(byId.project)}</div>
@@ -121,11 +122,15 @@ function smallCard(p, type) {
     <div class="prof-head">
       <span class="prof-dot" style="background:${color}"></span>
       <b>${p.name}</b>
-      <span class="chip" style="margin-left:auto">${p.status === 'active' ? '已接入' : '框架'}</span>
+      <span class="chip" style="margin-left:auto">${
+        !mods.length ? '待补充'
+        : mods.every((m) => m.kind === 'tool') ? '工具'
+        : (p.status === 'active' ? '已接入' : '框架')}</span>
     </div>
     <div class="prof-desc">${p.desc || ''}</div>
     <div class="mini-plan">
-      ${mods.slice(0, 2).map((m) => `<span><i></i>${m.name}</span>`).join('')}
+      ${mods.length ? mods.slice(0, 3).map((m) => `<span><i></i>${m.name}</span>`).join('')
+                    : '<span><i></i>先留空</span>'}
     </div>
     ${p.groups.length > 1 || p.groups[0]?.name !== p.name ? `<div class="prof-groups">
       ${p.groups.map((g) => `<span class="chip">${g.name}</span>`).join('')}
@@ -193,6 +198,7 @@ function noteCard() {
       <div>· 个金按 <b>增存 / 增客 / 增收</b> 组织，共 12 个模块</div>
       <div>· 网金含 <b>线上服务 / 数币 / 企微</b>，企微同时是重点项目</div>
       <div>· 个贷 / 银行卡 / 私银已留框架，数据接入后自动出现</div>
+      <div>· 实用工具：时日差 / 偏离度计算，待实现</div>
       <div style="margin-top:8px"><span class="chip">红=增长 / 绿=下降（银行口径）</span></div>
     </div>
   </div>`;

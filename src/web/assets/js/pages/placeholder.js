@@ -27,31 +27,41 @@ export function modulePlaceholder(view, { prof, group, module }) {
     </div>`;
 }
 
+const toolsOnly = (mods) => mods.length > 0 && mods.every((m) => m.kind === 'tool');
+
 export function browse(view, { prof, group, catalog }) {
   const groups = group ? [group] : prof.groups;
   const mods = groups.flatMap((g) => (g.modules || []).map((m) => ({ ...m, _group: g.name })));
   view.innerHTML = `
     <div class="page-head">
       <div><h1>${prof.name}${group ? ' · ' + group.name : ''}</h1>
-        <p>${prof.desc || ''} · ${mods.length} 个模块</p></div>
+        <p>${prof.desc || ''} · ${mods.length ? mods.length + ' 个模块' : '暂时留空'}</p></div>
       <div class="spacer"></div>
-      <span class="chip ${prof.status === 'active' ? 'green' : ''}">${prof.status === 'active' ? '已接入' : '框架预留'}</span>
+      <span class="chip ${mods.length && prof.status === 'active' && !toolsOnly(mods) ? 'green' : ''}">${
+        !mods.length ? '待补充'
+        : toolsOnly(mods) ? '工具'
+        : (prof.status === 'active' ? '已接入' : '框架预留')}</span>
     </div>
-    <div class="grid g2">
+    ${mods.length ? `<div class="grid g2">
       ${mods.map((m) => `
         <div class="card clickable" data-go="#/m/${m.id}">
           <div class="card-head">
             <h3>${m.name}</h3>
             <div class="right"><span class="chip ${m.kind === 'metric' ? 'green' : ''}">
-              ${m.kind === 'metric' ? '已接入' : '待接入'}</span></div>
+              ${m.kind === 'metric' ? '已接入' : m.kind === 'tool' ? '开发中' : '待接入'}</span></div>
           </div>
           <div style="color:var(--ink-2);font-size:12.5px;min-height:38px">${m.desc || ''}</div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            ${m._group ? `<span class="chip">${m._group}</span>` : ''}
+            ${m._group && m._group !== prof.name ? `<span class="chip">${m._group}</span>` : ''}
             ${m.level ? `<span class="chip">${m.level}</span>` : ''}
             ${m.freq ? `<span class="chip">${m.freq}</span>` : ''}
           </div>
         </div>`).join('')}
-    </div>`;
+    </div>` : `<div class="card"><div class="empty" style="padding:56px 20px">
+        <b style="font-size:15px">${prof.name} · 先留空</b>
+        <p style="margin:8px 0 0;color:var(--ink-3)">
+          这一块暂时没有模块，后续把常用的小工具放进来即可（在 catalog.py 里加模块）。
+        </p>
+      </div></div>`}`;
   view.querySelectorAll('[data-go]').forEach((el) => { el.onclick = () => { location.hash = el.dataset.go; }; });
 }

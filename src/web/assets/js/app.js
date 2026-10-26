@@ -17,9 +17,17 @@ import fivecards from './pages/fivecards.js';
 import importer from './pages/import.js';
 import report from './pages/report.js';
 import jgPage from './pages/jg.js';
+import toolPage from './pages/tool.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 
-const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards };
+const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards, tool: toolPage };
+
+/** 模块角标：数据页看是否接入，工具页是"开发中" */
+function modBadge(m) {
+  if (m.kind === 'metric') return '';
+  if (m.kind === 'tool') return '<em class="nav-badge">开发中</em>';
+  return '<em class="nav-badge">待接入</em>';
+}
 const GATED = new Set(['report', 'upload']);
 
 const state = { catalog: null, data: null, date: null, mode: 'day',
@@ -101,11 +109,15 @@ function asofFor(r, iso) {
   if (r.name === 'module') {
     const hit = findModule(r.id);
     if (!hit) return '—';
+    if (hit.module.kind === 'tool') return '工具 · 无数据时点';
     if (hit.module.kind !== 'metric' || !hit.module.as_line) return '未接入数据';
     return iso ? `数据截至 ${fmt.date(iso)}${suffix}` : '暂无数据';
   }
   if (r.name === 'prof' || r.name === 'group') {
-    return iso ? `数据截至 ${fmt.date(iso)}${suffix}` : '暂无数据';
+    if (iso) return `数据截至 ${fmt.date(iso)}${suffix}`;
+    const prof = state.catalog.professionals.find((p) => p.id === (r.prof || r.id));
+    const mods = (prof?.groups || []).flatMap((g) => g.modules || []);
+    return mods.length && mods.every((m) => m.kind === 'tool') ? '工具 · 无数据时点' : '暂无数据';
   }
   if (r.name === 'upload') return '各模块独立时点';
   if (r.name === 'report') return null;      // 通报页自己按取到的通报写（含"暂无"）
@@ -184,9 +196,10 @@ async function reverify() {
 
 /* ---------------------------------------------------------------- 导航 */
 function navItem(m) {
-  return `<a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${m.kind === 'metric' ? '' : 'dim'}">
+  const on = m.kind === 'metric' || m.kind === 'tool';
+  return `<a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${on ? '' : 'dim'}">
     <span class="nav-name">${m.name}</span>
-    ${m.kind === 'metric' ? '' : '<em class="nav-badge">待接入</em>'}
+    ${modBadge(m)}
   </a>`;
 }
 
@@ -254,6 +267,18 @@ function navSection(p) {
   const open = state.open.has(p.id);
   const mods = p.groups.flatMap((g) => (g.modules || []).map((m) => ({ ...m, _g: g.name })));
   const multi = !!p.nested && p.groups.length > 1;
+  if (!mods.length) {
+    // 空板块（如"实用工具"）：只给入口，不给展开箭头
+    return `
+  <div class="nav-group" data-group="${p.id}">
+    <div class="nav-cat">
+      <a class="nav-cat-link" href="#/p/${p.id}" data-cat-link="${p.id}">
+        <span class="nav-cat-name">${p.short || p.name}</span>
+        <span class="nav-count">空</span>
+      </a>
+    </div>
+  </div>`;
+  }
   return `
   <div class="nav-group ${open ? 'open' : ''}" data-group="${p.id}">
     <div class="nav-cat">
@@ -393,7 +418,7 @@ function render() {
       crumb = `<a href="#/p/${hit.prof.id}" style="color:var(--ink-3)">${hit.prof.name}</a>
         <span class="sep">/</span><b>${hit.module.name}</b>`;
       const impl = RENDERERS[hit.module.page];
-      if (impl && hit.module.kind === 'metric') impl.render(host, state.data, ctx);
+      if (impl) impl.render(host, state.data, ctx);      // 有渲染器就用（数据页/工具页）
       else modulePlaceholder(host, hit);
     } else if (r.name === 'prof') {
       const prof = state.catalog.professionals.find((p) => p.id === r.id);
