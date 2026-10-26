@@ -24,6 +24,7 @@ import re
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -157,6 +158,24 @@ def init(conn: sqlite3.Connection | None = None) -> int:
     return SCHEMA_VERSION
 
 
+@contextmanager
+def tx(conn: sqlite3.Connection | None = None):
+    """显式事务。连接是 autocommit 模式，这里 BEGIN IMMEDIATE 手动圈。"""
+    conn = conn or connect()
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        yield conn
+    except Exception:
+        conn.execute('ROLLBACK')
+        raise
+    else:
+        conn.execute('COMMIT')
+
+
+def sqlite_version() -> str:
+    return sqlite3.sqlite_version
+
+
 def _now() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -177,10 +196,12 @@ def get(key: str, default=None):
 
 
 def set_setting(key: str, value) -> None:
-    connect().execute(
-        'INSERT INTO setting(key, value, updated_at) VALUES(?,?,?) '
-        'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at',
-        (key, json.dumps(value, ensure_ascii=False), _now()))
+    raw = json.dumps(value, ensure_ascii=False)
+    now = _now()
+    with tx() as conn:
+        cur = conn.execute('UPDATE setting SET value=?, updated_at=? WHERE key=?', (raw, now, key))
+        if cur.rowcount == 0:
+            conn.execute('INSERT INTO setting(key, value, updated_at) VALUES(?,?,?)', (key, raw, now))
 
 
 # ---------------------------------------------------------------- 快照
@@ -204,17 +225,20 @@ def save_snapshot(line: str, as_of: str, snap: dict, *, source: str | None = Non
     payload = json.dumps(snap, ensure_ascii=False)
     digest = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:32]
     now = _now()
-    conn = connect()
-    conn.execute(
-        'INSERT INTO snapshot(line, as_of, month, partial, rows, payload, payload_hash, source, created_at, updated_at)'
-        ' VALUES(?,?,?,?,?,?,?,?,?,?)'
-        ' ON CONFLICT(line, as_of) DO UPDATE SET'
-        '   month=excluded.month, partial=excluded.partial, rows=excluded.rows,'
-        '   payload=excluded.payload, payload_hash=excluded.payload_hash,'
-        '   source=COALESCE(excluded.source, snapshot.source), updated_at=excluded.updated_at',
-        (line, as_of, snap.get('month'), int(bool(partial)),
-         len(snap.get('nets') or snap.get('branches') or []), payload, digest, source, now, now))
-    row = conn.execute('SELECT id FROM snapshot WHERE line=? AND as_of=?', (line, as_of)).fetchone()
+    rows_n = len(snap.get('nets') or snap.get('branches') or [])
+    # 不用 ON CONFLICT（SQLite < 3.24 没有 UPSERT）：UPDATE 命中就更新，没命中再 INSERT
+    with tx() as conn:
+        cur = conn.execute(
+            'UPDATE snapshot SET month=?, partial=?, rows=?, payload=?, payload_hash=?,'
+            ' source=COALESCE(?, source), updated_at=? WHERE line=? AND as_of=?',
+            (snap.get('month'), int(bool(partial)), rows_n, payload, digest, source, now, line, as_of))
+        if cur.rowcount == 0:
+            conn.execute(
+                'INSERT INTO snapshot(line, as_of, month, partial, rows, payload, payload_hash,'
+                ' source, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                (line, as_of, snap.get('month'), int(bool(partial)), rows_n, payload, digest,
+                 source, now, now))
+        row = conn.execute('SELECT id FROM snapshot WHERE line=? AND as_of=?', (line, as_of)).fetchone()
     _bump()
     return int(row['id'])
 
@@ -299,6 +323,7 @@ def stats() -> dict:
     return {
         'ok': True, 'db': str(db_path()),
         'schema': conn.execute('PRAGMA user_version').fetchone()[0],
+        'sqlite': sqlite3.sqlite_version,
         'size_mb': round(db_path().stat().st_size / 1048576, 2) if db_path().exists() else 0,
         'snapshots': one('SELECT COUNT(*) FROM snapshot'),
         'lines': one('SELECT COUNT(DISTINCT line) FROM snapshot'),

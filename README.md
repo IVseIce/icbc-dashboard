@@ -25,6 +25,28 @@ python scripts/backup_db.py               # 热备份到 data/backups/（不用�
 python scripts/migrate_to_sqlite.py --db-info   # 库现状
 ```
 
+## 部署（内网麒麟机）
+
+生产环境是**没有 root、没有外网**的内网 Linux，代码和数据分开放在用户目录：
+
+```
+~/icbc-dashboard/{current -> releases/<版本>, shared/data, bin}
+```
+
+```bash
+# 首次（U 盘里那个包目录）
+bash deploy/install.sh .
+# 升级（新包）
+bash deploy/update.sh .
+# 日常
+bash ~/icbc-dashboard/bin/status.sh
+bash ~/icbc-dashboard/bin/backup.sh
+bash ~/icbc-dashboard/bin/export-db.sh /media/usb
+```
+
+升级会自动备份、在库副本上预演迁移、失败自动回滚；依赖随包走（`vendor/pylib`，纯 Python），
+可选内置解释器。完整说明和取舍见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
+
 ## 目录结构
 
 ```
@@ -35,11 +57,16 @@ src/
   domain/catalog.py    目录配置：板块→分组→模块（导航/首页/上传/路由都读它）
   ingest/              readers.py（多格式读取）/ payroll.py / fivecards.py
   parsers/             5 个 icbc-* 技能的解析代码（vendor，含 assets）
+  compat.py            Python 3.8 垫片（zoneinfo），保证回退路径可用
+  version.py           版本号（打包写入 VERSION）
   report/assets/       5 份通报的"样式母版"xlsx
   web/                 前端（index.html + assets/{css,js} + vendor/；auth.js 管口令与权限）
+vendor/pylib/          纯 Python 依赖（openpyxl/xlrd/PyYAML），随包走、与架构无关
 data/                  运行时数据：icbc.db（SQLite）/ imports（原件）/ backups（git 忽略）
 scripts/               bootstrap（历史回填）、migrate_to_sqlite（旧 JSON 迁移）、
-                       backup_db（热备份）、check_report_parity（对账）
+                       backup_db（热备份）、export_db（对外导出）、selftest（自检）、
+                       package_release（打 U 盘包）、check_report_parity（对账）
+deploy/                内网机部署脚本（install / update / start / stop / status / backup）
 legacy/                v1 单文件版，仅存档，不再维护
 ```
 

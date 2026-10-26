@@ -27,7 +27,10 @@ import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import compat
 import store
+
+compat.ensure_zoneinfo()      # Python 3.8：给 vendor 技能补 zoneinfo（3.9+ 是空操作）
 
 PROJECT = Path(__file__).resolve().parent.parent
 ROOT = PROJECT / 'data'

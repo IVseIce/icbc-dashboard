@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import sys
 import traceback
 from email import policy
@@ -33,6 +34,7 @@ sys.path.insert(0, str(BASE))  # api（同目录）
 
 import api  # noqa: E402
 import auth  # noqa: E402
+from version import app_version  # noqa: E402
 import report as report_mod  # noqa: E402
 import store  # noqa: E402
 import viz  # noqa: E402
@@ -109,6 +111,7 @@ class Handler(BaseHTTPRequestHandler):
                 # 条线 → 视图模型 key（页面按模块显示"数据截至"，前端不必硬编码）
                 cat['line_keys'] = {line: key for key, line in api.LINE_OF.items()}
                 cat['roles'] = auth.ROLES
+                cat['version'] = app_version()
                 return self._json(cat)
             if path.startswith('/api/report/'):
                 sess = self._need_auth()
@@ -155,7 +158,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True, 'root': str(ROOT), 'lines': lines,
                                    'ledger': led, 'db': store.stats()})
             if path == '/api/health':
-                return self._json({'ok': True, 'root': str(ROOT)})
+                return self._json({'ok': True, 'root': str(ROOT), 'version': app_version(),
+                                   'schema': store.stats()['schema'], 'sqlite': store.sqlite_version()})
             # SPA 兜底：未知路径回首页（hash 路由不会走到这里，但保留）
             return self._send((WEB / 'index.html').read_bytes(), 'text/html; charset=utf-8')
         except FileNotFoundError:
@@ -236,15 +240,15 @@ def parse_multipart(ctype: str, body: bytes):
 def main():
     global ROOT
     ap = argparse.ArgumentParser()
-    ap.add_argument('--port', type=int, default=8766)
-    ap.add_argument('--host', default='127.0.0.1')
-    ap.add_argument('--root', default=str(viz.ROOT))
+    ap.add_argument('--port', type=int, default=int(os.environ.get('ICBC_PORT') or 8766))
+    ap.add_argument('--host', default=os.environ.get('ICBC_HOST') or '127.0.0.1')
+    ap.add_argument('--root', default=os.environ.get('ICBC_ROOT') or str(viz.ROOT))
     a = ap.parse_args()
     ROOT = Path(a.root)
     viz.use_root(ROOT)       # 同时同步 store 的库位置（--root 才真的生效）
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
-    print(json.dumps({'ok': True, 'url': f'http://{a.host}:{a.port}/', 'root': str(ROOT)},
-                     ensure_ascii=False), flush=True)
+    print(json.dumps({'ok': True, 'url': f'http://{a.host}:{a.port}/', 'root': str(ROOT),
+                      'version': app_version()}, ensure_ascii=False), flush=True)
     srv.serve_forever()
 
 

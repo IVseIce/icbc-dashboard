@@ -1,4 +1,11 @@
-# 运行环境：Python 3.10+
-openpyxl>=3.1          # xlsx 读写（解析器与导入）
-xlrd>=2.0              # 旧版 .xls 读取（定期存款那张月表）
-# 其余全部标准库：http.server / email / json / sqlite3（如后续启用）
+# 运行环境：Python >= 3.8（内网机自带 3.8；开发机 3.12）
+# 依赖全是纯 Python（none-any），`vendor/pylib/` 里已经放了一份随包走，
+# 目标机没有 pip 也能跑：PYTHONPATH=vendor/pylib python3 run.py
+# 改版本时：pip install --target vendor/pylib -r requirements.txt（记得同步这两个地方）
+
+openpyxl==3.1.5      # xlsx 读写（解析器与导入）
+xlrd==2.0.1          # 旧版 .xls 读取（定期存款那张月表）
+PyYAML==6.0.2        # icbc-qwsq 解析器顶层 import（只用 safe_load，纯 Python 也能跑）
+                     # et_xmlfile 2.0.0 是 openpyxl 的依赖，随 openpyxl 一起进 vendor/pylib
+
+# 其余全部标准库：http.server / sqlite3 / email / json / hashlib

@@ -649,3 +649,6 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   border-top:1px solid rgba(255,255,255,.08)}
 .nav.side-pinned a{padding:8px 10px}
 .nav.side-pinned a.nav-item.on{background:linear-gradient(90deg,rgba(200,16,46,.24),rgba(200,16,46,.04))}
+
+/* 侧栏版本号（部署后核对跑的是哪个版本） */
+.side-ver{font-size:9.5px;color:#54688a;letter-spacing:.3px;font-variant-numeric:tabular-nums}

@@ -9,6 +9,7 @@
 
 这是**阜阳分行个人金融条线的经营分析系统**：把原先散落在 5 个 `icbc-*` 技能里的"每天做通报"的活儿，升级成一个可浏览、可下钻、可按日期查、可上传、可导出通报的 Web 系统（FastAPI 不用，纯 Python 标准库 + 原生前端 + ECharts）。
 数据存在 **SQLite（`data/icbc.db`）**，不再是散落的 JSON 文件。
+部署形态（内网机、U 盘更新、无 root）：见 **`docs/DEPLOY.md`**。
 
 浏览不设门槛；**「导入数据」「通报中心」要口令**：五个大类各一个口令（额外送「重点项目」），
 另有一个管理员口令（全量 + 重置口令）。详见 4.5。
@@ -28,7 +29,8 @@
 |---|---|
 | 代码目录（WSL） | `/home/isee/projects/icbc-dashboard` |
 | Python | `/home/isee/.venvs/data-tools/bin/python`（openpyxl、xlrd 已装） |
-| 运行时数据 | `/home/isee/projects/icbc-dashboard/data`（`viz.ROOT`，可用 `--root` 覆盖） |
+| 开发数据 | `/home/isee/projects/icbc-dashboard/data`（`viz.ROOT`，可用 `--root` / `ICBC_ROOT` 覆盖） |
+| 生产部署 | 内网麒麟机 `~/icbc-dashboard`（`releases/` + `current` + `shared/data`，无 root） |
 | 主库 | `data/icbc.db`（SQLite，WAL；schema 版本见 `PRAGMA user_version`） |
 | 原始资料（Windows） | `/mnt/d/资料/ICBC/...` |
 | Chrome（截图/PDF） | `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe` |
@@ -82,6 +84,8 @@ icbc-dashboard/
 ├─ .gitignore                data/ 已忽略
 ├─ src/
 │  ├─ store.py               SQLite 存储层：schema/迁移/快照读写/台账/备份
+│  ├─ compat.py              Python 3.8 垫片（补 zoneinfo，目标机回退路径用）
+│  ├─ version.py             读 VERSION（打包时写入）
 │  ├─ viz.py                 导入适配层：解析器分发、归档、assemble
 │  ├─ server/
 │  │  ├─ app.py              HTTP：静态资源 + 全部 /api/*（约 260 行）
@@ -105,6 +109,9 @@ icbc-dashboard/
 │  ├─ bootstrap.py           一次性把 automations 历史灌进库
 │  ├─ migrate_to_sqlite.py   旧 JSON → SQLite（一次性，可重跑）
 │  ├─ backup_db.py           热备份 data/icbc.db → data/backups/
+│  ├─ export_db.py           对外导出 .db + 清单
+│  ├─ selftest.py            解释器/依赖/数据库自检（install/update 都调它）
+│  ├─ package_release.py     打 U 盘发布包（VERSION + SHA256SUMS，可带 runtime）
 │  └─ check_report_parity.py 与技能成表逐格对账
 ├─ data/                     运行时数据（git 忽略）
 │  ├─ icbc.db                 主库（+ -wal / -shm；备份要连 wal 一起，或用 backup_db.py）
@@ -112,9 +119,12 @@ icbc-dashboard/
 │  ├─ backups/                热备份（icbc-<时间戳>.db + auth-<时间戳>.json）
 │  ├─ legacy_json_<ts>/       迁移前的 JSON 快照留档（只读，确认后可删）
 │  └─ auth.json                口令哈希（pbkdf2，首次访问自动生成；删掉=恢复初始口令）
+├─ deploy/                   部署脚本：install / update + bin/{start,stop,status,backup,export-db,supervise}
+├─ vendor/pylib/             纯 Python 依赖（openpyxl / xlrd / PyYAML），随包走，与架构无关
 ├─ legacy/                   v1 单文件版（build_v1.py + 旧 HTML + README 说明），只作留档
 ├─ docs/
 │  ├─ HANDOFF.md              本文件（唯一权威的现状说明）
+│  ├─ DEPLOY.md               部署形态与运维 runbook（内网机/U 盘/更新/回滚/导出）
 │  ├─ screenshots/            当前页面截图（home / jg / report-salary / upload）
 │  └─ archive/PLAN-20261021.md  初版规划，已过时，勿作依据
 ```
@@ -377,7 +387,9 @@ icbc-dashboard/
 | 账号级身份 | 未做：只有"一组一口令"，不记谁导的 | 需要追责时再加姓名/工号 |
 | 导航级权限 | 未做：侧栏仍可浏览所有板块（口令只拦两个管理模块） | 若要求"没口令连板块都不给看"，需在 `render()` 前置门槛 |
 | 通报日期 vs 数据日期 | 线上服务标题差 1 处 | 导入时加"通报日期"字段即可 |
-| 自动启动/部署 | 手工 nohup | 上服务器时做服务化 |
+| 部署形态 | 已完成：releases+current+shared、install/update/回滚、热备份、导出 .db | 见 `docs/DEPLOY.md` |
+| 内置运行时 | 机制就绪（自检+回退），arm64 二进制未实测 | 首次装完用 `bin/status.sh` 确认解释器 |
+| Excel/CSV 导出 | 未做（当前只导 .db） | 需要时定义表口径 |
 
 ### 备份
 
@@ -399,6 +411,9 @@ icbc-dashboard/
 | 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器（存库走 `viz.save_snapshot`，别写文件） |
 | 新增一条通报 | `report.py` 加 `build_xxx`/`xxx_xlsx` + `report.js` 的 `LINES` |
 | 报表样式 | 换 `src/report/assets/<line>_base.xlsx`（务必是"成表清数据"） |
+| 部署/升级脚本 | `deploy/`（`install.sh` / `update.sh` / `bin/*.sh`），结构见 `docs/DEPLOY.md` |
+| 依赖版本 | `requirements.txt` + `vendor/pylib/`（纯 Python，改版本要两个一起改） |
+| 发布打包 | `python scripts/package_release.py`（版本号=日期+git sha） |
 | 口令 / 身份组 | `src/server/auth.py` 的 `ROLES`/`DEFAULTS`；前端表现看 `auth.js`、`app.js` 的 `paintTop()/startGate()` |
 | 表结构 / 加指标表 | `src/store.py`（`SCHEMA_SQL` + `SCHEMA_VERSION` + `init()` 升级分支） |
 | 查库/排障 | `python scripts/migrate_to_sqlite.py --db-info`，或 `sqlite3 data/icbc.db "select line,max(as_of),count(*) from snapshot group by line"` |
@@ -415,6 +430,7 @@ icbc-dashboard/
 4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time` 各看一眼（顶栏"数据截至"应分别是 10/22、10/22、10/15）
 5. `#/report` 应弹口令框；输 `gejin2026` 只看到「定期存款增长 / 薪管家」两项；刷新页面应重新要口令
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
-7. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+7. `python scripts/selftest.py --root data` → OK；打包前 `python scripts/package_release.py` 能从干净提交出包
+8. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

@@ -6,6 +6,11 @@ snapshots/
 *.sqlite3
 ledger.jsonl
 
+# ---------- 发布打包产物（U 盘里用，不入库） ----------
+dist/
+# 可选的内置 Python 运行时（按目标机架构单独准备，不打进仓库）
+runtime/
+
 # ---------- Python ----------
 __pycache__/
 *.py[cod]

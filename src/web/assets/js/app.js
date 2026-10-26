@@ -45,6 +45,8 @@ function paintChrome() {
   const ok = Object.values(lines).filter((l) => l.ok).length;
   const side = document.getElementById('sideStatus');
   if (side) side.textContent = `${ok}/${Object.keys(lines).length} 个条线已就绪`;
+  const ver = document.getElementById('sideVer');
+  if (ver) ver.textContent = state.catalog?.version ? `v${state.catalog.version}` : '';
   const pick = document.getElementById('datePick');
   const mpick = document.getElementById('monthPick');
   if (pick) {
