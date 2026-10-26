@@ -52,6 +52,10 @@
 **核心原则：代码和数据分家。** 换版本只动 `releases/` 和 `current` 软链，`shared/` 永远不碰 ⇒
 升级、回滚、重装都不可能覆盖数据库。
 
+> ⚠️ 这棵树是 **`install.sh` 在目标机上建的**，发布包里没有。
+> 包里只有 `icbc-dashboard/{VERSION,BUILD,src,scripts,deploy,vendor,（seed）,（runtime）}`——
+> 包名固定叫 `icbc-dashboard`，版本写在 `VERSION` 里。
+
 ### 2.2 为什么不用 systemd
 
 目标机没有 root，装不了系统级 unit。所以：
@@ -85,11 +89,56 @@
 
 ---
 
+### 2.4 进程模型（自启动到底起了什么）
+
+```
+~/.config/autostart/icbc-dashboard.desktop   （登录桌面时执行一次）
+        │
+        ▼
+~/icbc-dashboard/bin/autostart.sh           sleep 5 → 调用 start.sh
+        │
+        ▼
+bin/start.sh   检查端口 → nohup 起看门狗 → 把看门狗 pid 写进 shared/logs/app.pid
+        │
+        ▼
+bin/supervise.sh（看门狗，一个 while 循环）
+        │  fork
+        ▼
+python current/run.py --host 0.0.0.0 --port 8766 --root shared/data
+```
+
+所以**常驻的只有两个进程**：看门狗 + 业务进程。业务进程崩了，看门狗 3 秒后自动拉起；
+看门狗本身被 kill 掉，业务进程会跟着退出（stop.sh 就是这么做的：先 TERM 看门狗，它带走子进程，
+10 秒不退再 KILL）。
+
+- 开机自启**依赖有人登录桌面**（XDG autostart）；没登录不会跑。
+- 手动 stop 之后，**不会自己再起来**（要等下次登录，或手动 `start.sh`）。
+
+### 2.5 手动操作（全部在 `~/icbc-dashboard/bin/`）
+
+`deploy/bin/` 是**包里的模板**，安装时被复制到 `~/icbc-dashboard/bin/`；日常操作一律用后者。
+
+| 想做什么 | 命令 |
+|---|---|
+| 看状态（版本/进程/健康/库/自检） | `bash ~/icbc-dashboard/bin/status.sh` |
+| 看进程到底是谁 | `bash ~/icbc-dashboard/bin/see-process.sh` |
+| 启动 | `bash ~/icbc-dashboard/bin/start.sh` |
+| 停止 | `bash ~/icbc-dashboard/bin/stop.sh` |
+| 重启 | `bash ~/icbc-dashboard/bin/restart.sh` |
+| 备份库 | `bash ~/icbc-dashboard/bin/backup.sh` |
+| 导出 .db + 清单 | `bash ~/icbc-dashboard/bin/export-db.sh /media/usb` |
+
+**升级时不用自己重启**：`update.sh` 内部会 stop → 切软链 → start → 健康检查。
+
+**只改前端（JS/CSS）要不要重启？** 不用，刷新浏览器即可（assets 是 no-store）。
+**只改 Python** 就要 `restart.sh`（或走 update.sh）。
+
 ## 3. 日常操作（runbook）
 
 ### 3.1 首次部署
 
-U 盘里放 `icbc-dashboard-<版本>/`（或 `.tar.gz`），拷到内网机后：
+初版包里有 `seed/`（本机的数据库 + 原件），首次安装会导入到 `shared/data/`，
+**目标机已有数据库时不覆盖**。U 盘里放 `icbc-dashboard/`（或 `icbc-dashboard.tar.gz`），拷到内网机后：
 
 ```bash
 cd ~/下载/icbc-dashboard-2026.10.26-b485425      # 或解压出来的目录
@@ -103,9 +152,9 @@ bash deploy/install.sh /media/usb/icbc-dashboard-2026.10.26-b485425.tar.gz
 ### 3.2 升级
 
 ```bash
-bash /media/usb/icbc-dashboard-<新版本>/deploy/update.sh /media/usb/icbc-dashboard-<新版本>
-# 或
-bash ~/下载/icbc-dashboard-<新版本>/deploy/update.sh ~/下载/icbc-dashboard-<新版本>.tar.gz
+bash ~/icbc-dashboard/bin/update.sh /media/usb/icbc-dashboard-0.1.1.tar.gz
+# 也可以直接用新包里的脚本
+bash /media/usb/icbc-dashboard/deploy/update.sh /media/usb/icbc-dashboard
 ```
 
 流程：校验 `SHA256SUMS` → 落到 `releases/<新版本>` → **在数据库副本上预演迁移** → 备份生产库 →
@@ -175,8 +224,12 @@ bash ~/icbc-dashboard/bin/restart.sh
 
 ### 版本号规则
 
-`YYYY.MM.DD-<git短sha>`，工作区有未提交改动会变成 `-dirty`（默认拒绝打包，`--allow-dirty` 才放行）。
-部署后可以用 `bin/status.sh` 或页面左下角 `v<版本>` 核对。
+- **语义化版本**，仓库根目录的 `VERSION` 维护：`0.1.0` → `0.1.1` → `0.1.2` …
+- 包里另写 `BUILD` = `日期-git短sha[-dirty]`，只用于追溯，不进版本号
+- 工作区有未提交改动默认拒绝打包（`--allow-dirty` 才放行）
+- 部署后 `bin/status.sh` 显示 `0.1.1 (2026.11.02-a1b2c3d)`；页面左下角显示 `v0.1.1`
+
+发一版：改 `VERSION` → 提交 → `python scripts/package_release.py`。
 
 ### 数据库变更纪律
 
@@ -194,5 +247,6 @@ bash ~/icbc-dashboard/bin/restart.sh
 | arm64 运行时未实测 | 开发机 x86，无法执行验证；已按 `prepare_runtime.py` 裁好（glibc≥2.17） | 首次装完看 `bin/status.sh` 的"解释器"：是 runtime 就成，是系统 python3 说明自检没过（能跑，但没用到内置环境） |
 | 开机自启依赖登录 | XDG autostart 要有人登录桌面 | 若需要"无人登录也跑"，得申请 root 上 systemd |
 | Excel/CSV 导出 | 用户列为低优先级 | 待明确需要的表口径后加 `scripts/export_xlsx.py` |
+| 初版数据 | 包内 `seed/`（库 + 原件） | 只在首次安装、且目标机没有库时导入 |
 | 磁盘增长 | `imports/` 原件只增不减 | 目前 14 MB；到 GB 级再考虑保留策略 |
 | 口令文件不在库里 | `auth.json` 与 `icbc.db` 同目录 | 备份/导出脚本都已包含它 |

@@ -3,24 +3,30 @@
 """package_release.py —— 打一个可以拷进 U 盘的发布包。
 
 产出（默认在 dist/）：
-  icbc-<version>/                      目录（exFAT 上直接拷目录也能用，脚本用 sh 启动）
-  icbc-<version>.tar.gz                推荐：tar 能保住权限位与符号链接
-  icbc-<version>.tar.gz.sha256         校验用（拷到内网机后先核对）
+  icbc-dashboard/                      目录（固定名字，版本看里面的 VERSION）
+  icbc-dashboard.tar.gz                初版（--seed）用这个名字，不带版本后缀
+  icbc-dashboard-<版本>.tar.gz          升级包用这个名字
+  *.sha256                             校验用（拷到内网机后先核对）
 
-版本号默认 `YYYY.MM.DD-<git短sha>`；工作区有未提交改动时会加 `-dirty` 并告警。
+版本号取仓库根目录的 `VERSION`（语义化：0.1.0 → 0.1.1 …），构建信息写 `BUILD`（日期-git短sha）。
 
-  python scripts/package_release.py                       # 普通打包
-  python scripts/package_release.py --runtime ~/py312-arm --arch aarch64
-                                                          # 带上便携 Python 运行时
+  python scripts/package_release.py --seed                # 初版：把本机数据库一起带上
+  python scripts/package_release.py                       # 升级包：只带代码
+  python scripts/package_release.py --runtime ~/py-arm --arch aarch64
 
-包内**不含** data/（数据库留在内网机）、docs/、.git/、__pycache__。
+包内**不含** data/（数据库留在内网机；要用 --seed 显式带）、docs/、.git/、__pycache__。
+
+`--seed` 时产物叫 `icbc-dashboard/` + `icbc-dashboard.tar.gz`（初版不带版本号）；
+普通包叫 `icbc-dashboard-<版本>.tar.gz`。两种包解出来的目录都叫 `icbc-dashboard`。
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import os
+import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -45,7 +51,13 @@ def sh(*cmd: str) -> str:
         return ''
 
 
-def git_version() -> tuple[str, bool]:
+def repo_version() -> str:
+    p = PROJECT / 'VERSION'
+    return p.read_text('utf-8').strip().splitlines()[0] if p.exists() else ''
+
+
+def build_id() -> tuple[str, bool]:
+    """BUILD 标记：日期-git短sha[-dirty]，只用于追溯，不进版本号。"""
     sha = sh('git', 'rev-parse', '--short', 'HEAD') or 'nogit'
     dirty = bool(sh('git', 'status', '--porcelain'))
     return f'{datetime.now().strftime("%Y.%m.%d")}-{sha}' + ('-dirty' if dirty else ''), dirty
@@ -92,6 +104,45 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def build_seed(stage: Path, data_dir: Path, with_imports: bool = True) -> dict:
+    """把本机数据库热备份进包（seed/），并把路径改成相对写法，换机器也不失效。"""
+    seed = stage / 'seed'
+    seed.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(PROJECT / 'src'))
+    sys.path.insert(0, str(PROJECT / 'src' / 'server'))
+    import store  # noqa: E402
+    import viz    # noqa: E402
+
+    viz.use_root(data_dir)
+    store.backup_to(seed / 'icbc.db')
+    if (data_dir / 'auth.json').exists():
+        shutil.copy2(data_dir / 'auth.json', seed / 'auth.json')
+    if with_imports and (data_dir / 'imports').exists():
+        shutil.copytree(data_dir / 'imports', seed / 'imports')
+
+    # 归档路径改成相对 data/ 的写法（原库是 /home/isee/... 的绝对路径）
+    prefix = str(data_dir.resolve()).rstrip('/') + '/'
+    con = sqlite3.connect(seed / 'icbc.db')
+    for table, cols in (('source_file', ('path', 'archive')), ('import_log', ('archive',))):
+        for col in cols:
+            # 1) 当前数据目录的绝对路径 → 相对
+            con.execute(f"UPDATE {table} SET {col} = substr({col}, ?) "
+                        f"WHERE {col} LIKE ?", (len(prefix) + 1, prefix + '%'))
+            # 2) 更早的历史路径（/mnt/d/... 之类）→ 从 imports/ 开始
+            con.execute(f"UPDATE {table} SET {col} = substr({col}, instr({col}, 'imports/')) "
+                        f"WHERE instr({col}, 'imports/') > 0 AND {col} NOT LIKE 'imports/%'")
+    con.commit()
+    stats = {
+        'snapshots': con.execute('SELECT COUNT(*) FROM snapshot').fetchone()[0],
+        'imports': con.execute('SELECT COUNT(*) FROM import_log').fetchone()[0],
+        'latest': con.execute('SELECT MAX(as_of) FROM snapshot').fetchone()[0],
+    }
+    con.close()
+    size = sum(p.stat().st_size for p in seed.rglob('*') if p.is_file())
+    stats['size_mb'] = round(size / 1048576, 1)
+    return stats
+
+
 def write_checksums(root: Path) -> Path:
     lines = []
     for p in sorted(root.rglob('*')):
@@ -109,17 +160,26 @@ def main() -> None:
     ap.add_argument('--arch', default='aarch64', help='运行时架构，默认 aarch64（麒麟机）')
     ap.add_argument('--no-tar', action='store_true', help='只产出目录，不压缩')
     ap.add_argument('--allow-dirty', action='store_true', help='工作区有未提交改动也照样打包')
+    ap.add_argument('--seed', action='store_true', help='初版：把本机数据库（含原件）一起打进包')
+    ap.add_argument('--seed-dir', default=str(PROJECT / 'data'), help='种子数据来自哪个目录')
+    ap.add_argument('--no-imports', action='store_true', help='种子只带库，不带 imports/ 原件')
     a = ap.parse_args()
 
-    version, dirty = (a.version, False) if a.version else git_version()
+    _dirty_probe, _ = build_id()
+    dirty = _dirty_probe.endswith('-dirty')
+    version = (a.version or repo_version() or '0.0.0').strip()
+    if not re.match(r'^\d+\.\d+\.\d+', version):
+        print(f'!! 版本号 "{version}" 不像语义化版本（应形如 0.1.0）', file=sys.stderr)
+        sys.exit(2)
     if dirty and not a.allow_dirty:
         print('!! 工作区有未提交改动。发布包建议从干净提交打；确认无误加 --allow-dirty。', file=sys.stderr)
         sys.exit(2)
+    build, _ = build_id()
     if dirty:
         print('!! 警告：工作区是 dirty 状态，包内含未提交改动', file=sys.stderr)
 
     DIST.mkdir(exist_ok=True)
-    stage = DIST / f'{NAME}-{version}'
+    stage = DIST / NAME                      # 目录名始终是 icbc-dashboard，版本在 VERSION 里
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
@@ -154,21 +214,32 @@ def main() -> None:
         (stage / 'runtime' / 'PYTHON').write_text(real_entry + '\n', 'utf-8')
         print(f'  运行时：{rt} → runtime/（{a.arch}，入口 {real_entry}）')
 
+    if a.seed:
+        st = build_seed(stage, Path(a.seed_dir), with_imports=not a.no_imports)
+        print(f"  种子：{st['snapshots']} 期快照 / {st['imports']} 次导入 / 最新 {st['latest']} "
+              f"（{st['size_mb']} MB，含原件={not a.no_imports}）")
+
     (stage / 'VERSION').write_text(version + '\n', 'utf-8')
+    (stage / 'BUILD').write_text(build + '\n', 'utf-8')
     # 给目录里加一句怎么装，免得 U 盘里翻文档
+    seed_note = ('\n本包带初始数据（seed/）：首次安装会把它导入到 shared/data/；\n'
+                 '目标机已有数据库时不会覆盖。\n') if a.seed else ''
     (stage / 'HOW-TO-INSTALL.txt').write_text(
-        '把整个目录拷到内网机，然后执行：\n'
-        f'  cd {stage.name} && bash deploy/install.sh .\n'
-        '以后升级就在新包里执行：\n'
-        f'  bash {stage.name}/deploy/update.sh .\n'
-        '（也可以用 deploy/ 里的 start/stop/status/backup/export-db 脚本）\n', 'utf-8')
+        '整个目录名固定是 icbc-dashboard，版本看 VERSION。\n'
+        '把目录（或 tar.gz）拷到内网机后执行：\n'
+        f'  bash {stage.name}/deploy/install.sh {stage.name}\n'
+        '以后升级（新包）执行：\n'
+        f'  bash ~/icbc-dashboard/bin/update.sh {stage.name}-<版本>.tar.gz\n'
+        + seed_note +
+        '日常运维全部在 ~/icbc-dashboard/bin/ 下：status / start / stop / restart / backup / export-db\n',
+        'utf-8')
 
     write_checksums(stage)
     size = sum(p.stat().st_size for p in stage.rglob('*') if p.is_file())
     print(f'目录：{stage}  （{size / 1048576:.1f} MB）')
 
     if not a.no_tar:
-        tar_path = DIST / f'{NAME}-{version}.tar.gz'
+        tar_path = DIST / (f'{NAME}.tar.gz' if a.seed else f'{NAME}-{version}.tar.gz')
         tar_path.unlink(missing_ok=True)
         with tarfile.open(tar_path, 'w:gz') as tf:
             tf.add(stage, arcname=stage.name)
@@ -177,7 +248,7 @@ def main() -> None:
         print(f'压缩：{tar_path}  （{tar_path.stat().st_size / 1048576:.1f} MB）')
         print(f'校验：{digest}')
 
-    print(f'版本：{version}')
+    print(f'版本：{version}   构建：{build}')
     print('拷到 U 盘后，在内网机执行：bash deploy/install.sh .（首次）或 deploy/update.sh .（升级）')
 
 

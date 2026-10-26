@@ -108,7 +108,9 @@ fi
 
 # ---------- 5. 切换
 bash "$BIN/stop.sh" >>"$UPDLOG" 2>&1 || true
-cp -f "$RELEASE/deploy/bin/"*.sh "$BIN/" && chmod 755 "$BIN"/*.sh
+cp -f "$RELEASE/deploy/bin/"*.sh "$BIN/"
+cp -f "$RELEASE/deploy/install.sh" "$RELEASE/deploy/update.sh" "$BIN/"
+chmod 755 "$BIN"/*.sh
 printf '%s\n' "$NEW_PY" > "$SHARED/python.path"
 ln -sfn "$RELEASE" "$CURRENT"
 log "current -> $RELEASE"

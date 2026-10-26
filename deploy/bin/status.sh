@@ -5,7 +5,9 @@ set -u
 
 echo "ICBC 驾驶舱状态"
 echo "  目录    $ICBC_HOME"
-echo "  版本    $(cat "$CURRENT/VERSION" 2>/dev/null || echo '?')  ($(readlink -f "$CURRENT" 2>/dev/null || echo '无 current'))"
+_ver=$(cat "$CURRENT/VERSION" 2>/dev/null || echo '?')
+_build=$(cat "$CURRENT/BUILD" 2>/dev/null || echo '')
+echo "  版本    $_ver${_build:+  ($_build)}  ($(readlink -f "$CURRENT" 2>/dev/null || echo '无 current'))"
 echo "  解释器  ${PY:-未配置}"
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
     echo "  进程    运行中 pid=$(cat "$PID_FILE")"

@@ -27,17 +27,24 @@ python scripts/migrate_to_sqlite.py --db-info   # 库现状
 
 ## 部署（内网麒麟机）
 
-生产环境是**没有 root、没有外网**的内网 Linux，代码和数据分开放在用户目录：
+生产环境是**没有 root、没有外网**的内网 Linux，代码和数据分开放在用户目录
+（这三个目录由 `install.sh` 在目标机上创建，发布包里没有）：
 
 ```
-~/icbc-dashboard/{current -> releases/<版本>, shared/data, bin}
+~/icbc-dashboard/
+├── current -> releases/<版本>    代码
+├── releases/                     每次搬进来的版本
+├── shared/data/                  icbc.db / imports / backups（永不随版本覆盖）
+└── bin/                          start / stop / status / backup / export-db / update
 ```
+
+版本号在仓库的 `VERSION`（语义化，当前 `0.1.0`），包名固定 `icbc-dashboard`。
 
 ```bash
-# 首次（U 盘里那个包目录）
+# 首次（U 盘里那个 icbc-dashboard 目录，包里带 seed/ 初始数据）
 bash deploy/install.sh .
-# 升级（新包）
-bash deploy/update.sh .
+# 升级（新包，如 icbc-dashboard-0.1.1.tar.gz）
+bash ~/icbc-dashboard/bin/update.sh icbc-dashboard-0.1.1.tar.gz
 # 日常
 bash ~/icbc-dashboard/bin/status.sh
 bash ~/icbc-dashboard/bin/backup.sh

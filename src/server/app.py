@@ -34,7 +34,7 @@ sys.path.insert(0, str(BASE))  # api（同目录）
 
 import api  # noqa: E402
 import auth  # noqa: E402
-from version import app_version  # noqa: E402
+from version import app_version, build_info  # noqa: E402
 import report as report_mod  # noqa: E402
 import store  # noqa: E402
 import viz  # noqa: E402
@@ -112,6 +112,7 @@ class Handler(BaseHTTPRequestHandler):
                 cat['line_keys'] = {line: key for key, line in api.LINE_OF.items()}
                 cat['roles'] = auth.ROLES
                 cat['version'] = app_version()
+                cat['build'] = build_info()
                 return self._json(cat)
             if path.startswith('/api/report/'):
                 sess = self._need_auth()
@@ -159,6 +160,7 @@ class Handler(BaseHTTPRequestHandler):
                                    'ledger': led, 'db': store.stats()})
             if path == '/api/health':
                 return self._json({'ok': True, 'root': str(ROOT), 'version': app_version(),
+                                   'build': build_info(),
                                    'schema': store.stats()['schema'], 'sqlite': store.sqlite_version()})
             # SPA 兜底：未知路径回首页（hash 路由不会走到这里，但保留）
             return self._send((WEB / 'index.html').read_bytes(), 'text/html; charset=utf-8')
@@ -248,7 +250,7 @@ def main():
     viz.use_root(ROOT)       # 同时同步 store 的库位置（--root 才真的生效）
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(json.dumps({'ok': True, 'url': f'http://{a.host}:{a.port}/', 'root': str(ROOT),
-                      'version': app_version()}, ensure_ascii=False), flush=True)
+                      'version': app_version(), 'build': build_info()}, ensure_ascii=False), flush=True)
     srv.serve_forever()
 
 

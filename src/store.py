@@ -184,6 +184,14 @@ def safe_name(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', '_', name or 'file')
 
 
+def rel_path(p) -> str:
+    """把绝对路径转成相对数据目录的写法（跨机器/搬家后仍然有效）。"""
+    try:
+        return Path(p).resolve().relative_to(Path(_root).resolve()).as_posix()
+    except Exception:
+        return str(p)
+
+
 # ---------------------------------------------------------------- 设置
 def get(key: str, default=None):
     row = connect().execute('SELECT value FROM setting WHERE key=?', (key,)).fetchone()
@@ -360,7 +368,8 @@ def log_import(rec: dict) -> int:
         'INSERT INTO import_log(ts, line, data_date, ok, error, note, archive, files, snapshot_id)'
         ' VALUES(?,?,?,?,?,?,?,?,?)',
         (rec.get('ts') or _now(), rec.get('line') or '', rec.get('data_date'),
-         1 if rec.get('ok') else 0, rec.get('error'), rec.get('note'), rec.get('archive'),
+         1 if rec.get('ok') else 0, rec.get('error'), rec.get('note'),
+         rel_path(rec['archive']) if rec.get('archive') else None,
          json.dumps(files, ensure_ascii=False), rec.get('snapshot_id')))
     return int(cur.lastrowid or 0)
 
@@ -398,7 +407,7 @@ def add_source_files(line: str, snapshot_id: int | None, files, archive: Path) -
             'INSERT INTO source_file(snapshot_id, line, name, sha256, bytes, path, archive, created_at)'
             ' VALUES(?,?,?,?,?,?,?,?)',
             (snapshot_id, line, name, hashlib.sha256(blob).hexdigest(), len(blob),
-             str(Path(archive) / safe_name(name)), str(archive), now))
+             rel_path(Path(archive) / safe_name(name)), rel_path(archive), now))
         n += 1
     return n
 

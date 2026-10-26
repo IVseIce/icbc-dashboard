@@ -62,9 +62,21 @@ if [ -d "$RELEASE/runtime" ]; then
     find "$RELEASE/runtime/bin" -type f -exec chmod +x {} + 2>/dev/null || true
 fi
 
-# ---------- 5. 装运维脚本
+# ---------- 5. 装运维脚本（之后所有日常操作都在 ~/icbc-dashboard/bin/ 下）
 cp -f "$RELEASE/deploy/bin/"*.sh "$BIN/"
+cp -f "$RELEASE/deploy/install.sh" "$RELEASE/deploy/update.sh" "$BIN/"
 chmod 755 "$BIN"/*.sh
+
+# ---------- 5.5 初版数据：只在新机器上导入一次，已有库绝不覆盖
+if [ -d "$RELEASE/seed" ]; then
+    if [ -f "$DATA_DIR/icbc.db" ]; then
+        echo "   已存在数据库，跳过包内 seed/"
+    else
+        echo "   导入包内初始数据（seed/）..."
+        cp -a "$RELEASE/seed/." "$DATA_DIR/"
+        [ -f "$DATA_DIR/icbc.db" ] && echo "   数据库 $(du -h "$DATA_DIR/icbc.db" | cut -f1)"
+    fi
+fi
 cat > "$BIN/autostart.sh" <<EOF
 #!/bin/sh
 # 登录后自启（由 ~/.config/autostart/icbc-dashboard.desktop 调用）

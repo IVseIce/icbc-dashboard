@@ -1,28 +1,43 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""version.py —— 读发布版本号（打包时写入 `VERSION`，仓库里没有就是 dev）。
+"""version.py —— 版本号与构建信息。
 
-版本号格式：`YYYY.MM.DD-<git短sha>`，例：`2026.10.23-b485425`。
-部署后用它确认"这台机器上跑的到底是哪个版本"。
+* `VERSION`：语义化版本，仓库里维护（0.1.0 → 0.1.1 …），打包时原样带入
+* `BUILD`：只有发布包里才有，记录 `日期-git短sha[-dirty]`，用于追溯
+
+部署后 `bin/status.sh`、`/api/health`、侧栏左下角都能核对跑的是哪一版。
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 _CACHE: str | None = None
+_BUILD: str | None = None
+
+
+def _read(name: str) -> str | None:
+    p = Path(__file__).resolve().parent.parent / name
+    if not p.exists():
+        return None
+    txt = p.read_text('utf-8').strip()
+    return txt.splitlines()[0].strip() if txt else None
 
 
 def app_version() -> str:
     global _CACHE
-    if _CACHE:
-        return _CACHE
-    root = Path(__file__).resolve().parent.parent
-    for name in ('VERSION', 'version.txt'):
-        p = root / name
-        if p.exists():
-            txt = p.read_text('utf-8').strip()
-            if txt:
-                _CACHE = txt.splitlines()[0].strip()
-                return _CACHE
-    _CACHE = 'dev'
+    if not _CACHE:
+        _CACHE = _read('VERSION') or 'dev'
     return _CACHE
+
+
+def build_info() -> str:
+    """发布日期 + 提交号；非发布包返回 dev。"""
+    global _BUILD
+    if not _BUILD:
+        _BUILD = _read('BUILD') or 'dev'
+    return _BUILD
+
+
+def version_label() -> str:
+    b = build_info()
+    return f'{app_version()} ({b})' if b and b != 'dev' else app_version()
