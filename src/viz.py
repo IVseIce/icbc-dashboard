@@ -45,6 +45,7 @@ LINES = {
     'qwsq': {'label': '企微社群', 'skill': 'icbc-qwsq', 'hint': '成员群聊数据统计（本周 + 上周）'},
     'dfmx': {'label': '代发明细', 'skill': '', 'hint': '月度多 sheet 的代发明细工作簿'},
     'wk': {'label': '五卡唤醒', 'skill': '', 'hint': '五卡汇总表（支行 × 5 类卡）'},
+    'jjwh': {'label': '降级挽回', 'skill': '', 'hint': '客编资产明细 + 客编→支行/网点映射（两份）'},
 }
 
 _mods: dict[str, object] = {}
@@ -412,9 +413,15 @@ def import_fivecards(files, line, root, data_date=None):
                    '_notes': [f'{len(snap["branches"])} 家支行 · {len(snap["cards"])} 类卡']}
 
 
+def import_downgrade(files, line, root, data_date=None):
+    """降级挽回：明细表 + 客编映射表（两份都必传）。"""
+    from ingest import downgrade as dg
+    return dg.parse_files(files, as_of=data_date)
+
+
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
-             'dfmx': import_payroll, 'wk': import_fivecards}
+             'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,

@@ -96,6 +96,11 @@ function statsFor(id, data) {
     push(fmt.n(k.year, 0), '全年(万)');
     push(fmt.n(k.month, 2), '当月(万)');
     push(fmt.n(k.ent_year), '有效单位');
+  } else if (id === 'jg-deposit-jiangji' && d.downgrade?.kpi) {
+    const k = d.downgrade.kpi;
+    push(fmt.sign(k.asset, 1) + '<small>万</small>', '资产提升');
+    push(fmt.sign(k.dep, 1) + '<small>万</small>', '存款提升');
+    push(fmt.n(k.customers), '降级客编');
   } else if (id === 'jg-customer-card' && d.fivecards?.totals) {
     const t = d.fivecards.totals;
     push(fmt.n(t.stock), '存量');

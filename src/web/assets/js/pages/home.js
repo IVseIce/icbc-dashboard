@@ -173,6 +173,7 @@ function timeline(L) {
     ['community', '企微社群', C.amber],
     ['payroll', '代发工资', C.green],
     ['fivecards', '五卡唤醒', C.violet],
+    ['downgrade', '降级挽回', C.slate],
   ];
   return `
   <div class="card">

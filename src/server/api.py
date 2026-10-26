@@ -375,11 +375,51 @@ def build_community(on: str | None = None) -> dict:
     }
 
 
+# ---------------------------------------------------------------- 降级挽回
+def build_downgrade(on: str | None = None) -> dict:
+    """客编级资产/存款变化 → 支行 / 网点汇总；口径见 ingest/downgrade.py。"""
+    s = _latest('jjwh', on)
+    if not s:
+        return _no_data('jjwh', on)
+    branches = [dict(b) for b in (s.get('branches') or [])]
+    nets = [dict(n) for n in (s.get('nets') or [])]
+    totals = dict(s.get('totals') or {})
+    period = s.get('period') or {}
+
+    # 页面要用的派生：增长/下降家数、头尾
+    up = sum(1 for b in branches if (b.get('asset') or 0) > 0)
+    down = sum(1 for b in branches if (b.get('asset') or 0) < 0)
+    by_dep = sorted(branches, key=lambda b: -(b.get('dep') or 0))
+    return {
+        'ok': True, 'as_of': s['as_of'], 'base_date': s.get('base_date'),
+        'period': period,
+        'kpi': {
+            'asset': totals.get('asset'), 'dep': totals.get('dep'),
+            'asset_avg': totals.get('asset_avg'), 'dep_avg': totals.get('dep_avg'),
+            'score': totals.get('score'),
+            'nets': totals.get('nets'), 'customers': totals.get('customers'),
+            'branches': len(branches), 'up': up, 'down': down,
+            'best': branches[0] if branches else None,
+            'worst': branches[-1] if branches else None,
+            'best_dep': by_dep[0] if by_dep else None,
+            'worst_dep': by_dep[-1] if by_dep else None,
+        },
+        'branches': branches,
+        'nets': nets,
+        'top_nets': s.get('top_nets') or [],
+        'customers': (s.get('customers') or [])[:300],
+        'trend': [{'d': x['as_of'],
+                   'asset': (x.get('totals') or {}).get('asset'),
+                   'dep': (x.get('totals') or {}).get('dep')}
+                  for x in _upto('jjwh', on) if x.get('totals')],
+    }
+
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
-            'fivecards': build_fivecards}
+            'fivecards': build_fivecards, 'downgrade': build_downgrade}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
-           'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk'}
+           'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
+           'downgrade': 'jjwh'}
 
 
 # ---------------------------------------------------------------- 汇总
@@ -387,6 +427,7 @@ def build_overview(on: str | None = None) -> dict:
     d, o = build_deposit(on), build_online(on)
     w, s, c = build_wallet(on), build_salary(on), build_community(on)
     p, f = build_payroll(on), build_fivecards(on)
+    g = build_downgrade(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -402,6 +443,8 @@ def build_overview(on: str | None = None) -> dict:
                     'nearest': p.get('nearest')},
         'fivecards': {'ok': f.get('ok'), 'as_of': f.get('as_of'), 'kpi': f.get('kpi'),
                       'nearest': f.get('nearest')},
+        'downgrade': {'ok': g.get('ok'), 'as_of': g.get('as_of'), 'kpi': g.get('kpi'),
+                      'nearest': g.get('nearest'), 'period': g.get('period')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,

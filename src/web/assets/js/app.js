@@ -18,9 +18,10 @@ import importer from './pages/import.js';
 import report from './pages/report.js';
 import jgPage from './pages/jg.js';
 import toolPage from './pages/tool.js';
+import downgrade from './pages/downgrade.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 
-const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards, tool: toolPage };
+const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards, downgrade, tool: toolPage };
 
 /** 模块角标：数据页看是否接入，工具页是"开发中" */
 function modBadge(m) {

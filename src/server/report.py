@@ -360,12 +360,157 @@ def build_community(on: str | None = None) -> dict:
                        {'name': '网点维度', 'columns': cols, 'rows': net_rows, 'totals': tot}],
             'text': text}
 
+# ---------------------------------------------------------------- 降级挽回
+DOWNGRADE_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'downgrade_base.xlsx'
+
+
+def _signed(v: float, unit: str = '万元', nd: int = 1) -> str:
+    """把带符号的数说成人话：+ → 增长，− → 下降。"""
+    v = 0.0 if v is None else float(v)
+    word = '增长' if v >= 0 else '下降'
+    return f'{word}{abs(v):,.{nd}f}{unit}'
+
+
+def build_downgrade(on: str | None = None) -> dict:
+    d = api.build_downgrade(on)
+    if not d.get('ok'):
+        return {'ok': False, 'error': d.get('reason') or '该日期无降级挽回数据',
+                'nearest': d.get('nearest')}
+    k = d['kpi']
+    per = d['period']
+    branches = d['branches']
+    top = (d.get('top_nets') or [])[:5]
+    span = f"{per['start'][5:7]}月{per['start'][8:10]}日-{per['end'][5:7]}月{per['end'][8:10]}日"
+    title = f'阜阳分行“降级挽回”营销先锋（{per["label"]}）'
+
+    up_br = [b['name'] for b in branches if (b.get('score') or 0) > 0][:3]
+    down_br = [b['name'] for b in branches if (b.get('score') or 0) < 0][-3:]
+    text = '\n\n'.join([
+        '【财客管户“降级挽回”营销先锋】',
+        f'1️⃣整体情况：{span}，全行锁包降级管户金融资产{_signed(k["asset"])}，'
+        f'储蓄存款{_signed(k["dep"])}。',
+        f'2️⃣支行排名：{"、".join(up_br) or "—"}位居前三，'
+        f'{"、".join(reversed(down_br)) or "—"}居后三名！',
+        f'3️⃣营销先锋：单边降级提升前{len(top)}名网点为'
+        f'{"、".join(n["name"] for n in top) or "—"}，全行领先！',
+        '降级客户具体明细清单已发送各支行分管行长及个金部主任邮箱。',
+    ])
+
+    br_cols = [
+        {'key': 'rank', 'title': '排序', 'type': 'num'},
+        {'key': 'name', 'title': '支行', 'type': 'text'},
+        {'key': 'nets', 'title': '网点数', 'type': 'num'},
+        {'key': 'score', 'title': '综合评价(1:1)', 'type': 'num'},
+        {'key': 'asset', 'title': '本旬资产提升额', 'type': 'num'},
+        {'key': 'asset_avg', 'title': '网均资产提升额', 'type': 'num'},
+        {'key': 'dep', 'title': '本旬存款提升额', 'type': 'num'},
+        {'key': 'dep_avg', 'title': '网均存款提升额', 'type': 'num'},
+    ]
+    net_cols = [
+        {'key': 'rank', 'title': '排名', 'type': 'num'},
+        {'key': 'name', 'title': '网点', 'type': 'text'},
+        {'key': 'asset', 'title': '资产提升额', 'type': 'num'},
+        {'key': 'dep', 'title': '存款提升额', 'type': 'num'},
+    ]
+    detail_cols = [
+        {'key': 'branch', 'title': '支行', 'type': 'text'},
+        {'key': 'net', 'title': '网点', 'type': 'text'},
+        {'key': 'customers', 'title': '客户数', 'type': 'num'},
+        {'key': 'asset', 'title': '资产提升额', 'type': 'num'},
+        {'key': 'dep', 'title': '存款提升额', 'type': 'num'},
+        {'key': 'score', 'title': '综合评价', 'type': 'num'},
+    ]
+    detail_rows = []
+    for b in sorted(branches, key=lambda x: x['rank']):
+        for n in sorted([x for x in d['nets'] if x['branch'] == b['name']],
+                        key=lambda x: -(x.get('asset') or 0)):
+            detail_rows.append({'branch': b['name'], 'net': n['name'],
+                                'customers': n['customers'],
+                                'asset': n['asset'], 'dep': n['dep'],
+                                'score': round(((n['asset'] or 0) + (n['dep'] or 0)) / 2, 4)})
+
+    return {
+        'ok': True, 'kind': 'downgrade', 'title': title, 'as_of': d['as_of'],
+        'period': per, 'text': text,
+        'tables': [
+            {'name': '支行', 'columns': br_cols, 'rows': branches,
+             'totals': {'rank': '', 'name': '阜阳分行', 'nets': k['nets'],
+                        'score': k['score'], 'asset': k['asset'], 'asset_avg': k['asset_avg'],
+                        'dep': k['dep'], 'dep_avg': k['dep_avg']}},
+            {'name': '营销先锋', 'columns': net_cols, 'rows': top, 'totals': None},
+            {'name': '网点明细', 'columns': detail_cols, 'rows': detail_rows, 'totals': None},
+        ],
+    }
+
+
+def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    import openpyxl
+    d = build_downgrade(on)
+    if not d.get('ok'):
+        raise RuntimeError('该日期没有降级挽回数据')
+    wb = openpyxl.load_workbook(DOWNGRADE_BASE)
+    ws = wb['通报']
+    ws['A1'] = d['title']
+
+    # 左表：8 家支行，4..11 行；第 12 行合计
+    br = d['tables'][0]
+    by_rank = {b['rank']: b for b in br['rows']}
+    for r in range(4, 12):
+        rec = by_rank.get(r - 3)
+        if not rec:
+            continue
+        vals = [rec['rank'], rec['name'], rec['nets'], rec['score'], rec['asset'],
+                rec['asset_avg'], rec['dep'], rec['dep_avg']]
+        for ci, v in enumerate(vals, start=1):
+            cell = ws.cell(row=r, column=ci, value=v)
+            if ci >= 4:
+                cell.number_format = '#,##0.0'
+        hl = rec.get('hl')
+        if hl:
+            color = 'FFF2A8' if hl == 'yellow' else 'C6E0B4'
+            ws.cell(row=r, column=4).fill = openpyxl.styles.PatternFill('solid', fgColor=color)
+
+    t = br['totals']
+    for ci, v in enumerate([t['name'], t['nets'], t['score'], t['asset'], t['asset_avg'],
+                            t['dep'], t['dep_avg']], start=1):
+        cell = ws.cell(row=12, column=ci, value=v)
+        if ci >= 3:
+            cell.number_format = '#,##0.0'
+
+    # 右表：营销先锋 5 行，4..8
+    top = d['tables'][1]['rows'][:5]
+    for i, rec in enumerate(top):
+        r = 4 + i
+        ws.cell(row=r, column=9, value=rec['rank'])
+        ws.cell(row=r, column=10, value=rec['name'])
+        c11 = ws.cell(row=r, column=11, value=rec['asset']); c11.number_format = '#,##0.0'
+        c12 = ws.cell(row=r, column=12, value=rec['dep']); c12.number_format = '#,##0.0'
+
+    # 第二个 sheet：网点明细（按支行分组，组内资产降序）
+    ws2 = wb['网点明细']
+    ws2['A1'] = f'阜阳分行“降级挽回”网点明细（{d["period"]["label"]}）'
+    rows = d['tables'][2]['rows']
+    for i, rec in enumerate(rows):
+        r = 3 + i
+        vals = [rec['branch'], rec['net'], rec['customers'], rec['asset'], rec['dep'], rec['score']]
+        for ci, v in enumerate(vals, start=1):
+            cell = ws2.cell(row=r, column=ci, value=v)
+            if ci >= 3:
+                cell.number_format = '#,##0.0'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), f'降级挽回营销先锋（{d["period"]["label"]}）.xlsx'
+
+
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
-            'deposit': build_deposit, 'community': build_community}
+            'deposit': build_deposit, 'community': build_community,
+            'downgrade': build_downgrade}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
-CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj'}
+CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
+          'downgrade': 'jg'}
 
 
 def build(kind: str, on: str | None = None) -> dict:
@@ -595,7 +740,7 @@ def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
     return buf.getvalue(), f"企微社群数据统计通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
-        'deposit': deposit_xlsx, 'community': community_xlsx}
+        'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:

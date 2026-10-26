@@ -16,6 +16,7 @@ const LINES = [
   { id: 'online', name: '网点线上服务能力', cat: 'wj' },
   { id: 'wallet', name: '数字人民币钱包', cat: 'wj' },
   { id: 'community', name: '企微社群运营', cat: 'wj' },
+  { id: 'downgrade', name: '降级挽回营销先锋', cat: 'jg' },
 ];
 
 export default {

@@ -135,14 +135,16 @@ export function barRank(rows, { color = C.blue, unit = '', decimals = 0, max = n
         const bottom = r.tone === 'bottom';
         return {
           value: v,
-          label: { position: neg ? 'left' : 'right' },
+          label: { position: neg ? 'left' : 'right', color: r.color || C.ink2 },
           itemStyle: {
             borderRadius: neg ? [5, 0, 0, 5] : [0, 5, 5, 0],
             color: v === null ? 'transparent'
-              : neg ? C.green
-                : new window.echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                  { offset: 0, color: color + (bottom ? '25' : 'aa') },
-                  { offset: 1, color: bottom ? color + '66' : color }]),
+              : r.color                                          // 行内指定颜色（如头尾高亮）
+                ? r.color
+                : neg ? C.green
+                  : new window.echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                    { offset: 0, color: color + (bottom ? '25' : 'aa') },
+                    { offset: 1, color: bottom ? color + '66' : color }]),
           },
         };
       }),
