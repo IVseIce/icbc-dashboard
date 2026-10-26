@@ -383,14 +383,17 @@ def build_downgrade(on: str | None = None) -> dict:
     span = f"{per['start'][5:7]}月{per['start'][8:10]}日-{per['end'][5:7]}月{per['end'][8:10]}日"
     title = f'阜阳分行“降级挽回”营销先锋（{per["label"]}）'
 
-    up_br = [b['name'] for b in branches if (b.get('score') or 0) > 0][:3]
-    down_br = [b['name'] for b in branches if (b.get('score') or 0) < 0][-3:]
+    # 前三 / 后三一律按名次取，不要按"评分为正/为负"筛：
+    # 某期可能只有两家是正数（如 1020-1026），按正负筛会把第三名吞掉
+    ranked = sorted(branches, key=lambda b: b.get('rank') or 0)
+    up_br = [b['name'] for b in ranked[:3]]
+    down_br = [b['name'] for b in ranked[-3:]][::-1]     # 后三名，末位最差放最前
     text = '\n\n'.join([
         '【财客管户“降级挽回”营销先锋】',
         f'1️⃣整体情况：{span}，全行锁包降级管户金融资产{_signed(k["asset"])}，'
         f'储蓄存款{_signed(k["dep"])}。',
         f'2️⃣支行排名：{"、".join(up_br) or "—"}位居前三，'
-        f'{"、".join(reversed(down_br)) or "—"}居后三名！',
+        f'{"、".join(down_br) or "—"}居后三名！',
         f'3️⃣营销先锋：单边降级提升前{len(top)}名网点为'
         f'{"、".join(n["name"] for n in top) or "—"}，全行领先！',
         '降级客户具体明细清单已发送各支行分管行长及个金部主任邮箱。',
@@ -413,6 +416,7 @@ def build_downgrade(on: str | None = None) -> dict:
         {'key': 'dep', 'title': '存款提升额', 'type': 'num'},
     ]
     detail_cols = [
+        {'key': 'rank', 'title': '排名', 'type': 'num'},
         {'key': 'branch', 'title': '支行', 'type': 'text'},
         {'key': 'net', 'title': '网点', 'type': 'text'},
         {'key': 'customers', 'title': '客户数', 'type': 'num'},
@@ -420,14 +424,16 @@ def build_downgrade(on: str | None = None) -> dict:
         {'key': 'dep', 'title': '存款提升额', 'type': 'num'},
         {'key': 'score', 'title': '综合评价', 'type': 'num'},
     ]
+    # 网点明细：按综合评价（两项提升额的 1:1 平均）从高到低，全表一个序列
     detail_rows = []
-    for b in sorted(branches, key=lambda x: x['rank']):
-        for n in sorted([x for x in d['nets'] if x['branch'] == b['name']],
-                        key=lambda x: -(x.get('asset') or 0)):
-            detail_rows.append({'branch': b['name'], 'net': n['name'],
-                                'customers': n['customers'],
-                                'asset': n['asset'], 'dep': n['dep'],
-                                'score': round(((n['asset'] or 0) + (n['dep'] or 0)) / 2, 4)})
+    for n in d['nets']:
+        detail_rows.append({'branch': n['branch'], 'net': n['name'],
+                            'customers': n['customers'],
+                            'asset': n['asset'], 'dep': n['dep'],
+                            'score': round(((n['asset'] or 0) + (n['dep'] or 0)) / 2, 4)})
+    detail_rows.sort(key=lambda r: -r['score'])
+    for i, r in enumerate(detail_rows, 1):
+        r['rank'] = i
 
     return {
         'ok': True, 'kind': 'downgrade', 'title': title, 'as_of': d['as_of'],
@@ -488,7 +494,7 @@ def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
     ws2['A1'] = f'阜阳分行“降级挽回”网点明细（{d["period"]["label"]}）'
     for i, rec in enumerate(d['tables'][2]['rows']):
         r = 3 + i
-        for ci, v in enumerate([rec['branch'], rec['net'], rec['customers'],
+        for ci, v in enumerate([rec.get('rank'), rec['branch'], rec['net'], rec['customers'],
                                 rec['asset'], rec['dep'], rec['score']], start=1):
             ws2.cell(row=r, column=ci, value=v)
 

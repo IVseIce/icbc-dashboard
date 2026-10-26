@@ -119,22 +119,27 @@ export default {
     ];
     view.querySelector('#dgBrTable').appendChild(table(brCols, brs, { sortBy: 'score' }));
 
+    // 网点按综合评价（资产+存款 各 50%）降序，与导出表一致
+    const netByScore = [...nets]
+      .map((n) => ({ ...n, score: Math.round((((n.asset || 0) + (n.dep || 0)) / 2) * 10000) / 10000 }))
+      .sort((a, b) => b.score - a.score)
+      .map((n, i) => ({ ...n, score_rank: i + 1 }));
     const netCols = [
-      { key: 'rank', title: '排名', decimals: 0, rank: false },
+      { key: 'score_rank', title: '排名', decimals: 0, rank: false },
       { key: 'name', title: '网点', sortable: false },
       { key: 'branch', title: '支行', sortable: false },
       { key: 'customers', title: '客户数', decimals: 0 },
       { key: 'asset', title: '资产提升', unit: '万', decimals: 1 },
       { key: 'dep', title: '存款提升', unit: '万', decimals: 1 },
-      { key: 'sum', title: '合计', unit: '万', decimals: 1, strong: true },
+      { key: 'score', title: '综合评价', unit: '万', decimals: 1, strong: true },
     ];
-    view.querySelector('#dgNetTable').appendChild(table(netCols, nets, { sortBy: 'sum', limit: 15 }));
+    view.querySelector('#dgNetTable').appendChild(table(netCols, netByScore, { sortBy: 'score', limit: 15 }));
 
     view.querySelector('#dgExpand').onclick = () => bigTable({
       title: '降级挽回 · 全部网点',
       subtitle: `${per.label_cn} · 单位：万元`,
       columns: netCols,
-      rows: nets,
+      rows: netByScore,
     });
   },
 };
