@@ -7,7 +7,7 @@
 
 | 板块 | id | 模块 | 已接入 | 说明 |
 |---|---|---|---|---|
-| 个人金融 | `jg` | 12 | 5 | 增存 · 增客 · 增收 |
+| 个人金融 | `jg` | 12 | 6 | 增存 · 增客 · 增收 |
 | 网络金融 | `wj` | 3 | 3 | 线上服务 · 数币 · 企微 |
 | 个人贷款 | `loan` | 1 | 0 | 框架预留，待接入 |
 | 银行卡 | `card` | 1 | 0 | 框架预留，待接入 |
@@ -27,7 +27,7 @@
 | 个金 | 增客 | 全量客户 | `jg-customer-all` | placeholder | — | — | — |
 | 个金 | 增客 | 代发工资 | `jg-customer-pay` | metric | payroll | dfmx | — |
 | 个金 | 增客 | 薪管家 | `jg-customer-xgj` | metric | salary | xgj | [docs/modules/jg-customer-xgj.md](../modules/jg-customer-xgj.md) |
-| 个金 | 增客 | 一卡一户 | `jg-customer-yika` | placeholder | — | — | — |
+| 个金 | 增客 | 一卡一户 | `jg-customer-yika` | metric | yika | ykh | [docs/modules/jg-customer-yika.md](../modules/jg-customer-yika.md) |
 | 个金 | 增客 | 五卡唤醒 | `jg-customer-card` | metric | fivecards | wk | — |
 | 个金 | 增收 | 基保理 | `jg-income-jbl` | placeholder | — | — | — |
 | 个金 | 增收 | 三方支付 | `jg-income-pay` | placeholder | — | — | — |
@@ -57,3 +57,4 @@
 | `dfmx` | 9 | 2026-09-30 |
 | `wk` | 1 | 2026-09-09 |
 | `jjwh` | 1 | 2026-09-13 |
+| `ykh` | 1 | 2026-10-25 |

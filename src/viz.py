@@ -45,7 +45,9 @@ LINES = {
     'qwsq': {'label': '企微社群', 'skill': 'icbc-qwsq', 'hint': '成员群聊数据统计（本周 + 上周）'},
     'dfmx': {'label': '代发明细', 'skill': '', 'hint': '月度多 sheet 的代发明细工作簿'},
     'wk': {'label': '五卡唤醒', 'skill': '', 'hint': '五卡汇总表（支行 × 5 类卡）'},
-    'jjwh': {'label': '降级挽回', 'skill': '', 'hint': '客编资产明细 + 客编→支行/网点映射（两份）'},
+    'jjwh': {'label': '降级挽回', 'skill': '', 'hint': '客编资产明细（客编映射已内置）'},
+    'ykh': {'label': '一卡一户', 'skill': '',
+            'hint': '社保卡（借记卡发卡统计报表）+ 个人养老金（多日期表），每天导当期即可'},
 }
 
 _mods: dict[str, object] = {}
@@ -419,9 +421,136 @@ def import_downgrade(files, line, root, data_date=None):
     return dg.parse_files(files, as_of=data_date)
 
 
+def import_yika(files, line, root, data_date=None):
+    """一卡一户：社保卡 + 养老金两张源表。
+
+    两步：
+      1. **按日入库**：每张表识别出的每个日期都落一条快照（`ykh_sb` / `ykh_yl`，
+         payload 只有该日各网点的累计值）。所以每天导当期即可，多日期表一次能补历史。
+      2. **拼当期**：从库里取「当日 / 前一日 / 上周末」三个时点算成表，写入 `ykh`。
+
+    返回的 snap 带 `_files`（每个 sheet 被当成什么、识别到哪些日期）与 `_notes`
+    （本期用到哪几个日期、缺哪个），导入者据此核对日期是否正确。
+    """
+    from ingest import readers, yika
+    roles, sb_dates, yl_dates, notes = [], set(), set(), []
+    title_hint = None                     # 成表标题里的期间末日，给"三日期版"定当日
+    for name, blob in files:
+        titles = readers.sheet_names(blob, name)
+        single = len(titles) == 1
+        for title, rows in readers.sheets(blob, name):
+            tag = name if single else f'{name} » {title}'
+            kind = yika.classify(title, rows)
+            if kind == 'report':
+                roles.append({'name': tag, 'role': '成表输出，已忽略'})
+                title_hint = title_hint or yika.parse_report_title(rows)
+            elif kind == 'sika':
+                if yika.is_prepared_sika(rows):
+                    fallback = (date.fromisoformat(data_date) if data_date else
+                                (title_hint or _date_from_name(name)))
+                    r = yika.parse_sika_prepared(rows, fallback)
+                    for d, series in sorted(r['series'].items()):
+                        save_snapshot('ykh_sb', d, {'line': 'ykh_sb', 'as_of': d,
+                                                    'cum': series,
+                                                    'parts': (r.get('detail') or {}).get(d) or {},
+                                                    'grand': (r.get('grand') or {}).get(d),
+                                                    'rows': len(series)}, root)
+                        sb_dates.add(d)
+                    ds = sorted(r['series'])
+                    roles.append({'name': tag, 'role':
+                                  f'社保卡（三日期版）· {"、".join(ds)}'})
+                    notes.extend(r.get('warn') or [])
+                else:
+                    r = yika.parse_sika(rows, fallback=_date_from_name(name))
+                    d = r['date'].isoformat()
+                    save_snapshot('ykh_sb', d, {'line': 'ykh_sb', 'as_of': d,
+                                                'cum': r['cum'], 'parts': r.get('parts') or {},
+                                                'grand': r.get('grand'), 'rows': r['rows']}, root)
+                    sb_dates.add(d)
+                    roles.append({'name': tag, 'role': f'社保卡 · {d}'})
+            elif kind == 'yanglao':
+                r = yika.parse_yanglao(rows, fallback=_date_from_name(name))
+                for d, series in sorted(r['series'].items()):
+                    save_snapshot('ykh_yl', d, {'line': 'ykh_yl', 'as_of': d,
+                                                'cum': series,
+                                                'parts': (r.get('detail') or {}).get(d) or {},
+                                                'rows': len(series)}, root)
+                    yl_dates.add(d)
+                ds = sorted(r['series'])
+                roles.append({'name': tag, 'role':
+                              f'养老金 · {ds[0]} ~ {ds[-1]}（{len(ds)} 个日期）'})
+                notes.extend(r.get('warn') or [])
+            else:
+                roles.append({'name': tag, 'role': '未识别（跳过）'})
+
+    if not sb_dates and not yl_dates:
+        raise ValueError('没识别出社保卡或养老金表：社保卡表标题应含「借记卡发卡统计报表」，'
+                         '养老金表第 3 行应有「累计开户数」')
+
+    sb_all = _cum_by_date('ykh_sb')
+    yl_all = _cum_by_date('ykh_yl')
+    have = sorted(set(sb_all) | set(yl_all))
+    if not have:
+        raise ValueError('库里没有任何一卡一户数据')
+
+    # 当日：优先用参数；否则取两张表「都有数据」的最新一天
+    # （只导了养老金 10.26、社保卡只到 10.25 时，当期就出 10.25，而不是硬凑 10.26）
+    both = sorted(set(sb_all) & set(yl_all))
+    as_of = data_date or (both[-1] if both else have[-1])
+    as_of = min(as_of, have[-1])
+    plan = yika.plan_dates(date.fromisoformat(as_of))
+
+    # 三个时点都齐了才能拼当期；缺的日期说清楚，别静默算错
+    need = sorted({plan['cur'], plan['prev'], plan['week_end']})
+    miss_sb = [d for d in need if d not in sb_all]
+    miss_yl = [d for d in need if d not in yl_all]
+    if miss_sb or miss_yl:
+        bits = []
+        if miss_sb:
+            bits.append('社保卡缺 ' + '、'.join(miss_sb))
+        if miss_yl:
+            bits.append('养老金缺 ' + '、'.join(miss_yl))
+        raise ValueError(f'当期需要 {need[0]} ~ {need[-1]} 三个时点（当日/前一日/上周末），'
+                         + '；'.join(bits) + '。把对应那天的源表一起导进来即可。')
+
+    snap = yika.build(sb_all, yl_all, plan)
+    snap['_files'] = roles
+    span = f'{plan["cur"]}' if plan['days'] == 1 else f'{plan["block_start"]} ~ {plan["block_end"]}'
+    notes.insert(0, f'本期 {span}（当日 {plan["cur"]} · 前一日 {plan["prev"]} · '
+                    f'上周末 {plan["week_end"]}）')
+    if plan['merged']:
+        notes.insert(1, '前一日与上周末是同一天，本周新增 = 当日新增')
+    snap['_notes'] = notes
+    return as_of, snap
+
+
+def _date_from_name(name: str):
+    """文件名里的日期兜底：1026 / 20261026 / 10.26。"""
+    import re
+    m = re.search(r'(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})', name)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    m = re.search(r'(?<!\d)(\d{2})[.月-]?(\d{2})(?!\d)', name)
+    if m:
+        try:
+            return date(date.today().year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            pass
+    return None
+
+
+def _cum_by_date(line: str) -> dict:
+    """把库里的按日累计快照摊成 {日期: {网点: 累计}}。"""
+    return {s['as_of']: (s.get('cum') or {}) for s in load_snapshots(line)}
+
+
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
-             'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade}
+             'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
+             'ykh': import_yika}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,
@@ -443,7 +572,7 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         norm.append((n, b))
     files = norm
     try:
-        if line in ('xgj', 'wk', 'dfmx'):
+        if line in ('xgj', 'wk', 'dfmx', 'ykh'):
             dd, snap = IMPORTERS[line](files, line, root, data_date=data_date)
         else:
             dd, snap = IMPORTERS[line](files, line, root)
@@ -464,7 +593,8 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                 conv = [(n, readers.text_to_xlsx(b)) if readers.sniff(b) == 'text' else (n, b)
                         for n, b in files]
                 dd, snap = (IMPORTERS[line](conv, line, root, data_date=data_date)
-                            if line in ('xgj', 'wk', 'dfmx') else IMPORTERS[line](conv, line, root))
+                            if line in ('xgj', 'wk', 'dfmx', 'ykh')
+                            else IMPORTERS[line](conv, line, root))
                 snap['line'] = line
                 snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 sid = save_snapshot(line, dd, snap, root)

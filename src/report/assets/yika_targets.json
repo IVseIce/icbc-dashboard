@@ -1,0 +1,278 @@
+{
+ "nets": [
+  {
+   "name": "阜阳颍州支行营业室",
+   "branch": "颍州",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳师范大学支行",
+   "branch": "颍州",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳文峰支行",
+   "branch": "颍州",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳城建支行",
+   "branch": "颍州",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳清河支行",
+   "branch": "颍州",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳金鹰支行",
+   "branch": "颍州",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳南站支行",
+   "branch": "颍州",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳颍泉支行营业室",
+   "branch": "颍泉",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳瑶海支行",
+   "branch": "颍泉",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳大楼支行",
+   "branch": "颍泉",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳临沂商城支行",
+   "branch": "颍泉",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳人民路支行",
+   "branch": "颍泉",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳小隅首支行",
+   "branch": "颍泉",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳牡丹支行",
+   "branch": "颍泉",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳颍东支行营业室",
+   "branch": "颍东",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳汇通支行",
+   "branch": "颍东",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜阳颍河支行",
+   "branch": "颍东",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳烟厂支行",
+   "branch": "颍东",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳岳家湖支行",
+   "branch": "颍东",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜阳青年支行",
+   "branch": "颍东",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "界首支行营业室",
+   "branch": "界首",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "界首城建支行",
+   "branch": "界首",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "界首新街口支行",
+   "branch": "界首",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "界首科创支行",
+   "branch": "界首",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "临泉支行营业室",
+   "branch": "临泉",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "临泉政务新区支行",
+   "branch": "临泉",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "临泉姜尚支行",
+   "branch": "临泉",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "临泉文明支行",
+   "branch": "临泉",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜南支行营业室",
+   "branch": "阜南",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜南百货大楼支行",
+   "branch": "阜南",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "阜南胜利路支行",
+   "branch": "阜南",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "阜南北城支行",
+   "branch": "阜南",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "颍上支行营业室",
+   "branch": "颍上",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "颍上北关支行",
+   "branch": "颍上",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "颍上十字街支行",
+   "branch": "颍上",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "颍上管仲支行",
+   "branch": "颍上",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "太和支行营业室",
+   "branch": "太和",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "太和大桥支行",
+   "branch": "太和",
+   "target_sb": 6,
+   "target_yl": 6
+  },
+  {
+   "name": "太和人民路支行",
+   "branch": "太和",
+   "target_sb": 4,
+   "target_yl": 4
+  },
+  {
+   "name": "太和华源支行",
+   "branch": "太和",
+   "target_sb": 4,
+   "target_yl": 4
+  }
+ ],
+ "branches": [
+  {
+   "name": "颍州",
+   "row": 11
+  },
+  {
+   "name": "颍泉",
+   "row": 19
+  },
+  {
+   "name": "颍东",
+   "row": 26
+  },
+  {
+   "name": "界首",
+   "row": 31
+  },
+  {
+   "name": "临泉",
+   "row": 36
+  },
+  {
+   "name": "阜南",
+   "row": 41
+  },
+  {
+   "name": "颍上",
+   "row": 46
+  },
+  {
+   "name": "太和",
+   "row": 51
+  }
+ ]
+}

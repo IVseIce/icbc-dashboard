@@ -1,13 +1,14 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-27（**版本 0.1.4.2**｜换工商银行标识与品牌标题）
+> 最后更新：2026-10-27（**版本 0.1.5**｜新增「一卡一户」模块）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
 > → 0.1.4（使用指南、更新记录、顶栏精简、侧栏防误拖、薪管家老内核修复）
 > → 0.1.4.1（更新日志独立成页、指南按钮改版、README 退回简介）
 > → 0.1.4.2（标识换工商银行红金立体 logo、标题改「工商银行阜阳分行 / 经营驾驶舱」）
+> → 0.1.5（一卡一户：社保卡 + 个人养老金，按日存累计值、三个时点自动拼成表）
 
 ---
 
@@ -120,7 +121,9 @@ icbc-dashboard/
 │  │  └─ icbc-{dqzz,xsfw,sbqb,xgj,qwsq}/{*.py, assets/}
 │  ├─ report/assets/         6 个"样式母版" xlsx（从正式成表清数据得到）+ 1 份内置映射
 │  │  ├─ {online,salary,wallet,deposit,community,downgrade}_base.xlsx
-│  │  └─ downgrade_map.json  客编 → 支行/网点（1749 条，固定映射）
+│  │  ├─ downgrade_map.json  客编 → 支行/网点（1749 条，固定映射）
+│  │  ├─ yika_base.xlsx      一卡一户样式母版（通报/社保卡/养老金 三 sheet）
+│  │  └─ yika_targets.json   网点顺序 / 支行 / 当日目标（固定值 4 或 6）
 │  └─ web/
 │     ├─ index.html
 │     ├─ assets/css/app.css  全部设计变量在 :root
@@ -129,7 +132,7 @@ icbc-dashboard/
 │     │  ├─ guide-content.js  使用指南正文（纯数据，改文案只动这里）
 │     │  └─ changelog.js      更新日志（独立页 #/changelog，发版必加一条）
 │     └─ pages: home jg deposit online wallet salary community payroll fivecards
-│               downgrade tool report import guide placeholder
+│               downgrade yika tool report import guide placeholder
 ├─ scripts/
 │  ├─ bootstrap.py           一次性把 automations 历史灌进库
 │  ├─ migrate_to_sqlite.py   旧 JSON → SQLite（一次性，可重跑）
@@ -138,7 +141,8 @@ icbc-dashboard/
 │  ├─ selftest.py            解释器/依赖/数据库自检（install/update 都调它）
 │  ├─ check_modules.py       模块接线自检 + 生成 docs/MODULES.md
 │  ├─ package_release.py     打 U 盘发布包（VERSION + SHA256SUMS，可带 runtime）
-│  └─ check_report_parity.py 与技能成表逐格对账
+│  ├─ check_report_parity.py 与技能成表逐格对账
+│  └─ build_yika_assets.py   从成表生成一卡一户母版与目标表（改口径时重跑）
 ├─ data/                     运行时数据（git 忽略）
 │  ├─ icbc.db                 主库（+ -wal / -shm；备份要连 wal 一起，或用 backup_db.py）
 │  ├─ imports/<line>/<stamp>/  上传原件留档
@@ -198,6 +202,8 @@ icbc-dashboard/
 | `dfmx` | 代发明细（月） | `build_payroll` | 2026-09-30（即 26.09 期） |
 | `wk` | 五卡唤醒 | `build_fivecards` | 2026-09-09 |
 | `jjwh` | 降级挽回（旬） | `build_downgrade` | 2026-09-13（基期） |
+| `ykh` | 一卡一户（日） | `build_yika` | 2026-10-25 |
+| `ykh_sb` / `ykh_yl` | 一卡一户的**按日累计值**（辅助条线，不出页面） | — | — |
 
 - 带 `partial: true` 的快照只用于画趋势，**详情页会跳过**（`api._latest` 里过滤）
 - 金额单位：存款/代发为万元，钱包为户；比率一律存**小数**（0.5578 而非 55.8）
@@ -483,6 +489,27 @@ icbc-dashboard/
     （距离 <18 全透、18~46 线性过渡、>46 保留），裁到 `getbbox()`，补成正方形，输出 384² PNG。
     原图在 `D:\资料\ICBC\Snipaste_2026-10-27_11-08-16.png`，重做时照这个流程。
 
+### 8.9 一卡一户（0.1.5 新增）
+
+54. **「累计」不是户数**：社保卡取 `柜台新增卡数量（本年累计）+ 批量开户新增卡（本年累计）`，
+    养老金取 `本年新增`。**不要用养老金的「累计开户数」**——那是存量（含去年及以前），相减跨年就错。
+55. **成表合计行公式是 `/2`**：`阜阳分行` 行是 `=SUM(C4:C51)/2`，因为上面 8 行小计已加过一遍。
+    换算成"40 个网点之和"即可，**别真的去掉那个 2 再算一次**。
+56. **清母版不能整段清空**：社保卡 `F/J`、养老金 `Q/R` 是公式，养老金 `G/M` 列是网点名。
+    第一版整段清了，辅助 sheet 全成空白（`scripts/build_yika_assets.py` 里已按列清）。
+57. **日期块规则要按"周"算**：周五~周日是一个块（周日代表三天合计），前一日 = 上一块的末日
+    （周日 → 周四）；上周末 = 本周开始前的周日（周日 → −7 天，周一 → 前一天）。
+    周一时前一日与上周末重合，只用 2 天数据。**周五、周六不出通报**。
+58. **网点名三种写法**：成表/养老金 `界首支行营业室`；社保卡源表 `阜阳界首支行营业室`。
+    社保卡源表还有 `安徽阜阳分行运行管理部` —— **不是网点**，别算进 40 个。
+    归一用 `ingest/yika.py::_norm()`，匹配用 `_lookup()`（精确 → 去前缀 → 后缀唯一）。
+59. **源表「合计」行不等于 40 网点之和**：它含运行管理部（多 2 张）。导出成表的合计行要用
+    快照里的 `grand`，用网点求和会少 2。
+60. **`read_table()` 只读第一个 sheet**：成表文件里带 通报/社保卡/养老金 三张表，
+    必须用 `readers.sheets()` 遍历，否则只会看到"通报"那张然后判定"未识别"。
+61. **对账要两边都重算**：一卡一户的成表两侧都留了公式（F/J、Q/R），
+    `check_report_parity.py` 现在会检测我方文件里有没有公式并自动重算，别只重算参考文件。
+
 ---
 
 ## 9. 当前状态 / 卡在哪
@@ -505,7 +532,7 @@ icbc-dashboard/
 - **降级挽回**：客编明细单表导入（映射内置）、支行+网点双层页、通报文案（+增长/−下降）、
   Excel 与正式成表**逐格零差异**（双 sheet）
 - **使用指南**（0.1.4）：右上角「导入数据」左边一个低调入口 + 每页可直达对应章节
-  （`#/guide/<模块id>`）；正文 18 节分五组，左侧目录常驻、底部「回到最上边」；指南**不过口令**
+  （`#/guide/<模块id>`）；正文 19 节分五组，左侧目录常驻、底部「回到最上边」；指南**不过口令**
 - **更新日志**独立成页（`#/changelog`），与指南用页面左上角页签互切（0.1.4.1）
 - **顶栏精简**（0.1.4）：原来「刷新」+「回到最新」两个按钮功能重叠，合并为一个
   （清筛选 + 重新取数）；动效改成切 class，不再碰 `e.currentTarget`
@@ -513,6 +540,9 @@ icbc-dashboard/
 - **老内核修复**（0.1.4）：薪管家页 `tr.at(-1)` 在 Chromium<92 上整页报错，已换成下标
 - **标识与品牌**（0.1.4.2）：侧栏换成工商银行红金立体 logo（透明底 PNG），标题「工商银行阜阳分行 / 经营驾驶舱」；
   浏览器标签、收藏夹图标、加载动画同步换掉
+- **一卡一户**（0.1.5）：社保卡 + 个人养老金，支行/网点两层；导入按日存累计值（`ykh_sb`/`ykh_yl`），
+  出通报自动拼「当日/前一日/上周末」三个时点；文案与用户模板**逐字一致**，Excel 三张 sheet
+  与正式成表**逐格零差异**，已进对账用例
 
 ### 未完成 / 待定
 
@@ -532,6 +562,7 @@ icbc-dashboard/
 | Excel/CSV 批量导出 | 未做（通报中心可导单份 Excel；对外只导 .db） | 需要时定义表口径 |
 | 降级挽回对账用例 | 未进 `check_report_parity`（缺第二期成表） | 拿到下一期成表后补 `CASES` |
 | 降级挽回映射更新 | 映射是固定 json（1749 条），客编新增需手工更新 | 需要时加"映射表覆盖导入" |
+| 一卡一户的历史回填 | 养老金表一次能带 36 个日期进来；社保卡历史需逐天导（源表一天一张） | 无（源表限制） |
 | 指南随版本演进 | 新模块/新按钮要手动补 `guide-content.js` 一节 + `changelog.js` 一条（`check_modules.py` 会 WARN 但不阻塞） | 无（流程性工作） |
 | 指南里的"要准备几份文件" | 从 `viz.XGJ_ROLE` / `XSFW_ROLE` 等常量反推，不是自动生成 | 数据源角色变化时要回来改文案 |
 
@@ -567,6 +598,9 @@ icbc-dashboard/
 | 查库/排障 | `python scripts/migrate_to_sqlite.py --db-info`，或 `sqlite3 data/icbc.db "select line,max(as_of),count(*) from snapshot group by line"` |
 | 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 | 降级挽回的口径 | `src/ingest/downgrade.py` 顶部常量（`REPORT_SHIFT` / `SPAN_DAYS` / `UNIT` / `EXCLUDE_SUFFIX`） |
+| 一卡一户的口径 | `src/ingest/yika.py` 顶部常量（`WEEK_DAYS=6`、`SB_COLS`、`YL_SUB`）+ `plan_dates()` 日期块规则 |
+| 一卡一户的网点/目标 | 改 `src/report/assets/yika_targets.json`，或改 `scripts/build_yika_assets.py` 后重跑 |
+| 一卡一户的母版样式 | 换 `src/report/assets/yika_base.xlsx`（务必跑 `build_yika_assets.py` 生成，别手清） |
 | 降级挽回的客编映射 | 换 `src/report/assets/downgrade_map.json`（`[[客编, 支行, 网点], …]`，改完重启） |
 | 使用指南的正文 | `src/web/assets/js/guide-content.js`（纯数据；`body` 只许 p/ul/ol/li/b/code/kbd/table 等白名单标签） |
 | 更新日志 | `src/web/assets/js/changelog.js`（发版往最前面插一条，版本号与 `VERSION` 一致）；页面在 `pages/guide.js` 的 `changelogPage` |
@@ -589,10 +623,12 @@ icbc-dashboard/
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
 7. `python scripts/selftest.py --root data` → OK；`python scripts/check_modules.py` → OK；
    打包前 `python scripts/package_release.py --seed` 能从干净提交出包
-8. 打开 `#/guide` 能看到 18 节；从 `#/m/jg-deposit-time` 点右上角「使用指南」
+8. 打开 `#/guide` 能看到 19 节（含「一卡一户」）；从 `#/m/jg-deposit-time` 点右上角「使用指南」
    应直接落到「定期存款」那一节；`#/changelog` 是独立一页，左上角两个页签能互切
-9. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
+9. `python scripts/check_report_parity.py` 里 yika 应 OK（三 sheet 零差异）；
+   打开 `#/m/jg-customer-yika` 能看到 6 张数字卡、3 张图和两张表
+10. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
    浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
-10. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+11. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

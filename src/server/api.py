@@ -414,12 +414,66 @@ def build_downgrade(on: str | None = None) -> dict:
                   for x in _upto('jjwh', on) if x.get('totals')],
     }
 
+def build_yika(on: str | None = None) -> dict:
+    """一卡一户：支行 + 网点两层；重点给"好的"（达标/靠前）与"差的"（挂零/垫底）。"""
+    s = _latest('ykh', on)
+    if not s:
+        return _no_data('ykh', on)
+    nets = [dict(n) for n in (s.get('nets') or [])]
+    branches = [dict(b) for b in (s.get('branches') or [])]
+    totals = dict(s.get('totals') or {})
+    period = s.get('period') or {}
+
+    by_day = sorted(branches, key=lambda b: -(b.get('day_rate') or 0))
+    by_week = sorted(branches, key=lambda b: -(b.get('week_rate') or 0))
+
+    # 文案/页面要的三类网点
+    sb_active = [n for n in nets if (n.get('sb_day') or 0) > 0]
+    yl_active = [n for n in nets if (n.get('yl_day') or 0) > 0]
+    reached = [n for n in nets if (n.get('day_rate') or 0) >= 1]
+    both_zero = [n for n in nets if (n.get('sb_rate') or 0) <= 0 and (n.get('yl_rate') or 0) <= 0]
+    # 低于 25% 的支行，**按完成率升序**（最差的在前），文案取阈值时要用 low[0]
+    low_branches = sorted([b for b in by_day if (b.get('day_rate') or 0) < 0.25],
+                          key=lambda b: b.get('day_rate') or 0)
+
+    # 趋势：历次成表的两项当日开户
+    trend = [{'d': x['as_of'],
+              'sb': (x.get('totals') or {}).get('sb_day'),
+              'yl': (x.get('totals') or {}).get('yl_day'),
+              'day_rate': (x.get('totals') or {}).get('day_rate'),
+              'week_rate': (x.get('totals') or {}).get('week_rate')}
+             for x in _upto('ykh', on) if x.get('totals')]
+
+    return {
+        'ok': True, 'as_of': s['as_of'], 'period': period,
+        'kpi': {
+            'sb_day': totals.get('sb_day'), 'sb_target': totals.get('sb_target'),
+            'sb_week': totals.get('sb_week'), 'sb_rate': totals.get('sb_rate'),
+            'yl_day': totals.get('yl_day'), 'yl_target': totals.get('yl_target'),
+            'yl_week': totals.get('yl_week'), 'yl_rate': totals.get('yl_rate'),
+            'day_rate': totals.get('day_rate'), 'week_rate': totals.get('week_rate'),
+            'nets': len(nets), 'branches': len(branches),
+            'sb_active': len(sb_active), 'yl_active': len(yl_active),
+            'reached': len(reached), 'both_zero': len(both_zero),
+            'best_branch': by_day[0] if by_day else None,
+            'worst_branch': by_day[-1] if by_day else None,
+            'best_week': by_week[0] if by_week else None,
+        },
+        'branches': [dict(b, rank=i + 1) for i, b in enumerate(by_day)],
+        'nets': sorted(nets, key=lambda n: (-(n.get('day_rate') or 0), -(n.get('sb_day') or 0))),
+        'top_nets': reached,
+        'zero_nets': both_zero,
+        'low_branches': low_branches,
+        'trend': trend,
+    }
+
+
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
-            'fivecards': build_fivecards, 'downgrade': build_downgrade}
+            'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
            'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
-           'downgrade': 'jjwh'}
+           'downgrade': 'jjwh', 'yika': 'ykh'}
 
 
 # ---------------------------------------------------------------- 汇总
@@ -428,6 +482,7 @@ def build_overview(on: str | None = None) -> dict:
     w, s, c = build_wallet(on), build_salary(on), build_community(on)
     p, f = build_payroll(on), build_fivecards(on)
     g = build_downgrade(on)
+    y = build_yika(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -445,6 +500,8 @@ def build_overview(on: str | None = None) -> dict:
                       'nearest': f.get('nearest')},
         'downgrade': {'ok': g.get('ok'), 'as_of': g.get('as_of'), 'kpi': g.get('kpi'),
                       'nearest': g.get('nearest'), 'period': g.get('period')},
+        'yika': {'ok': y.get('ok'), 'as_of': y.get('as_of'), 'kpi': y.get('kpi'),
+                 'nearest': y.get('nearest'), 'period': y.get('period')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,

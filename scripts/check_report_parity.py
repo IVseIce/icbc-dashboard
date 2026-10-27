@@ -28,6 +28,8 @@ CASES = [
     ('wallet', '2026-10-19', A / '20261020_数字人民币钱包/out/数字人民币个人钱包发展通报（10月19日）.xlsx', False),
     ('deposit', '2026-10-15', A / '20261016_定期存款增长/out/定期存款增长（10.15）.xlsx', True),
     ('community', '2026-10-19', Path('/mnt/d/资料/ICBC/20260929企微/企微社群数据统计通报（10.19）.xlsx'), True),
+    # yika 的成表里 F/J（社保卡当日/本周）和 Q/R（养老金）是公式，两边都要重算再比
+    ('yika', '2026-10-25', Path('/mnt/d/资料/ICBC/20261027一卡一户/10.08一卡一户.xlsx'), True),
 ]
 
 
@@ -67,7 +69,12 @@ def main() -> int:
         tmp.write_bytes(blob)
         use = recalc(ref) if need_recalc else ref
         ref_wb = openpyxl.load_workbook(use, data_only=need_recalc)
-        our_wb = openpyxl.load_workbook(tmp, data_only=False)
+        # 我方成表里也可能带公式（yika 的 F/J、Q/R 照母版留着），这种情况也要重算
+        ours_rec = recalc(tmp) if any(
+            isinstance(c.value, str) and str(c.value).startswith('=')
+            for ws in openpyxl.load_workbook(tmp).worksheets
+            for row in ws.iter_rows() for c in row) else tmp
+        our_wb = openpyxl.load_workbook(ours_rec, data_only=bool(need_recalc))
         total = 0
         detail = []
         for sn in ref_wb.sheetnames:

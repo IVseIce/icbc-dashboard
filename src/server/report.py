@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import io
+import math
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import api  # noqa: E402
+import viz  # noqa: E402
 
 BRANCH_ORDER = ['颍州', '颍泉', '颍东', '界首', '临泉', '阜南', '颍上', '太和']
 
@@ -503,14 +505,280 @@ def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
     return buf.getvalue(), f'降级挽回营销先锋（{d["period"]["label"]}）.xlsx'
 
 
+# ---------------------------------------------------------------- 一卡一户
+YIKA_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'yika_base.xlsx'
+YIKA_FIRST_ROW, YIKA_LAST_ROW = 4, 52
+
+
+def _md(iso: str) -> str:
+    """'2026-10-25' → '10月25日'。"""
+    return f'{int(iso[5:7])}月{int(iso[8:10])}日'
+
+
+def _span_label(period: dict) -> str:
+    """通报标题里的期间：周日出 10.23-10.25，其他日子只写当天 10.26。"""
+    s, e = period['start'], period['end']
+    if s == e:
+        return f'{int(s[5:7])}.{int(s[8:10])}'
+    return f'{int(s[5:7])}.{int(s[8:10])}-{int(e[5:7])}.{int(e[8:10])}'
+
+
+def _span_cn(period: dict) -> str:
+    """文案里的期间：`10月23-25日`（同月省略后一个"月"），单日 `10月26日`。"""
+    s, e = period['start'], period['end']
+    if s == e:
+        return f'{int(s[5:7])}月{int(s[8:10])}日'
+    if s[5:7] == e[5:7]:
+        return f'{int(s[5:7])}月{int(s[8:10])}-{int(e[8:10])}日'
+    return f'{int(s[5:7])}月{int(s[8:10])}日-{int(e[5:7])}月{int(e[8:10])}日'
+
+
+def _low_threshold(low: list[dict]) -> tuple[list[dict], int]:
+    """「完成率不足 X%」：取最低的一家，阈值向上取整到 5 的倍数；
+    若最低两家都不足 25%，两家一起报（用户确认的口径）。"""
+    if not low:
+        return [], 0
+    worst = low[0]['day_rate']
+    thr = max(5, int(math.ceil(worst * 100 / 5.0)) * 5)
+    picked = [b for b in low if b['day_rate'] < thr / 100]
+    return picked, thr
+
+
+def build_yika(on: str | None = None) -> dict:
+    d = api.build_yika(on)
+    if not d.get('ok'):
+        return {'ok': False, 'error': d.get('reason') or '该日期无一卡一户数据',
+                'nearest': d.get('nearest')}
+    k, per, branches = d['kpi'], d['period'], d['branches']
+    label = _span_label(per)
+    title = f'“一卡一户”日通报（{label}）'
+
+    top2 = branches[:2]
+    low, thr = _low_threshold(d.get('low_branches') or [])
+    reached = d.get('top_nets') or []
+    zero = d.get('zero_nets') or []
+
+    # 文案严格照用户给的标准模板（缩进也照抄，粘到企微/微信里排版才对）
+    lines = [
+        '“一卡一户”业务日通报：',
+        f'     {_span_cn(per)}，阜阳分行共计开立社保卡{int(k["sb_day"])}张、'
+        f'个人养老金账户{int(k["yl_day"])}户！',
+        '支行层面：',
+        f'    {"、".join(b["name"] for b in top2) or "—"}支行两项指标合计任务完成率靠前[强][强]',
+    ]
+    if low:
+        lines.append(f'    {"、".join(b["name"] for b in low)}支行两项产品合计营销完成率'
+                     f'不足{thr}%[心碎][心碎]请加强“一卡一户”业务关注度！')
+    lines.append('网点层面：')
+    lines.append(f'     {k["sb_active"]}家网点实现社保卡营销，{k["yl_active"]}家网点实现'
+                 f'个人养老金账户突破[烟花][烟花]其中'
+                 f'{"、".join(_short_net(n) for n in reached) or "—"}合计完成率达标！')
+    if zero:
+        lines.append(f'     {"、".join(_short_net(n) for n in zero)}两项指标均无业绩！[凋谢][凋谢]')
+        lines.append('    请社保卡、个人养老金两项指标均无业绩的网点负责人在本群反馈“0”拓户原因'
+                     '及明天两项指标预计开户数。')
+    text = '\n'.join(lines)
+
+    br_cols = [
+        {'key': 'rank', 'title': '排名', 'type': 'num'},
+        {'key': 'name', 'title': '支行', 'type': 'text'},
+        {'key': 'nets', 'title': '网点数', 'type': 'num'},
+        {'key': 'sb_day', 'title': '社保卡当日', 'type': 'num'},
+        {'key': 'sb_week', 'title': '社保卡本周', 'type': 'num'},
+        {'key': 'yl_day', 'title': '养老金当日', 'type': 'num'},
+        {'key': 'yl_week', 'title': '养老金本周', 'type': 'num'},
+        {'key': 'day_rate', 'title': '当日合计完成率', 'type': 'pct'},
+        {'key': 'week_rate', 'title': '周任务完成率', 'type': 'pct'},
+    ]
+    net_cols = [
+        {'key': 'name', 'title': '网点', 'type': 'text'},
+        {'key': 'branch', 'title': '支行', 'type': 'text'},
+        {'key': 'sb_day', 'title': '社保卡当日', 'type': 'num'},
+        {'key': 'sb_rate', 'title': '社保日达成', 'type': 'pct'},
+        {'key': 'sb_week', 'title': '社保卡本周', 'type': 'num'},
+        {'key': 'yl_day', 'title': '养老金当日', 'type': 'num'},
+        {'key': 'yl_rate', 'title': '养老金日达成', 'type': 'pct'},
+        {'key': 'yl_week', 'title': '养老金本周', 'type': 'num'},
+        {'key': 'day_rate', 'title': '当日合计', 'type': 'pct'},
+        {'key': 'week_rate', 'title': '周任务', 'type': 'pct'},
+    ]
+    total_row = {'rank': '', 'name': '阜阳分行', 'nets': k['nets'],
+                 'sb_day': k['sb_day'], 'sb_week': k['sb_week'],
+                 'yl_day': k['yl_day'], 'yl_week': k['yl_week'],
+                 'day_rate': k['day_rate'], 'week_rate': k['week_rate']}
+    return {
+        'ok': True, 'kind': 'yika', 'title': title, 'as_of': d['as_of'],
+        'period': per, 'text': text,
+        'label': label, 'low': low, 'low_thr': thr,
+        'tables': [
+            {'name': '支行', 'columns': br_cols, 'rows': branches, 'totals': total_row},
+            {'name': '网点明细', 'columns': net_cols, 'rows': d['nets'], 'totals': None},
+        ],
+    }
+
+
+def _short_net(rec: dict) -> str:
+    """通报文案里的网点叫法 = 支行名 + 网点名，各去掉「阜阳」「支行」。
+
+    成表文案就是这么写的：`阜阳城建支行`（颍州）→ `颍州城建`；
+    `临泉姜尚支行`（临泉）→ `临泉姜尚`。直接去掉「阜阳」「支行」会丢掉支行信息，
+    变成「城建」「姜尚」，别人不知道是哪个支行。
+    """
+    n = (rec.get('name') or '').strip()
+    if n.startswith('阜阳'):
+        n = n[2:]
+    if n.endswith('支行'):
+        n = n[:-2]
+    br = (rec.get('branch') or '').strip()
+    if br and not n.startswith(br):
+        return f'{br}{n}'
+    return n
+
+
+def yika_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    """按成表版式写数：通报 / 社保卡 / 养老金 三张 sheet 全填。
+
+    社保卡 sheet 的列布局（母版第 3 行就是列名，照它填，别自己数）：
+        B+C = 上周日累计    D+E = 前一日累计    H+I = 当日累计
+        F = B+C-D-E（当日开户，公式保留）      J = B+C-H-I（本周开户，公式保留）
+    前一日 == 上周末（周一）时，只填 D+E 与 H+I 两块。
+
+    条件格式是母版自带的（前 3 标红 / 后 3 标绿 / =0 标绿），这里**绝不要手工涂色**，
+    否则会和条件格式打架，也让"多个 0 时都标绿"失效。
+    """
+    import openpyxl
+    d = build_yika(on)
+    if not d.get('ok'):
+        raise RuntimeError('该日期没有一卡一户数据')
+    src = api.build_yika(on)
+    per = d['period']
+    wb = openpyxl.load_workbook(YIKA_BASE)
+
+    # ---------------------------------------------------------- 通报
+    ws = wb['通报']
+    ws['A1'] = d['title']
+    net_by_name = {n['name'].replace('阜阳', ''): n for n in src['nets']}
+    br_by_name = {b['name']: b for b in src['branches']}
+    COLS = [(3, 'sb_day'), (4, 'sb_target'), (5, 'sb_rate'), (6, 'sb_week'),
+            (7, 'yl_day'), (8, 'yl_target'), (9, 'yl_rate'), (10, 'yl_week'),
+            (11, 'day_rate'), (12, 'week_rate')]
+    for r in range(YIKA_FIRST_ROW, YIKA_LAST_ROW + 1):
+        name = ws.cell(r, 2).value
+        label = ws.cell(r, 1).value
+        if name:                                        # 网点行
+            rec = net_by_name.get(str(name).strip().replace('阜阳', ''))
+            if not rec:
+                raise RuntimeError(f'母版网点「{name}」在数据里找不到')
+        elif label and '小计' in str(label):             # 支行小计行
+            rec = br_by_name.get(str(label).replace('小计', '').strip())
+            if not rec:
+                continue
+        elif label and str(label).strip() == '阜阳分行':  # 分行合计行
+            rec = src['kpi']
+        else:
+            continue
+        for ci, key in COLS:
+            ws.cell(r, ci, rec.get(key, 0))
+
+    # ---------------------------------------------------------- 社保卡
+    sb = wb['社保卡']
+    sb['G2'] = '上周日'
+    # 列对：(累计柜台列, 累计批量列)
+    blocks = [(per['week_end'], 8, 9), (per['prev'], 4, 5), (per['cur'], 2, 3)]
+    if per['prev'] == per['week_end']:                  # 周一：前一日 = 上周末，只填两块
+        blocks = [(per['week_end'], 8, 9), (per['cur'], 2, 3)]
+    for r in range(4, 46):
+        name = sb.cell(r, 1).value
+        if not name:
+            continue
+        key = str(name).strip()
+        for day, c1, c2 in blocks:
+            if key == '合计':          # 末行合计：源表「合计」行（含运行管理部等非网点机构）
+                grand = _grand_of('ykh_sb', day)
+                if grand is None or len(grand) < 2:
+                    grand = [0, 0]
+                    for n in src['nets']:
+                        pr = _parts_of('ykh_sb', day, n['name'])
+                        grand[0] += pr[0]
+                        grand[1] += pr[1]
+                sb.cell(r, c1, int(grand[0]))
+                sb.cell(r, c2, int(grand[1]))
+            else:
+                parts = _parts_of('ykh_sb', day, key)
+                sb.cell(r, c1, int(parts[0]))
+                sb.cell(r, c2, int(parts[1]))
+
+    # ---------------------------------------------------------- 养老金
+    yl = wb['养老金']
+    yblocks = [(per['week_end'], 1), (per['prev'], 7), (per['cur'], 13)]   # A / G / M
+    if per['prev'] == per['week_end']:
+        yblocks = [(per['week_end'], 1), (per['cur'], 13)]
+    for day, c0 in yblocks:
+        yl.cell(1, c0, _date_obj(day))
+    for r in range(4, 44):
+        name = yl.cell(r, 1).value
+        if not name:
+            continue
+        key = str(name).strip()
+        for day, c0 in yblocks:
+            parts = _parts_of('ykh_yl', day, key)
+            # 三列：累计开户数 / 当日新增 / 本年新增
+            yl.cell(r, c0 + 1, int(parts[0]))
+            yl.cell(r, c0 + 2, int(parts[1]))
+            yl.cell(r, c0 + 3, int(parts[2]))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), f'一卡一户日通报（{d["label"]}）.xlsx'
+
+
+def _grand_of(line: str, day: str) -> list | None:
+    """源表末行「合计」（社保卡含运行管理部，与 40 个网点之和可能差几户/张）。"""
+    for s in viz.load_snapshots(line):
+        if s.get('as_of') == day:
+            return s.get('grand')
+    return None
+
+
+def _parts_of(line: str, day: str, name: str) -> list:
+    """取某天某网点的分项（社保卡=[柜台,批量]；养老金=[累计,当日新增,本年新增]）。"""
+    for s in viz.load_snapshots(line):
+        if s.get('as_of') == day:
+            parts = s.get('parts') or {}
+            hit = _lookup_name(parts, name) if parts else None
+            if hit:
+                return list(hit)
+            v = _lookup_name(s.get('cum') or {}, name) or 0
+            return [v] + [0, 0][:2]
+    return [0, 0, 0]
+
+
+def _cum_of(line: str, day: str) -> dict:
+    """从库里取某天的累计值；没有返回空 dict（缺失在 api 层已经拦过）。"""
+    for s in viz.load_snapshots(line):
+        if s.get('as_of') == day:
+            return s.get('cum') or {}
+    return {}
+
+
+def _lookup_name(series: dict, name: str) -> float | None:
+    from ingest.yika import _lookup
+    return _lookup(series, name)
+
+
+def _date_obj(iso: str):
+    from datetime import date
+    return date.fromisoformat(iso)
+
+
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
             'deposit': build_deposit, 'community': build_community,
-            'downgrade': build_downgrade}
+            'downgrade': build_downgrade, 'yika': build_yika}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
 CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
-          'downgrade': 'jg'}
+          'downgrade': 'jg', 'yika': 'jg'}
 
 
 def build(kind: str, on: str | None = None) -> dict:
@@ -740,7 +1008,8 @@ def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
     return buf.getvalue(), f"企微社群数据统计通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
-        'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx}
+        'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx,
+        'yika': yika_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:

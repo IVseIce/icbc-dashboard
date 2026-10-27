@@ -17,6 +17,7 @@ const LINES = [
   { id: 'wallet', name: '数字人民币钱包', cat: 'wj' },
   { id: 'community', name: '企微社群运营', cat: 'wj' },
   { id: 'downgrade', name: '降级挽回营销先锋', cat: 'jg' },
+  { id: 'yika', name: '“一卡一户”日通报', cat: 'jg' },
 ];
 
 export default {
