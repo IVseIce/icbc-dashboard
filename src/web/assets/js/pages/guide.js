@@ -1,7 +1,8 @@
-/* pages/guide.js —— 使用指南（正文在 guide-content.js，更新记录在 changelog.js）
-   路由：#/guide            打开指南顶部
-        #/guide/<section>  直接落到某一节（模块页右上角的"使用指南"就跳这里）
-   左侧目录常驻、右侧正文分节；底部有"回到最上边"。 */
+/* pages/guide.js —— 「帮助」两个页面：使用指南 / 更新日志
+   路由：#/guide             指南顶部
+        #/guide/<section>   指南里的某一节（模块页右上角的"使用指南"就跳这里）
+        #/changelog         更新日志（与指南并行，用页面左上角的页签切换）
+   两个页面共用同一个外壳（doc-head 页签 + 正文），互切只换内容不换布局。 */
 import { GUIDE_SECTIONS } from '../guide-content.js';
 import { CHANGELOG } from '../changelog.js';
 import { icon } from '../ui.js';
@@ -23,8 +24,28 @@ function killScrollHandler() {
   }
 }
 
+/* ---------------------------------------------------------------- 外壳 */
+/** 页面左上角的两个页签：使用指南 / 更新日志 */
+function tabsHTML(mode) {
+  return `<div class="doc-tabs">
+    <a href="#/guide" class="doc-tab${mode === 'guide' ? ' on' : ''}">${icon('overview', 13)} 使用指南</a>
+    <a href="#/changelog" class="doc-tab${mode === 'log' ? ' on' : ''}">${icon('spark', 13)} 更新日志</a>
+  </div>`;
+}
+
+function headHTML({ mode, title, desc, meta }) {
+  return `<div class="g-hero${mode === 'log' ? ' log' : ''}">
+    ${tabsHTML(mode)}
+    <h1>${title}</h1>
+    <p>${desc}</p>
+    ${meta ? `<div class="g-meta">${meta}</div>` : ''}
+  </div>`;
+}
+
+/* ---------------------------------------------------------------- 使用指南 */
 function tocHTML() {
-  const main = GROUPS.filter((g) => g !== '其他').map((g) => ({ group: g, items: GUIDE_SECTIONS.filter((s) => s.group === g) }))
+  const main = GROUPS.filter((g) => g !== '其他')
+    .map((g) => ({ group: g, items: GUIDE_SECTIONS.filter((s) => s.group === g) }))
     .filter((x) => x.items.length);
   const other = GUIDE_SECTIONS.filter((s) => s.group === '其他');
   return `<div class="gn-title">目录</div>`
@@ -33,7 +54,7 @@ function tocHTML() {
     ${g.items.map((s) => `<a href="#/guide/${s.id}" data-sec="${s.id}">${s.title}</a>`).join('')}`).join('')
     + `<div class="gn-title" style="padding-top:10px">其他</div>
        ${other.map((s) => `<a href="#/guide/${s.id}" data-sec="${s.id}">${s.title}</a>`).join('')}
-       <a href="#/guide/changelog" data-sec="changelog">更新记录</a>`;
+       <a href="#/changelog">更新日志 →</a>`;
 }
 
 function secHTML(s, i) {
@@ -54,17 +75,20 @@ function relatedHTML(s) {
   return `<div class="g-links">${links.join('')}<a href="#/report">通报中心</a></div>`;
 }
 
-function changelogHTML() {
-  const items = CHANGELOG.map((c, i) => `
-    <div class="g-log-item${i === 0 ? ' new' : ''}">
+/* ---------------------------------------------------------------- 更新日志 */
+function logHTML() {
+  return CHANGELOG.map((c, i) => `
+    <div class="g-log-item${i === 0 ? ' new' : ''}" id="v-${c.version}">
       <h4><span class="g-ver">${c.version}</span>${c.title}${c.date ? `<span class="g-day">${c.date}</span>` : ''}</h4>
       <ul>${c.items.map((t) => `<li>${t}</li>`).join('')}</ul>
     </div>`).join('');
-  return `<section class="g-sec" id="g-changelog">
-    <h2><span class="g-num">${GUIDE_SECTIONS.length + 1}</span>更新记录</h2>
-    <p class="g-sum">每次升级都记在这里：新功能、口径调整、修掉的问题。</p>
-    <div class="g-log">${items}</div>
-  </section>`;
+}
+
+/** 日志页的左侧索引：按版本跳转（和指南的目录占同样的宽度，两个页签切换时不跳位） */
+function versionIndexHTML() {
+  return `<div class="gn-title">版本</div>`
+    + CHANGELOG.map((c, i) => `<a href="#/changelog" data-ver="${c.version}"
+        class="${i === 0 ? 'on' : ''}">${c.version}<em>${c.date || ''}</em></a>`).join('');
 }
 
 export default {
@@ -75,22 +99,22 @@ export default {
     killScrollHandler();
     const ver = catalog?.version || '';
     const build = catalog?.build || '';
+    const meta = [`共 ${GUIDE_SECTIONS.length} 节`];
+    if (ver) meta.push(`当前版本 v${ver}`);
+    if (build) meta.push(`构建 ${build}`);
+
     view.innerHTML = `
       <div class="guide-wrap">
         <nav class="guide-nav" id="gNav">${tocHTML()}</nav>
         <div class="guide-body">
-          <div class="g-hero">
-            <h1>使用指南</h1>
-            <p>这份指南按"先看什么、怎么操作、每个模块看什么"的顺序写。不熟悉的话，从第一节往后看一遍大约十分钟；
-              只想查某个按钮，用左边目录直接跳。</p>
-            <div class="g-meta">
-              <span>共 ${GUIDE_SECTIONS.length} 节 + 更新记录</span>
-              ${ver ? `<span>当前版本 v${ver}</span>` : ''}
-              ${build ? `<span>构建 ${build}</span>` : ''}
-            </div>
-          </div>
+          ${headHTML({
+            mode: 'guide',
+            title: '使用指南',
+            desc: '按"先看什么、怎么操作、每个模块看什么"的顺序写。不熟悉的话，从第一节往后看一遍大约十分钟；'
+              + '只想查某个按钮，用左边目录直接跳。',
+            meta: meta.map((x) => `<span>${x}</span>`).join(''),
+          })}
           ${GUIDE_SECTIONS.map(secHTML).join('')}
-          ${changelogHTML()}
           <div class="g-top"><button id="gTop">${icon('up', 13)} 回到最上边</button></div>
         </div>
       </div>`;
@@ -113,7 +137,7 @@ export default {
       window.scrollTo(0, Math.max(0, y));
       mark(section);
     } else {
-      mark(section === 'changelog' ? 'changelog' : null);
+      mark(null);
     }
 
     scrollHandler = () => {
@@ -125,5 +149,66 @@ export default {
     };
     window.addEventListener('scroll', scrollHandler, { passive: true });
     scrollHandler();
+  },
+};
+
+/* ---------------------------------------------------------------- 更新日志页
+   与指南并行的独立页面（不是指南里的一节）：
+   页面左上角同样是两个页签，切过去再切回来都在。 */
+export const changelogPage = {
+  id: 'changelog',
+  title: '更新日志',
+
+  render(view, { catalog }) {
+    killScrollHandler();
+    const cur = CHANGELOG[0] || {};
+    const ver = catalog?.version || '';
+    const meta = [];
+    if (cur.version) meta.push(`最新 ${cur.version}${cur.date ? ' · ' + cur.date : ''}`);
+    if (ver) meta.push(`当前版本 v${ver}`);
+    meta.push(`共 ${CHANGELOG.length} 次更新`);
+
+    view.innerHTML = `
+      <div class="guide-wrap">
+        <nav class="guide-nav" id="gNav">${versionIndexHTML()}</nav>
+        <div class="guide-body">
+          ${headHTML({
+            mode: 'log',
+            title: '更新日志',
+            desc: '每次升级都记在这里：新增了什么、口径有没有调整、修掉了哪些问题。'
+              + '最新的在最上面，想确认手上这个版本有没有某功能，对着版本号找。',
+            meta: meta.map((x) => `<span>${x}</span>`).join(''),
+          })}
+          <section class="g-sec log-sec" id="g-changelog">
+            <div class="g-log">${logHTML()}</div>
+          </section>
+          <div class="g-top"><button id="gTop">${icon('up', 13)} 回到最上边</button></div>
+        </div>
+      </div>`;
+  },
+
+  after(view) {
+    killScrollHandler();
+    const btn = view.querySelector('#gTop');
+    if (btn) btn.onclick = () => { window.scrollTo(0, 0); };
+
+    // 左侧版本索引：点一下滚到那一版（不是换页，只滚）
+    const nav = view.querySelector('#gNav');
+    const links = nav ? Array.from(nav.querySelectorAll('a[data-ver]')) : [];
+    const mark = (v) => links.forEach((a) => a.classList.toggle('on', a.dataset.ver === v));
+    links.forEach((a) => {
+      a.onclick = (e) => {
+        e.preventDefault();
+        // 版本号里带点（0.1.2），不能用 querySelector('#v-0.1.2')：点会被当成 class 分隔符
+        const el = view.querySelector('.g-log-item') && [...view.querySelectorAll('.g-log-item')]
+          .find((x) => x.id === `v-${a.dataset.ver}`);
+        if (!el) return;
+        window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - 88));
+        mark(a.dataset.ver);
+      };
+    });
+
+    // 日志一共八九条，一屏基本看得见，不做滚动联动高亮（滚动联动会跟点击打架，
+    // 点 0.1.2 后立刻被"当前可见的那条"覆盖）。点谁就标谁，够用。
   },
 };

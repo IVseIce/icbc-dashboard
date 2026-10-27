@@ -120,7 +120,8 @@ def build_xxx(on=None):
    口径有坑的（如降级挽回的基期/末期/网均）要把口径原文写进去。
 
 2. `changelog.js` 的 `CHANGELOG` **最前面插一条**，`version` 与仓库 `VERSION` 一致，
-   `items` 写"使用者能看到什么变化"。
+   `items` 写"使用者能看到什么变化"。它在**单独的页面** `#/changelog`（与指南并行、左上角页签互切），
+   不用另建路由；`pages/guide.js` 的 `changelogPage` 会自动读这个数组。
 
 占位模块（`placeholder`/`planned`）不用写——它们没有"怎么用"可讲，`tool` 类可由
 现有的「实用工具」一节覆盖。`check_modules.py` 会对缺失的节 WARN。

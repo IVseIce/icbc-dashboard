@@ -1,11 +1,12 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-26（**版本 0.1.4**｜使用指南 + 更新记录；顶栏按钮合并；侧栏防误拖；老浏览器兼容）
+> 最后更新：2026-10-27（**版本 0.1.4.1**｜使用指南 + 独立更新日志页；顶栏按钮美化；README 精简）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
 > → 0.1.4（使用指南、更新记录、顶栏精简、侧栏防误拖、薪管家老内核修复）
+> → 0.1.4.1（更新日志独立成页、指南按钮改版、README 退回简介）
 
 ---
 
@@ -95,6 +96,8 @@ community 2026-10-19 OK
 icbc-dashboard/
 ├─ run.py                    启动入口（把 src 塞进 sys.path）
 ├─ requirements.txt          openpyxl / xlrd
+├─ README.md                 只作入口简介，**不随版本更新**（以此文件为准）
+├─ VERSION                   版本号；CHANGELOG 在 src/web/assets/js/changelog.js
 ├─ .gitignore                data/ 已忽略
 ├─ src/
 │  ├─ store.py               SQLite 存储层：schema/迁移/快照读写/台账/备份
@@ -122,7 +125,7 @@ icbc-dashboard/
 │     ├─ assets/css/app.css  全部设计变量在 :root
 │     ├─ assets/js/{app.js,auth.js,ui.js,charts.js,pages/*}
 │     │  ├─ guide-content.js  使用指南正文（纯数据，改文案只动这里）
-│     │  └─ changelog.js      使用指南里的「更新记录」（发版必加一条）
+│     │  └─ changelog.js      更新日志（独立页 #/changelog，发版必加一条）
 │     └─ pages: home jg deposit online wallet salary community payroll fivecards
 │               downgrade tool report import guide placeholder
 ├─ scripts/
@@ -292,6 +295,7 @@ icbc-dashboard/
 #/upload/<moduleId> 上传并预选该模块（模块页右上角"导入数据"就跳这里）
 #/guide            使用指南（不过口令，所有人可看）
 #/guide/<section>  指南里的某一节；section 通常=模块 id（模块页右上角"使用指南"跳这里）
+#/changelog        更新日志（与指南并行的独立页，左上角两个页签互切）
 ```
 
 ---
@@ -444,9 +448,11 @@ icbc-dashboard/
    rect 为 0 或在视口外 = 布局没生效（`inset` 这类问题）。左下角版本号悬停能看到
    `build` 与 `navigator.userAgent`，让对方发个截图即可定位内核。
 
-### 8.8 使用指南 / 更新记录（0.1.4 新增，改版必看）
+### 8.8 使用指南 / 更新日志（0.1.4 新增，改版必看）
 
-44. **三处必须同步**：`pages/guide.js` 渲染逻辑、`guide-content.js` 正文、`changelog.js` 更新记录。
+44. **四个文件各有分工**：`pages/guide.js`（两个页面的渲染）、`guide-content.js`（指南正文）、
+    `changelog.js`（更新日志）、`app.js`（`#/guide` 与 `#/changelog` 两条路由）。
+    **指南和更新日志是两个页面**，用页面左上角的页签（`.doc-tabs`）互切，不要再塞回指南正文里。
     正文是纯数据（`GUIDE_SECTIONS`），渲染器只认 `id/group/title/summary/body` 五个字段，
     `body` 里**只允许** `p/ul/ol/li/b/strong/em/code/kbd/table.g-tbl/thead/tbody/tr/th/td/br`，
     不要 inline style、不要 div、不要标题标签（标题由渲染器统一加序号）。
@@ -485,8 +491,8 @@ icbc-dashboard/
 - **降级挽回**：客编明细单表导入（映射内置）、支行+网点双层页、通报文案（+增长/−下降）、
   Excel 与正式成表**逐格零差异**（双 sheet）
 - **使用指南**（0.1.4）：右上角「导入数据」左边一个低调入口 + 每页可直达对应章节
-  （`#/guide/<模块id>`）；正文 18 节分五组，左侧目录常驻、底部「回到最上边」；带 **更新记录**
-  （`changelog.js`，发版必加一条）。指南**不过口令**
+  （`#/guide/<模块id>`）；正文 18 节分五组，左侧目录常驻、底部「回到最上边」；指南**不过口令**
+- **更新日志**独立成页（`#/changelog`），与指南用页面左上角页签互切（0.1.4.1）
 - **顶栏精简**（0.1.4）：原来「刷新」+「回到最新」两个按钮功能重叠，合并为一个
   （清筛选 + 重新取数）；动效改成切 class，不再碰 `e.currentTarget`
 - **侧栏防误拖**（0.1.4）：`draggable=false` + 拦 `dragstart` + 位移>6px 不认点击
@@ -546,7 +552,7 @@ icbc-dashboard/
 | 降级挽回的口径 | `src/ingest/downgrade.py` 顶部常量（`REPORT_SHIFT` / `SPAN_DAYS` / `UNIT` / `EXCLUDE_SUFFIX`） |
 | 降级挽回的客编映射 | 换 `src/report/assets/downgrade_map.json`（`[[客编, 支行, 网点], …]`，改完重启） |
 | 使用指南的正文 | `src/web/assets/js/guide-content.js`（纯数据；`body` 只许 p/ul/ol/li/b/code/kbd/table 等白名单标签） |
-| 使用指南的更新记录 | `src/web/assets/js/changelog.js`（发版往最前面插一条，版本号与 `VERSION` 一致） |
+| 更新日志 | `src/web/assets/js/changelog.js`（发版往最前面插一条，版本号与 `VERSION` 一致）；页面在 `pages/guide.js` 的 `changelogPage` |
 | 版本号 | 仓库根 `VERSION`；打包时写 `BUILD`（日期-git短sha） |
 | 版本号怎么定 | `0.x`=重大重构/整体重写/需数天；`0.x.x`=新增模块或功能；`0.x.x.x`=小 bug 修复与体验优化（几分钟到一两小时） |
 
@@ -566,8 +572,8 @@ icbc-dashboard/
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
 7. `python scripts/selftest.py --root data` → OK；`python scripts/check_modules.py` → OK；
    打包前 `python scripts/package_release.py --seed` 能从干净提交出包
-8. 打开 `#/guide` 能看到 18 节 + 更新记录；从 `#/m/jg-deposit-time` 点右上角「使用指南」
-   应直接落到「定期存款」那一节；页面底部「回到最上边」可用
+8. 打开 `#/guide` 能看到 18 节；从 `#/m/jg-deposit-time` 点右上角「使用指南」
+   应直接落到「定期存款」那一节；`#/changelog` 是独立一页，左上角两个页签能互切
 9. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

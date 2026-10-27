@@ -20,7 +20,7 @@ import jgPage from './pages/jg.js';
 import toolPage from './pages/tool.js';
 import downgrade from './pages/downgrade.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
-import guide, { guideHref } from './pages/guide.js';
+import guide, { guideHref, changelogPage } from './pages/guide.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards, downgrade, tool: toolPage };
 
@@ -126,7 +126,7 @@ function asofFor(r, iso) {
     return mods.length && mods.every((m) => m.kind === 'tool') ? '工具 · 无数据时点' : '暂无数据';
   }
   if (r.name === 'upload') return '各模块独立时点';
-  if (r.name === 'guide') return '使用指南 · 与数据时点无关';
+  if (r.name === 'guide' || r.name === 'changelog') return '帮助 · 与数据时点无关';
   if (r.name === 'report') return null;      // 通报页自己按取到的通报写（含"暂无"）
   return iso ? `数据截至 ${fmt.date(iso)}` : '—';
 }
@@ -360,7 +360,12 @@ function parseRoute() {
   if (seg[0] === 'g') return { name: 'group', prof: seg[1], id: seg[2] };
   if (seg[0] === 'report') return { name: 'report', kind: seg[1] };
   if (seg[0] === 'upload') return { name: 'upload', moduleId: seg[1] };
-  if (seg[0] === 'guide') return { name: 'guide', section: seg[1] || null };
+  if (seg[0] === 'guide') {
+    // 老地址兜底：0.1.4 时更新记录是 #/guide/changelog，现在独立成页了
+    if (seg[1] === 'changelog') return { name: 'changelog' };
+    return { name: 'guide', section: seg[1] || null };
+  }
+  if (seg[0] === 'changelog') return { name: 'changelog' };
   return { name: 'home' };
 }
 
@@ -496,6 +501,10 @@ function render() {
       title = '使用指南';
       crumb = '<b>使用指南</b>';
       guide.render(host, { catalog: state.catalog, section: r.section });
+    } else if (r.name === 'changelog') {
+      title = '更新日志';
+      crumb = '<b>更新日志</b>';
+      changelogPage.render(host, { catalog: state.catalog });
     } else {
       home.render(host, ctx);
     }
@@ -521,6 +530,7 @@ function render() {
   window.scrollTo(0, 0);
   paintTop(r);
   if (r.name === 'guide') guide.after(host, r.section);
+  else if (r.name === 'changelog') changelogPage.after(host);
 }
 
 async function refresh(date = state.date) {

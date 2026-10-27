@@ -549,7 +549,7 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .nav-subgroup .nav-item{padding-left:28px}
 
 /* ============================== 口令 / 身份 ============================== */
-.top-slot{position:relative;display:flex;align-items:center}
+.top-slot{position:relative;display:flex;align-items:center;gap:10px}
 .id-chip{display:inline-flex;align-items:center;gap:6px;border-radius:10px;padding:8px 12px;font-size:12.5px;
   border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;font-family:inherit;
   transition:.18s var(--ease)}
@@ -666,13 +666,13 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 
 /* ============================== 顶栏：使用指南入口 ==============================
    位置在「导入数据」左边、身份胶囊左边；刻意做小、低饱和，看得见但不抢注意力。 */
-.guide-btn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:9px;
-  border:1px solid var(--line);background:#fff;color:var(--ink-3);font-size:12px;text-decoration:none;
-  transition:.18s var(--ease);flex:none}
-.guide-btn svg{opacity:.8;flex:none}
+.guide-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:9px;
+  border:1px solid #c9d9f7;background:var(--blue-soft);color:#2a4a86;font-size:12.5px;font-weight:600;
+  text-decoration:none;transition:.18s var(--ease);flex:none;margin-right:2px}
+.guide-btn svg{opacity:1;flex:none;color:#2563eb}
 .guide-btn:hover{color:var(--red);border-color:#f3c7cf;background:var(--red-soft)}
-.guide-btn:hover svg{opacity:1}
-@media (max-width:900px){.guide-btn span{display:none}.guide-btn{padding:0 8px}}
+.guide-btn:hover svg{color:var(--red)}
+@media (max-width:900px){.guide-btn span{display:none}.guide-btn{padding:0 9px}}
 
 /* 顶栏刷新按钮的转圈（用 class 切换，不碰内联 transform） */
 .icon-btn.spinning svg{animation:spin .46s var(--ease)}
@@ -757,3 +757,22 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 /* 侧栏导航项禁止拖动（防止按住手抖就新开窗口）；文字不可选，拖动更稳 */
 .sidebar a{-webkit-user-drag:none;user-select:none}
 .sidebar{-webkit-user-select:none;user-select:none}
+
+
+/* ============================== 帮助页：页签（使用指南 / 更新日志） ============================== */
+.doc-tabs{display:flex;gap:6px;margin-bottom:16px;position:relative;z-index:1}
+.doc-tab{display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:9px;
+  font-size:12.5px;color:#c3cee0;background:rgba(255,255,255,.1);text-decoration:none;
+  transition:.16s var(--ease)}
+.doc-tab:hover{background:rgba(255,255,255,.18);color:#fff}
+.doc-tab.on{background:#fff;color:var(--ink);font-weight:650;box-shadow:0 2px 10px -2px rgba(0,0,0,.35)}
+.doc-tab svg{opacity:.85}
+.g-hero.log{background:linear-gradient(135deg,#1a2338 0%,#243352 55%,#1f3a34 100%)}
+
+/* 更新日志页的列表容器：不需要分节卡的内边距 */
+.g-sec.log-sec{padding:22px 26px}
+
+/* 更新日志左栏：版本索引（带日期，和指南目录同宽，切页签时不跳位） */
+.guide-nav a em{font-style:normal;font-size:10px;color:var(--ink-4);margin-left:6px;
+  font-variant-numeric:tabular-nums}
+.guide-nav a.on em{color:#c2606f}
