@@ -12,6 +12,10 @@ export default {
     if (!d?.ok) { view.innerHTML = `<div class="card">${empty('薪管家暂无数据', '导入四张增量表')}</div>`; return; }
     const k = d.kpi;
     const tr = d.trend || [];
+    // 老内核（Chromium < 92）没有 Array.prototype.at，且这里必须兼容 —— 用下标取末两期
+    const last = tr.length ? tr[tr.length - 1] : null;
+    const prev = tr.length > 1 ? tr[tr.length - 2] : null;
+    const delta = (Number(last?.year) || 0) - (Number(prev?.year) || 0);
     view.innerHTML = `
       <div class="page-head">
         <div><h1>工银薪管家「聚薪行动」</h1>
@@ -21,8 +25,8 @@ export default {
         <span class="chip">当月新增单位 ${k.ent_month} 户</span>
       </div>
       <div class="grid g4">
-        ${tile('全年代发金额', fmt.n(k.year, 2), '万元', `较上一期 +${fmt.n((tr.at(-1)?.year || 0) - (tr.at(-2)?.year || 0), 2)} 万`, C.teal)}
-        ${tile('当月代发金额', fmt.n(k.month, 2), '万元', `占全年 ${((k.month / k.year) * 100).toFixed(1)}%`, C.blue)}
+        ${tile('全年代发金额', fmt.n(k.year, 2), '万元', `较上一期 ${delta >= 0 ? '+' : ''}${fmt.n(delta, 2)} 万`, C.teal)}
+        ${tile('当月代发金额', fmt.n(k.month, 2), '万元', `占全年 ${(k.year ? (k.month / k.year) * 100 : 0).toFixed(1)}%`, C.blue)}
         ${tile('有效使用单位', fmt.n(k.ent_year), '户', `当月新增 ${k.ent_month} 户`, C.violet)}
         ${tile('有产能支行', `${k.branches_active}`, '家', `有报数网点 ${k.nets_active} 个`, C.amber)}
       </div>
