@@ -1,12 +1,13 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-27（**版本 0.1.4.1**｜使用指南 + 独立更新日志页；顶栏按钮美化；README 精简）
+> 最后更新：2026-10-27（**版本 0.1.4.2**｜换工商银行标识与品牌标题）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
 > → 0.1.4（使用指南、更新记录、顶栏精简、侧栏防误拖、薪管家老内核修复）
 > → 0.1.4.1（更新日志独立成页、指南按钮改版、README 退回简介）
+> → 0.1.4.2（标识换工商银行红金立体 logo、标题改「工商银行阜阳分行 / 经营驾驶舱」）
 
 ---
 
@@ -123,6 +124,7 @@ icbc-dashboard/
 │  └─ web/
 │     ├─ index.html
 │     ├─ assets/css/app.css  全部设计变量在 :root
+│     ├─ assets/img/logo.png 工商银行标识（透明底 PNG 384²）
 │     ├─ assets/js/{app.js,auth.js,ui.js,charts.js,pages/*}
 │     │  ├─ guide-content.js  使用指南正文（纯数据，改文案只动这里）
 │     │  └─ changelog.js      更新日志（独立页 #/changelog，发版必加一条）
@@ -476,6 +478,10 @@ icbc-dashboard/
     「数据截至」是业务信息，优先砍装饰性文字，别先砍它。
 52. **`e.currentTarget` 之外，`@media` 里的 `content:"…"` 也别用来替文字**（部分老内核不重排宽度）；
     要长短两种标签就直接放两个 `<span>`，用 `display` 切。
+53. **用户给的 logo 原图是深色底 JPG**（`Snipaste_2026-10-27_11-08-16.png` 实为 jpeg，246×246，底 `#0b1324`）：
+    直接放上去会在侧栏渐变上出现一块方底色。处理：按四角色差做**软阈值抠透明**
+    （距离 <18 全透、18~46 线性过渡、>46 保留），裁到 `getbbox()`，补成正方形，输出 384² PNG。
+    原图在 `D:\资料\ICBC\Snipaste_2026-10-27_11-08-16.png`，重做时照这个流程。
 
 ---
 
@@ -505,6 +511,8 @@ icbc-dashboard/
   （清筛选 + 重新取数）；动效改成切 class，不再碰 `e.currentTarget`
 - **侧栏防误拖**（0.1.4）：`draggable=false` + 拦 `dragstart` + 位移>6px 不认点击
 - **老内核修复**（0.1.4）：薪管家页 `tr.at(-1)` 在 Chromium<92 上整页报错，已换成下标
+- **标识与品牌**（0.1.4.2）：侧栏换成工商银行红金立体 logo（透明底 PNG），标题「工商银行阜阳分行 / 经营驾驶舱」；
+  浏览器标签、收藏夹图标、加载动画同步换掉
 
 ### 未完成 / 待定
 
@@ -545,6 +553,7 @@ icbc-dashboard/
 | 导航层级（是否子目录） | 同上 `nested: True`；渲染在 `app.js` 的 `navSection()` |
 | 某模块的数字卡 | 对应 `pages/*.js`（如 `jg.js` 的 `statsFor`） |
 | 图表样式/配色 | `src/web/assets/css/app.css` 的 `:root`、`charts.js` 的 `PALETTE` |
+| 顶栏标识 / 品牌文字 | `src/web/index.html` 的 `.brand` + `assets/img/logo.png`；页面标题在 `app.js` 的 `document.title` |
 | 新增一个模块（完整流程） | 读 `docs/skills/dashboard-new-module/SKILL.md`，按 8 步接线（末步含使用指南+changelog），最后跑 `python scripts/check_modules.py --write` |
 | 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器（存库走 `viz.save_snapshot`，别写文件） |
 | 查"哪个模块没接好" | `python scripts/check_modules.py`（id 重复/页面缺失/条线未注册/通报未登记都会报） |
@@ -582,6 +591,8 @@ icbc-dashboard/
    打包前 `python scripts/package_release.py --seed` 能从干净提交出包
 8. 打开 `#/guide` 能看到 18 节；从 `#/m/jg-deposit-time` 点右上角「使用指南」
    应直接落到「定期存款」那一节；`#/changelog` 是独立一页，左上角两个页签能互切
-9. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+9. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
+   浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
+10. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。
