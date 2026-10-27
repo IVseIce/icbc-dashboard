@@ -468,6 +468,14 @@ icbc-dashboard/
 49. **回到最上边**用的是 `window.scrollTo(0,0)`，深链定位用 `scrollIntoView` 会顶到粘性顶栏下面，
     所以 `guide.after()` 里手动减 78px；`render()` 末尾已统一 `window.scrollTo(0,0)`，
     新增页面不需要自己处理换页滚动。
+50. **带点的 id 不能用 `querySelector('#v-0.1.2')`**：点号在 CSS 选择器里是 class 分隔符，
+    直接抛 `SyntaxError: '#v-0.1.2' is not a valid selector`（更新日志的版本索引踩过）。
+    用 `[].find(x => x.id === 'v-' + ver)` 或 `getElementById`。
+51. **顶栏按钮别让它们换行**：`.crumbs` 要 `white-space:nowrap`、`.topbar-right` 要 `flex:none`；
+    窄屏靠媒体查询降级——`<1240px` 数据截止胶囊收窄并省略，`<1100px` 指南按钮换短标签「指南」。
+    「数据截至」是业务信息，优先砍装饰性文字，别先砍它。
+52. **`e.currentTarget` 之外，`@media` 里的 `content:"…"` 也别用来替文字**（部分老内核不重排宽度）；
+    要长短两种标签就直接放两个 `<span>`，用 `display` 切。
 
 ---
 
