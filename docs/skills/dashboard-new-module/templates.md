@@ -194,7 +194,48 @@ const LINES = [
 
 ---
 
-## F. 自检命令
+## F. 使用指南一节（`src/web/assets/js/guide-content.js`）
+
+```js
+  {
+    id: 'wj-xxx',                 // 必须 = 模块 id，这样 #/guide/wj-xxx 能直达
+    group: '各模块',               // 开始 / 看数据 / 管数据 / 各模块 / 其他
+    title: '<模块名>',
+    summary: '<20 字内，说这一节讲什么>',
+    body: `
+      <p><b>看什么</b>：<一句话 + 单位>，<支行 / 网点>维度，<频率>。</p>
+      <ul>
+        <li><b>指标 A</b>（单位），小字是 <环比 / 补充说明>。</li>
+        <li><b>指标 B</b>（单位）……</li>
+      </ul>
+      <p><b>看哪张图</b>：<图名> 是 <怎么读>；<另一张图> 注意 <红绿含义>。</p>
+      <p><b>明细表</b>列：<列名…>。点「全屏」可以搜索和排序。</p>
+      <p><b>频率</b>：<日/周/月/旬>。数据来自<源表中文名>。</p>
+      <p><b>导入要准备 <N> 份</b>：<各文件角色>。</p>
+    `,
+  },
+```
+
+`body` 只允许 `p/ul/ol/li/b/strong/em/code/kbd/table.g-tbl/thead/tbody/tr/th/td/br`；
+不写 inline style、不写 div、不写标题标签。口径有坑的把口径原文写进去（参考「降级挽回」那节）。
+
+同时往 `src/web/assets/js/changelog.js` 最前面插一条：
+
+```js
+  {
+    version: '<与 VERSION 一致>',
+    date: 'YYYY-MM-DD',
+    title: '<这次更新的一句话>',
+    items: [
+      '<使用者能看到的变化 1>',
+      '<使用者能看到的变化 2>',
+    ],
+  },
+```
+
+---
+
+## G. 自检命令
 
 ```bash
 python scripts/check_modules.py --write

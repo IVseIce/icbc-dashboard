@@ -8,16 +8,10 @@ import { icon } from '../ui.js';
 
 const GROUPS = ['开始', '看数据', '管数据', '各模块', '其他'];
 const SECTION_IDS = new Set(GUIDE_SECTIONS.map((s) => s.id));
-const MODULE_TITLES = new Map(GUIDE_SECTIONS.map((s) => [s.id, s.title]));
 
 /** 给 app.js 用：模块页 → 指南里对应那一节（没有专门的节就回指南首页） */
 export function guideHref(moduleId) {
   return moduleId && SECTION_IDS.has(moduleId) ? `#/guide/${moduleId}` : '#/guide';
-}
-
-/** 模块页"看看这个模块怎么用"要用到的标题（没有就返回 null） */
-export function guideTitleOf(moduleId) {
-  return MODULE_TITLES.get(moduleId) || null;
 }
 
 let scrollHandler = null;

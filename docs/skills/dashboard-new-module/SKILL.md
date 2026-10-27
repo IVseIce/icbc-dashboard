@@ -30,7 +30,7 @@ whenToUse: 用户要求「新增一个模块 / 加一条线 / 把某个 Excel �
 
 ---
 
-## 2 接线七步
+## 2 接线八步
 
 ### ① 目录登记 `src/domain/catalog.py`
 
@@ -97,6 +97,34 @@ def build_xxx(on=None):
 **这是交回主会话的凭据**，模板见 `templates.md`。必填：数据源、字段映射、口径、as_of 规则、
 页面入口、通报对应、已知坑、改这个模块时先看什么。
 
+### ⑧ 使用指南 `src/web/assets/js/guide-content.js` + `changelog.js`
+
+让**不懂电脑的同事**也能自己看懂这个模块怎么用。两处都要改：
+
+1. `guide-content.js` 的 `GUIDE_SECTIONS` 里加一节，**`id` 必须等于模块 id**
+   （这样 `#/guide/<模块id>` 能直达，模块页右上角「使用指南」按钮自动跳过去）：
+
+   ```js
+   {
+     id: 'wj-xxx',                 // = catalog 里的模块 id
+     group: '各模块',               // 开始 / 看数据 / 管数据 / 各模块 / 其他
+     title: '模块名',
+     summary: '一句话（20 字内）',
+     body: `<p><b>看什么</b>：…</p><ul><li>…</li></ul>`,
+   },
+   ```
+
+   `body` 只允许 `p / ul / ol / li / b / strong / em / code / kbd / table.g-tbl / thead / tbody / tr / th / td / br`；
+   不要 inline style、不要 div、不要标题标签（渲染器统一加序号）。
+   必写：看什么指标（含单位）、看哪张图、频率、来源表、导入要准备几份文件。
+   口径有坑的（如降级挽回的基期/末期/网均）要把口径原文写进去。
+
+2. `changelog.js` 的 `CHANGELOG` **最前面插一条**，`version` 与仓库 `VERSION` 一致，
+   `items` 写"使用者能看到什么变化"。
+
+占位模块（`placeholder`/`planned`）不用写——它们没有"怎么用"可讲，`tool` 类可由
+现有的「实用工具」一节覆盖。`check_modules.py` 会对缺失的节 WARN。
+
 ---
 
 ## 3 硬规则（违反会导致返工或线上出错）
@@ -110,7 +138,9 @@ def build_xxx(on=None):
 7. 保持 **Python 3.8 兼容**（目标机回退路径）：别用 `match`、`str.removeprefix`、`zoneinfo`（已有垫片）
 8. 不要在业务代码里直接写文件/写库；一律 `viz.save_snapshot` / `store.*`
 9. 新增通报/模块必须挂大类，否则某些口令下永远看不到
-10. 改完必须提交，并让版本号 +1（`VERSION`，语义化）
+10. 改完必须提交，并按规则改版本号（`VERSION`）：
+    `0.x`=重大重构/整体重写/需数天；**新增模块或功能 = `0.x.x`**；小 bug 修复与体验优化 = `0.x.x.x`
+11. 新增模块要**同时**补使用指南一节 + changelog 一条（第 ⑧ 步），否则同事看不到怎么用
 
 ---
 
@@ -125,7 +155,8 @@ python -m py_compile src/viz.py src/server/api.py src/server/report.py
 node --input-type=module --check < src/web/assets/js/pages/<page>.js
 ```
 
-再手动看一眼：`#/m/<模块id>`、`#/report/<kind>`（如果做了通报）、导入页能选到该模块。
+再手动看一眼：`#/m/<模块id>`、`#/report/<kind>`（如果做了通报）、导入页能选到该模块、
+`#/guide/<模块id>` 能直接落到新加的那一节、模块页右上角「使用指南」跳转正确。
 
 ---
 
@@ -135,10 +166,10 @@ node --input-type=module --check < src/web/assets/js/pages/<page>.js
 
 ```
 模块：<名称>（<id>）  板块：<板块>  版本：<VERSION>
-已接入：导入 ✅ 页面 ✅ 通报 ✅/—  Excel ✅/—
+已接入：导入 ✅ 页面 ✅ 通报 ✅/—  Excel ✅/—  使用指南 ✅
 数据源：<源表>   粒度：<支行/网点>   最新：<as_of>
 改了：<文件列表>
-文档：docs/modules/<id>.md
+文档：docs/modules/<id>.md + guide-content.js 第 __ 节 + changelog 一条
 自检：check_modules OK / parity OK
 已知限制：<一句话>
 ```

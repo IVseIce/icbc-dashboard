@@ -1,10 +1,11 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-26（**版本 0.1.3.2**｜新增降级挽回、实用工具；部署形态；老浏览器兼容）
+> 最后更新：2026-10-26（**版本 0.1.4**｜使用指南 + 更新记录；顶栏按钮合并；侧栏防误拖；老浏览器兼容）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
+> → 0.1.4（使用指南、更新记录、顶栏精简、侧栏防误拖、薪管家老内核修复）
 
 ---
 
@@ -119,9 +120,11 @@ icbc-dashboard/
 │  └─ web/
 │     ├─ index.html
 │     ├─ assets/css/app.css  全部设计变量在 :root
-│     └─ assets/js/{app.js,auth.js,ui.js,charts.js,pages/*}
-│        pages: home jg deposit online wallet salary community payroll fivecards
-│               downgrade tool report import placeholder
+│     ├─ assets/js/{app.js,auth.js,ui.js,charts.js,pages/*}
+│     │  ├─ guide-content.js  使用指南正文（纯数据，改文案只动这里）
+│     │  └─ changelog.js      使用指南里的「更新记录」（发版必加一条）
+│     └─ pages: home jg deposit online wallet salary community payroll fivecards
+│               downgrade tool report import guide placeholder
 ├─ scripts/
 │  ├─ bootstrap.py           一次性把 automations 历史灌进库
 │  ├─ migrate_to_sqlite.py   旧 JSON → SQLite（一次性，可重跑）
@@ -287,6 +290,8 @@ icbc-dashboard/
 #/report[/<kind>]  通报中心（kind: online/salary/wallet/deposit/community/downgrade）
 #/upload           上传（两级选择，默认落到自己大类）
 #/upload/<moduleId> 上传并预选该模块（模块页右上角"导入数据"就跳这里）
+#/guide            使用指南（不过口令，所有人可看）
+#/guide/<section>  指南里的某一节；section 通常=模块 id（模块页右上角"使用指南"跳这里）
 ```
 
 ---
@@ -380,49 +385,80 @@ icbc-dashboard/
 
 ### 8.3 前端
 
-21. **截图/录屏要用 `--force-prefers-reduced-motion`**，否则动画停在中间帧（数字显示成 267.87 之类的假值）。`countUp` 已尊重该设置。
-22. **平铺板块要遍历所有分组**（曾只取 `groups[0]`，网金少了两个模块）。
-23. 图表统一在 `charts.js`（`barRank` 支持负值向左+绿色、`splitRank` 做"头尾突出"、`bigTable` 做全屏大表）。
-24. 抽屉、全屏表、提示都在 `ui.js`；新增页面照 `pages/*.js` 的默认导出结构写。
+22. **截图/录屏要用 `--force-prefers-reduced-motion`**，否则动画停在中间帧（数字显示成 267.87 之类的假值）。`countUp` 已尊重该设置。
+23. **平铺板块要遍历所有分组**（曾只取 `groups[0]`，网金少了两个模块）。
+24. 图表统一在 `charts.js`（`barRank` 支持负值向左+绿色、`splitRank` 做"头尾突出"、`bigTable` 做全屏大表）。
+25. 抽屉、全屏表、提示都在 `ui.js`；新增页面照 `pages/*.js` 的默认导出结构写。
+26. **阵列新方法一律不要用**：`Array.prototype.at`（Chromium 92+）、`Object.hasOwn`、
+    `structuredClone`、`replaceAll`、`findLast`、`toSorted` 在老内核上直接抛
+    `TypeError: xxx is not a function`，整页白掉（薪管家 `tr.at(-1)` 踩过，报错行号指向别处，很难认）。
+    统一写法：下标 `arr[arr.length-1]`、`indexOf`、手写 `JSON.parse(JSON.stringify())`。
+    查法：`grep -rn "\.at(-\|replaceAll\|Object.hasOwn\|structuredClone" src/web/assets/js/`
+27. **点击事件里别用 `e.currentTarget` 做延时闭包**：事件回调结束后 `currentTarget` 会被置空，
+    `setTimeout(() => e.currentTarget.style...)` 就是 `Cannot read property 'style' of null`。
+    按钮动效改成**切 class**（`btn.classList.add('spinning')`），不要存 `currentTarget`。
+28. **侧栏导航要拦"误拖"**：按住导航项手一抖，浏览器按拖动链接处理 → 直接新开窗口。
+    三道防线都在 `app.js::guardSidebarDrag()`：锚点 `draggable="false"` + 侧栏内拦 `dragstart` +
+    按下到松手位移 >6px 就不认这次 click。CSS 另有 `-webkit-user-drag:none`。
+    新增侧栏链接（含板块/分组入口）必须带 `draggable="false"`，否则又会冒出"点了新开一个网页"。
 
 ### 8.4 口令 / 权限
 
-25. **权限只存在内存**：`auth.js` 的模块变量 + 服务端 `_sessions`。刷新即失效是需求；不要改 `sessionStorage`/`localStorage`。
-26. **带 token 才有数据**：`/api/report/*`、`/api/state`、`/api/import` 全部要 `X-Auth`。页面里一律用 `authFetch()`，
+29. **权限只存在内存**：`auth.js` 的模块变量 + 服务端 `_sessions`。刷新即失效是需求；不要改 `sessionStorage`/`localStorage`。
+30. **带 token 才有数据**：`/api/report/*`、`/api/state`、`/api/import` 全部要 `X-Auth`。页面里一律用 `authFetch()`，
     别直接 `fetch`；Excel 下载也必须 `fetch`+blob（`<a href>` 带不上 header，会 401 却"看起来没反应"）。
-27. **401 的统一处理**：`authFetch` 清权限 → 派发 `dash:auth-lost` → `app.js` 重渲染并重新弹口令框。
+31. **401 的统一处理**：`authFetch` 清权限 → 派发 `dash:auth-lost` → `app.js` 重渲染并重新弹口令框。
     页面自己的 `catch` 里遇到 `err.auth` 要**安静返回**，别再往已经被销毁的 DOM 写错误。
-28. **新增通报/模块要挂大类**：`report.js` 的 `LINES[].cat`；不挂就是"哪个口令都看不到"。导入页的大类权限靠 `auth.can(prof)`。
-29. **管理口令只有管理员能改**（`POST /api/auth/password` 会校验 `sess.admin`）；忘记管理员口令的兜底是删 `data/auth.json`（回到初始口令）。
+32. **新增通报/模块要挂大类**：`report.js` 的 `LINES[].cat`；不挂就是"哪个口令都看不到"。导入页的大类权限靠 `auth.can(prof)`。
+33. **管理口令只有管理员能改**（`POST /api/auth/password` 会校验 `sess.admin`）；忘记管理员口令的兜底是删 `data/auth.json`（回到初始口令）。
 
 ### 8.5 存储（SQLite）
 
-30. **别在业务代码里直接写文件快照**：一律 `viz.save_snapshot()`（内部走 `store`）。
+34. **别在业务代码里直接写文件快照**：一律 `viz.save_snapshot()`（内部走 `store`）。
    早期 `ingest/payroll.py`、`ingest/fivecards.py` 直接往 `data/snapshots/` 写 JSON，迁移时已改掉。
-31. **备份要连 WAL**：`cp icbc.db` 可能丢最近的写入。用 `scripts/backup_db.py`（SQLite 在线备份 API），
+35. **备份要连 WAL**：`cp icbc.db` 可能丢最近的写入。用 `scripts/backup_db.py`（SQLite 在线备份 API），
    或整包打包时把 `icbc.db-wal` 一起带上。
-32. **`store.load_snapshots()` 返回缓存里的同一个 list**：只读，要改先 `dict()` 拷一份。
+36. **`store.load_snapshots()` 返回缓存里的同一个 list**：只读，要改先 `dict()` 拷一份。
    缓存 TTL 3 秒，**本进程写入会立刻失效**，别的进程（CLI 脚本）写入最多 3 秒后可见。
-33. **旧 JSON 只读一次**：`store.import_legacy()` 靠 `setting.legacy_json_imported` 幂等；
+37. **旧 JSON 只读一次**：`store.import_legacy()` 靠 `setting.legacy_json_imported` 幂等；
    挪走 `legacy_json_*` 后不会再灌。别把 `snapshots/` 手工放回 `data/`，否则空库启动会自动导入一遍。
 
 ### 8.6 环境
 
-34. WSL 下 Node 的 `--check` 可用来快速验 JS 语法：`node --input-type=module --check < file.js`。
-35. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
-36. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
+38. WSL 下 Node 的 `--check` 可用来快速验 JS 语法：`node --input-type=module --check < file.js`。
+39. 本机 LibreOffice 宏不可靠（见 AGENTS.md），但**转换/重算**可用；不要在自动化里依赖宏。
+40. 服务进程重启：`fuser -k 8766/tcp` 再起；日志 `/tmp/viz-v2.log`。
 
 ### 8.7 老浏览器兼容（内网机踩过）
 
-37. **不要用 `inset` 简写**：目标机有一台的 Chromium 内核在 84–86 之间，不认 `inset`，
+41. **不要用 `inset` 简写**：目标机有一台的 Chromium 内核在 84–86 之间，不认 `inset`，
    所有 `position:fixed` 浮层会掉到文档流末尾（看不见、点不到）。已改成
    `top/right/bottom/left` 四边；新增浮层也照这个写。
-38. **浮层可见性不要依赖"JS 加 `.on` + opacity 动画"**：动画/合成层没跑起来时会出现
+42. **浮层可见性不要依赖"JS 加 `.on` + opacity 动画"**：动画/合成层没跑起来时会出现
    "遮罩透明但仍挡住点击"的假死（症状：按钮点了没反应）。口令框现在默认不透明，
    动效只做卡片位移；添加浮层时按同样方式。
-39. 快速判断：`getComputedStyle(mask).opacity === '0'` 且 rect 覆盖全屏 = 假死；
+43. 快速判断：`getComputedStyle(mask).opacity === '0'` 且 rect 覆盖全屏 = 假死；
    rect 为 0 或在视口外 = 布局没生效（`inset` 这类问题）。左下角版本号悬停能看到
    `build` 与 `navigator.userAgent`，让对方发个截图即可定位内核。
+
+### 8.8 使用指南 / 更新记录（0.1.4 新增，改版必看）
+
+44. **三处必须同步**：`pages/guide.js` 渲染逻辑、`guide-content.js` 正文、`changelog.js` 更新记录。
+    正文是纯数据（`GUIDE_SECTIONS`），渲染器只认 `id/group/title/summary/body` 五个字段，
+    `body` 里**只允许** `p/ul/ol/li/b/strong/em/code/kbd/table.g-tbl/thead/tbody/tr/th/td/br`，
+    不要 inline style、不要 div、不要标题标签（标题由渲染器统一加序号）。
+45. **章节 id 就是模块 id**：`#/guide/<模块id>` 能直达，模块页右上角「使用指南」按钮靠这个跳
+    （`guide.js::guideHref`，找不到对应节就回 `#/guide`）。新增模块时记得补一节，
+    否则 `check_modules.py` 会 WARN。占位模块不必写（它们没有"怎么用"可讲）。
+46. **发版必须往 `changelog.js` 最前面插一条**，版本号与 `VERSION` 一致（`check_modules.py` 会 WARN）。
+    写"使用者能看到什么变化"，不写函数名/文件名/表名。这条同时是给用户看的发版说明。
+47. **指南里不要写死会变的东西**：具体日期（"9.13/9.19"）只能当例子且要标明是例子；
+    某个模块"要准备几份文件"来自 `viz.XGJ_ROLE` / `XSFW_ROLE` 等常量，改导入器时要回来改文案。
+48. **指南是公开页面**（不过口令），所以不能写初始口令、内部路径、服务器地址、姓名工号。
+    口令相关只写"找管理员在「管理密码」里重置"。
+49. **回到最上边**用的是 `window.scrollTo(0,0)`，深链定位用 `scrollIntoView` 会顶到粘性顶栏下面，
+    所以 `guide.after()` 里手动减 78px；`render()` 末尾已统一 `window.scrollTo(0,0)`，
+    新增页面不需要自己处理换页滚动。
 
 ---
 
@@ -445,6 +481,13 @@ icbc-dashboard/
 - **实用工具板块**（工具类，`upload:false`）：时日差计算 / 偏离度计算，页面是统一工具外壳，内容待实现
 - **降级挽回**：客编明细单表导入（映射内置）、支行+网点双层页、通报文案（+增长/−下降）、
   Excel 与正式成表**逐格零差异**（双 sheet）
+- **使用指南**（0.1.4）：右上角「导入数据」左边一个低调入口 + 每页可直达对应章节
+  （`#/guide/<模块id>`）；正文 18 节分五组，左侧目录常驻、底部「回到最上边」；带 **更新记录**
+  （`changelog.js`，发版必加一条）。指南**不过口令**
+- **顶栏精简**（0.1.4）：原来「刷新」+「回到最新」两个按钮功能重叠，合并为一个
+  （清筛选 + 重新取数）；动效改成切 class，不再碰 `e.currentTarget`
+- **侧栏防误拖**（0.1.4）：`draggable=false` + 拦 `dragstart` + 位移>6px 不认点击
+- **老内核修复**（0.1.4）：薪管家页 `tr.at(-1)` 在 Chromium<92 上整页报错，已换成下标
 
 ### 未完成 / 待定
 
@@ -464,6 +507,8 @@ icbc-dashboard/
 | Excel/CSV 批量导出 | 未做（通报中心可导单份 Excel；对外只导 .db） | 需要时定义表口径 |
 | 降级挽回对账用例 | 未进 `check_report_parity`（缺第二期成表） | 拿到下一期成表后补 `CASES` |
 | 降级挽回映射更新 | 映射是固定 json（1749 条），客编新增需手工更新 | 需要时加"映射表覆盖导入" |
+| 指南随版本演进 | 新模块/新按钮要手动补 `guide-content.js` 一节 + `changelog.js` 一条（`check_modules.py` 会 WARN 但不阻塞） | 无（流程性工作） |
+| 指南里的"要准备几份文件" | 从 `viz.XGJ_ROLE` / `XSFW_ROLE` 等常量反推，不是自动生成 | 数据源角色变化时要回来改文案 |
 
 ### 备份
 
@@ -483,7 +528,7 @@ icbc-dashboard/
 | 导航层级（是否子目录） | 同上 `nested: True`；渲染在 `app.js` 的 `navSection()` |
 | 某模块的数字卡 | 对应 `pages/*.js`（如 `jg.js` 的 `statsFor`） |
 | 图表样式/配色 | `src/web/assets/css/app.css` 的 `:root`、`charts.js` 的 `PALETTE` |
-| 新增一个模块（完整流程） | 读 `docs/skills/dashboard-new-module/SKILL.md`，按 7 步接线，最后跑 `python scripts/check_modules.py --write` |
+| 新增一个模块（完整流程） | 读 `docs/skills/dashboard-new-module/SKILL.md`，按 8 步接线（末步含使用指南+changelog），最后跑 `python scripts/check_modules.py --write` |
 | 新增一条线上传 | catalog 加 `as_line` + `viz.IMPORTERS` 注册解析器（存库走 `viz.save_snapshot`，别写文件） |
 | 查"哪个模块没接好" | `python scripts/check_modules.py`（id 重复/页面缺失/条线未注册/通报未登记都会报） |
 | 新增一条通报 | `report.py` 加 `build_xxx`/`xxx_xlsx` + `report.js` 的 `LINES` |
@@ -497,13 +542,16 @@ icbc-dashboard/
 | 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 | 降级挽回的口径 | `src/ingest/downgrade.py` 顶部常量（`REPORT_SHIFT` / `SPAN_DAYS` / `UNIT` / `EXCLUDE_SUFFIX`） |
 | 降级挽回的客编映射 | 换 `src/report/assets/downgrade_map.json`（`[[客编, 支行, 网点], …]`，改完重启） |
-| 版本号 | 仓库根 `VERSION`（语义化，如 `0.1.3.1`）；打包时写 `BUILD`（日期-git短sha） |
+| 使用指南的正文 | `src/web/assets/js/guide-content.js`（纯数据；`body` 只许 p/ul/ol/li/b/code/kbd/table 等白名单标签） |
+| 使用指南的更新记录 | `src/web/assets/js/changelog.js`（发版往最前面插一条，版本号与 `VERSION` 一致） |
+| 版本号 | 仓库根 `VERSION`；打包时写 `BUILD`（日期-git短sha） |
+| 版本号怎么定 | `0.x`=重大重构/整体重写/需数天；`0.x.x`=新增模块或功能；`0.x.x.x`=小 bug 修复与体验优化（几分钟到一两小时） |
 
 ---
 
 ## 11. 交接检查清单
 
-1. `git log --oneline -5` 看到 `af2ef1f` 或更新；`cat VERSION` 应为 `0.1.3.2` 或更高
+1. `git log --oneline -5` 看到 `0.1.4` 那次提交或更新；`cat VERSION` 应为 `0.1.4` 或更高
 2. 起服务 → `curl /api/health` 返回 `ok:true`，且 `version` 与 `VERSION` 一致
    （版本号有缓存：改完 `VERSION` 要**重启进程**才生效）
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
@@ -515,6 +563,8 @@ icbc-dashboard/
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
 7. `python scripts/selftest.py --root data` → OK；`python scripts/check_modules.py` → OK；
    打包前 `python scripts/package_release.py --seed` 能从干净提交出包
-8. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+8. 打开 `#/guide` 能看到 18 节 + 更新记录；从 `#/m/jg-deposit-time` 点右上角「使用指南」
+   应直接落到「定期存款」那一节；页面底部「回到最上边」可用
+9. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。
