@@ -7,6 +7,8 @@
 
 ![首页](docs/screenshots/home.png)
 
+![使用指南](docs/screenshots/guide.png)
+
 ## 快速开始
 
 ```bash
