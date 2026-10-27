@@ -4,7 +4,7 @@
    「通报中心」「导入数据」进页前要验口令，权限只活在本页内存（刷新即失效）。 */
 import { toast, fmt, setAsof, setDatePickers } from './ui.js';
 import { disposeAll } from './charts.js';
-import { auth, askPassword, openPasswordManager } from './auth.js';
+import { auth, askPassword, openPasswordManager, cancelGate } from './auth.js';
 
 import home from './pages/home.js';
 import deposit from './pages/deposit.js';
@@ -412,6 +412,10 @@ async function startGate(r, force = false) {
   } finally {
     state.gating = false;
   }
+  if (ok === null) {
+    // 口令框还没输完就切到别的页面了：只关框，不跳转（别把用户拽回口令页）
+    return;
+  }
   if (ok) {
     renderNav();
     render();
@@ -424,6 +428,8 @@ async function startGate(r, force = false) {
 
 /* ---------------------------------------------------------------- 渲染 */
 function render() {
+  // 换页时把还开着的口令框关掉：否则它会盖在新页面上，取消时还会把用户拽回口令页
+  cancelGate();
   const r = parseRoute();
   const view = state.view;
   disposeAll();

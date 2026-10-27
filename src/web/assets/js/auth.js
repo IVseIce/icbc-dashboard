@@ -48,7 +48,21 @@ const ICON_LOCK = (s = 22) => `<svg viewBox="0 0 24 24" width="${s}" height="${s
 let maskEl = null;
 
 /**
- * 弹口令框；返回 Promise<boolean>（true = 验证通过）。
+ * 关掉当前正开着的口令框 / 管理密码框（页面切走时用）。
+ * 返回是否有框被关掉。口令框被这样关掉时，它的 Promise resolve 成 null
+ * （既不是"验证通过"也不是"用户取消"），调用方据此知道"页面已经换了，别再做跳转"。
+ */
+export function cancelGate() {
+  const m = maskEl;
+  if (!m) return false;
+  maskEl = null;
+  if (m._cancelSilent) m._cancelSilent();
+  else m.remove();
+  return true;
+}
+
+/**
+ * 弹口令框；返回 Promise<boolean|null>（true = 验证通过，false = 用户取消，null = 被切页关掉）。
  * @param {{title?:string, sub?:string, note?:string}} opts
  */
 export function askPassword({ title = '身份验证', sub = '', note = '' } = {}) {
@@ -80,7 +94,7 @@ export function askPassword({ title = '身份验证', sub = '', note = '' } = {}
     const msg = mask.querySelector('#gateMsg');
     let done = false;
 
-    const close = (ok) => {
+    const finish = (ok) => {
       if (done) return;
       done = true;
       document.removeEventListener('keydown', esc);
@@ -88,10 +102,11 @@ export function askPassword({ title = '身份验证', sub = '', note = '' } = {}
       if (maskEl === mask) maskEl = null;
       resolve(ok);
     };
-    mask._cancel = () => close(false);
-    mask.querySelector('.gate-x').onclick = () => close(false);
-    mask.onclick = (e) => { if (e.target === mask) close(false); };
-    const esc = (e) => { if (e.key === 'Escape') { close(false); document.removeEventListener('keydown', esc); } };
+    mask._cancel = () => finish(false);          // 用户取消
+    mask._cancelSilent = () => finish(null);     // 被切页关掉
+    mask.querySelector('.gate-x').onclick = () => finish(false);
+    mask.onclick = (e) => { if (e.target === mask) finish(false); };
+    const esc = (e) => { if (e.key === 'Escape') { finish(false); document.removeEventListener('keydown', esc); } };
     document.addEventListener('keydown', esc);
 
     mask.querySelector('.gate-form').onsubmit = async (e) => {
@@ -116,7 +131,7 @@ export function askPassword({ title = '身份验证', sub = '', note = '' } = {}
           return;
         }
         document.removeEventListener('keydown', esc);
-        close(true);
+        finish(true);
       } catch (err) {
         msg.textContent = `无法连接服务：${err.message}`;
         msg.className = 'gate-msg bad';

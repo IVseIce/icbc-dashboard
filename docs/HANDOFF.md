@@ -405,6 +405,9 @@ icbc-dashboard/
 ### 8.4 口令 / 权限
 
 29. **权限只存在内存**：`auth.js` 的模块变量 + 服务端 `_sessions`。刷新即失效是需求；不要改 `sessionStorage`/`localStorage`。
+    口令框有三个结束态，别混：`true`=通过、`false`=用户取消、`null`=被换页关掉（`cancelGate()`）。
+    `render()` 开头会 `cancelGate()`，所以**切页时口令框自动关**；`startGate()` 拿到 `null` 必须直接 return，
+    否则会把用户从刚点开的页面拽回口令页。
 30. **带 token 才有数据**：`/api/report/*`、`/api/state`、`/api/import` 全部要 `X-Auth`。页面里一律用 `authFetch()`，
     别直接 `fetch`；Excel 下载也必须 `fetch`+blob（`<a href>` 带不上 header，会 401 却"看起来没反应"）。
 31. **401 的统一处理**：`authFetch` 清权限 → 派发 `dash:auth-lost` → `app.js` 重渲染并重新弹口令框。
