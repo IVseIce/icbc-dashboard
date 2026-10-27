@@ -447,7 +447,7 @@ function render() {
   if (GATED.has(r.name) && !auth.ok) {
     const label = r.name === 'report' ? '通报中心' : '导入数据';
     document.getElementById('crumbs').innerHTML = `<b>${label}</b>`;
-    document.title = `${label} · 经营驾驶舱`;
+    document.title = `${label} · 阜阳分行经营驾驶舱`;
     host.innerHTML = lockCard(label);
     host.querySelector('#gateOpen').onclick = () => startGate(r, true);
     paintTop(r);
@@ -514,7 +514,7 @@ function render() {
     host.innerHTML = `<div class="card"><div class="empty"><b>页面渲染出错</b>${String(err.message || err)}</div></div>`;
   }
   document.getElementById('crumbs').innerHTML = crumb;
-  document.title = `${title} · 经营驾驶舱`;
+  document.title = `${title} · 阜阳分行经营驾驶舱`;
   document.querySelectorAll('.sidebar a[data-id]').forEach((a) => {
     a.classList.toggle('on', a.dataset.id === r.id || (r.name === 'home' && a.dataset.id === 'home')
       || (r.name === 'report' && a.dataset.id === 'report') || (r.name === 'upload' && a.dataset.id === 'upload'));
