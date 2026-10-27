@@ -20,6 +20,7 @@ import jgPage from './pages/jg.js';
 import toolPage from './pages/tool.js';
 import downgrade from './pages/downgrade.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
+import guide, { guideHref } from './pages/guide.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards, downgrade, tool: toolPage };
 
@@ -125,6 +126,7 @@ function asofFor(r, iso) {
     return mods.length && mods.every((m) => m.kind === 'tool') ? '工具 · 无数据时点' : '暂无数据';
   }
   if (r.name === 'upload') return '各模块独立时点';
+  if (r.name === 'guide') return '使用指南 · 与数据时点无关';
   if (r.name === 'report') return null;      // 通报页自己按取到的通报写（含"暂无"）
   return iso ? `数据截至 ${fmt.date(iso)}` : '—';
 }
@@ -134,6 +136,26 @@ const ICON_IMPORT = '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M1
 const ICON_LOCK = (s = 13) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="4.5" y="10" width="15" height="10.5" rx="3"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg>`;
 const ICON_CHEV = '<svg viewBox="0 0 24 24" width="11" height="11"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_REFRESH = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>';
+const ICON_GUIDE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5V5.5Z"/><path d="M8 7.5h7M8 11h5"/></svg>';
+
+/** 指南入口：放在"导入数据"左边，小一号、低饱和，不抢注意力 */
+function guideButton(anchor) {
+  const a = document.createElement('a');
+  a.className = 'guide-btn';
+  a.id = 'topGuide';
+  a.href = anchor || '#/guide';
+  a.title = '使用指南：每个按钮、每个模块怎么用';
+  a.innerHTML = `${ICON_GUIDE}<span>使用指南</span>`;
+  return a;
+}
+
+/** 当前页面对应的指南章节（模块页 → 该模块 id；其余按页面类型；没有对应节就回指南首页） */
+function guideAnchor(r) {
+  if (r.name === 'module') return guideHref(r.id);
+  if (r.name === 'report') return '#/guide/report';
+  if (r.name === 'upload') return '#/guide/import';
+  return '#/guide';
+}
 
 function paintTop(r) {
   const slot = document.getElementById('topSlot');
@@ -142,6 +164,7 @@ function paintTop(r) {
   if (!GATED.has(r.name)) {
     const hit = r.name === 'module' ? findModule(r.id) : null;
     const to = hit?.module?.as_line ? `#/upload/${hit.module.id}` : '#/upload';
+    slot.appendChild(guideButton(guideAnchor(r)));
     const b = document.createElement('button');
     b.className = 'btn btn-primary';
     b.id = 'topImport';
@@ -151,8 +174,12 @@ function paintTop(r) {
     slot.appendChild(b);
     return;
   }
+  slot.appendChild(guideButton(guideAnchor(r)));
   if (!auth.ok) {
-    slot.innerHTML = '<span class="id-chip idle">待验证</span>';
+    const idle = document.createElement('span');
+    idle.className = 'id-chip idle';
+    idle.textContent = '待验证';
+    slot.appendChild(idle);
     return;
   }
   const b = document.createElement('button');
@@ -202,7 +229,9 @@ async function reverify() {
 /* ---------------------------------------------------------------- 导航 */
 function navItem(m) {
   const on = m.kind === 'metric' || m.kind === 'tool';
-  return `<a href="#/m/${m.id}" data-id="${m.id}" class="nav-item ${on ? '' : 'dim'}">
+  // draggable="false" 很关键：按住导航项稍微一拖，浏览器会把这当成"拖动链接"，
+  // 松手就新开一个窗口。鼠标按下后的位移由 guardSidebarDrag() 兜底拦掉。
+  return `<a href="#/m/${m.id}" data-id="${m.id}" draggable="false" class="nav-item ${on ? '' : 'dim'}">
     <span class="nav-name">${m.name}</span>
     ${modBadge(m)}
   </a>`;
@@ -221,13 +250,13 @@ function renderNav() {
 
   const sections = cat.professionals;
   const gateMark = auth.ok ? '' : `<em class="nav-lock" title="需要口令">${ICON_LOCK(11)}</em>`;
-  nav.innerHTML = '<a href="#/" data-id="home" class="nav-item nav-home"><span class="nav-name">总览</span></a>'
+  nav.innerHTML = '<a href="#/" data-id="home" draggable="false" class="nav-item nav-home"><span class="nav-name">总览</span></a>'
     + sections.map((p) => navSection(p)).join('');
 
   // 这两个固定在下半区，不随上面的模块列表滚动
   const pinned = document.getElementById('navPinned');
-  pinned.innerHTML = `<a href="#/report" data-id="report" class="nav-item"><span class="nav-name">通报中心</span>${gateMark}</a>`
-    + `<a href="#/upload" data-id="upload" class="nav-item"><span class="nav-name">导入数据</span>${gateMark}</a>`;
+  pinned.innerHTML = `<a href="#/report" data-id="report" draggable="false" class="nav-item"><span class="nav-name">通报中心</span>${gateMark}</a>`
+    + `<a href="#/upload" data-id="upload" draggable="false" class="nav-item"><span class="nav-name">导入数据</span>${gateMark}</a>`;
 
   // 大类：点名字进板块总览，点箭头只展开/收起
   nav.querySelectorAll('[data-cat-link]').forEach((a) => {
@@ -277,7 +306,7 @@ function navSection(p) {
     return `
   <div class="nav-group" data-group="${p.id}">
     <div class="nav-cat">
-      <a class="nav-cat-link" href="#/p/${p.id}" data-cat-link="${p.id}">
+      <a class="nav-cat-link" href="#/p/${p.id}" data-cat-link="${p.id}" draggable="false">
         <span class="nav-cat-name">${p.short || p.name}</span>
         <span class="nav-count">空</span>
       </a>
@@ -287,7 +316,7 @@ function navSection(p) {
   return `
   <div class="nav-group ${open ? 'open' : ''}" data-group="${p.id}">
     <div class="nav-cat">
-      <a class="nav-cat-link" href="#/p/${p.id}" data-cat-link="${p.id}">
+      <a class="nav-cat-link" href="#/p/${p.id}" data-cat-link="${p.id}" draggable="false">
         <span class="nav-cat-name">${p.short || p.name}</span>
         <span class="nav-count">${mods.filter((m) => m.kind === 'metric').length}/${mods.length}</span>
       </a>
@@ -309,7 +338,7 @@ function navGroup(p, g) {
   return `
   <div class="nav-subgroup ${open ? 'open' : ''}">
     <div class="nav-subcat">
-      <a class="nav-subcat-link" href="#/g/${p.id}/${g.id}" data-subcat="${key}">
+      <a class="nav-subcat-link" href="#/g/${p.id}/${g.id}" data-subcat="${key}" draggable="false">
         ${g.name}
         <em class="nav-count">${mods.filter((m) => m.kind === 'metric').length}/${mods.length}</em>
       </a>
@@ -331,6 +360,7 @@ function parseRoute() {
   if (seg[0] === 'g') return { name: 'group', prof: seg[1], id: seg[2] };
   if (seg[0] === 'report') return { name: 'report', kind: seg[1] };
   if (seg[0] === 'upload') return { name: 'upload', moduleId: seg[1] };
+  if (seg[0] === 'guide') return { name: 'guide', section: seg[1] || null };
   return { name: 'home' };
 }
 
@@ -456,6 +486,10 @@ function render() {
       title = '导入数据';
       crumb = '<b>导入数据</b>';
       importer.render(host, state.data, ctx);
+    } else if (r.name === 'guide') {
+      title = '使用指南';
+      crumb = '<b>使用指南</b>';
+      guide.render(host, { catalog: state.catalog, section: r.section });
     } else {
       home.render(host, ctx);
     }
@@ -477,12 +511,51 @@ function render() {
   if (asofText) setAsof(asofText);
   // 未筛选时，日期控件跟着本页实际时点走（避免和"数据截至"两个日期打架）
   if (!state.date) setDatePickers(iso || (r.name === 'upload' ? state.catalog?.latest : null));
+  // 换页回到顶部（指南里"回到最上边"按钮也是这条路）
+  window.scrollTo(0, 0);
   paintTop(r);
+  if (r.name === 'guide') guide.after(host, r.section);
 }
 
 async function refresh(date = state.date) {
   await loadData(date);
   render();
+}
+
+/* ---------------------------------------------------------------- 侧栏防误拖
+   症状：按住侧栏某一项、手抖挪动几像素再松手，浏览器按"拖动链接"处理，
+   直接新开一个窗口/标签页，原来的页面还停在原地。
+   四道防线：
+     ① 导航项 draggable="false"（CSS 里还有 -webkit-user-drag:none）；
+     ② 侧栏内禁止 dragstart 默认行为；
+     ③ 按下到松开位移超过 6px 就不认这次点击（当成误触，不跳转）；
+     ④ 松手后（无论松在哪）清掉按下记录，避免误触记录残留把下一次正常点击也吃掉。 */
+function guardSidebarDrag() {
+  const side = document.querySelector('.sidebar');
+  if (!side) return;
+  let down = null;
+
+  side.addEventListener('dragstart', (e) => e.preventDefault());
+
+  side.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const a = e.target.closest && e.target.closest('a[href]');
+    down = a ? { a, x: e.clientX, y: e.clientY } : null;
+  }, true);
+
+  side.addEventListener('click', (e) => {
+    if (!down) return;
+    const moved = Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y);
+    const a = down.a;
+    down = null;
+    if (moved <= 6) return;         // 正常点击，放行
+    e.preventDefault();
+    e.stopPropagation();            // 位移过大：不跳转，避免"手一抖跳到别处"
+    if (a) a.blur();
+  }, true);
+
+  // click 在 mouseup 之后同步触发，所以延到下一个宏任务再清，不影响上面那次判断
+  document.addEventListener('mouseup', () => setTimeout(() => { down = null; }, 0), true);
 }
 
 /* ---------------------------------------------------------------- 启动 */
@@ -525,20 +598,22 @@ async function boot() {
       }
     };
   });
-  document.getElementById('btnLatest').addEventListener('click', async () => {
-    document.getElementById('datePick').value = state.catalog.latest || '';
+  // 「回到最新」：一个按钮同时干两件事 —— 清掉日期筛选、重新拉数据。
+  // （以前是"回到最新"+"刷新"两个按钮，功能重叠，容易点错，合并掉刷新那个。）
+  document.getElementById('btnLatest').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.classList.add('spinning');            // 类名切换，不用内联 transform（老内核不会卡住）
+    document.getElementById('datePick').value = state.catalog?.latest || '';
+    document.getElementById('monthPick').value = (state.catalog?.latest || '').slice(0, 7);
     await refresh(null);
+    setTimeout(() => btn.classList.remove('spinning'), 460);
     toast('已回到最新数据');
-  });
-  document.getElementById('btnRefresh').addEventListener('click', async (e) => {
-    e.currentTarget.style.transform = 'rotate(360deg)';
-    setTimeout(() => { e.currentTarget.style.transform = ''; }, 420);
-    await refresh();
-    toast('数据已刷新');
   });
 
   const brand = document.querySelector('.brand');
   if (brand) { brand.style.cursor = 'pointer'; brand.title = '返回总览'; brand.onclick = () => { location.hash = '#/'; }; }
+
+  guardSidebarDrag();
 
   // 服务端会话过期 / token 失效：清权限并回到口令门
   window.addEventListener('dash:auth-lost', () => {

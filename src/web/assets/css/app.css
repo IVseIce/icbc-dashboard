@@ -663,3 +663,97 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   display:grid;place-items:center;margin:0 auto 14px}
 .tool-empty b{font-size:15px}
 .tool-empty p{margin:8px 0 12px;color:var(--ink-3);font-size:12.5px}
+
+/* ============================== 顶栏：使用指南入口 ==============================
+   位置在「导入数据」左边、身份胶囊左边；刻意做小、低饱和，看得见但不抢注意力。 */
+.guide-btn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:9px;
+  border:1px solid var(--line);background:#fff;color:var(--ink-3);font-size:12px;text-decoration:none;
+  transition:.18s var(--ease);flex:none}
+.guide-btn svg{opacity:.8;flex:none}
+.guide-btn:hover{color:var(--red);border-color:#f3c7cf;background:var(--red-soft)}
+.guide-btn:hover svg{opacity:1}
+@media (max-width:900px){.guide-btn span{display:none}.guide-btn{padding:0 8px}}
+
+/* 顶栏刷新按钮的转圈（用 class 切换，不碰内联 transform） */
+.icon-btn.spinning svg{animation:spin .46s var(--ease)}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+/* ============================== 使用指南页 ============================== */
+.guide-wrap{display:flex;gap:22px;align-items:flex-start}
+.guide-nav{position:sticky;top:84px;width:212px;flex:0 0 212px;max-height:calc(100vh - 108px);
+  overflow-y:auto;padding-right:4px}
+.guide-nav .gn-title{font-size:10.5px;color:var(--ink-4);letter-spacing:1.2px;padding:6px 0 5px 10px}
+.guide-nav a{display:block;padding:6px 10px;border-radius:8px;font-size:12.5px;color:var(--ink-2);
+  line-height:1.5;transition:.15s var(--ease)}
+.guide-nav a:hover{background:#eef2f9;color:var(--ink)}
+.guide-nav a.on{background:var(--red-soft);color:#a80d26;font-weight:650}
+.guide-body{flex:1;min-width:0;max-width:900px}
+@media (max-width:1100px){
+  .guide-wrap{flex-direction:column;gap:14px}
+  .guide-nav{position:static;width:100%;flex:none;max-height:none;
+    display:flex;flex-wrap:wrap;gap:4px;padding:10px;background:#fff;border:1px solid var(--line);
+    border-radius:12px}
+  .guide-nav .gn-title{display:none}
+  .guide-nav a{padding:5px 9px;background:var(--line-2)}
+}
+
+.g-hero{padding:26px 28px;border-radius:16px;color:#fff;margin-bottom:18px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#16233c 0%,#22314f 55%,#3a1f2a 100%)}
+.g-hero:after{content:"";position:absolute;right:-60px;top:-70px;width:240px;height:240px;border-radius:50%;
+  background:radial-gradient(circle,rgba(200,16,46,.34),transparent 68%)}
+.g-hero h1{margin:0 0 8px;font-size:21px;letter-spacing:.4px}
+.g-hero p{margin:0;color:#c3cee0;font-size:12.5px;line-height:1.9;max-width:660px}
+.g-hero .g-meta{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+.g-hero .g-meta span{font-size:11px;color:#cbd6e6;background:rgba(255,255,255,.1);border-radius:20px;padding:4px 11px}
+
+.g-sec{background:#fff;border:1px solid var(--line);border-radius:15px;padding:20px 24px;margin-bottom:14px;
+  box-shadow:var(--shadow);scroll-margin-top:80px}
+.g-sec > h2{margin:0 0 4px;font-size:16px;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:9px}
+.g-sec > h2 .g-num{width:22px;height:22px;border-radius:7px;background:var(--red-soft);color:#a80d26;
+  font-size:11.5px;display:grid;place-items:center;flex:none;font-weight:700}
+.g-sec .g-sum{margin:0 0 14px;color:var(--ink-3);font-size:12px}
+.g-sec .g-body{font-size:13px;color:var(--ink-2);line-height:1.95}
+.g-sec .g-body p{margin:0 0 10px}
+.g-sec .g-body p:last-child{margin-bottom:0}
+.g-sec .g-body b,.g-sec .g-body strong{color:var(--ink);font-weight:650}
+.g-sec .g-body ul,.g-sec .g-body ol{margin:0 0 12px;padding-left:20px}
+.g-sec .g-body li{margin:0 0 6px}
+.g-sec .g-body li:last-child{margin-bottom:0}
+.g-sec .g-body code{background:var(--line-2);border:1px solid var(--line);border-radius:5px;
+  padding:1px 5px;font-size:12px;font-family:ui-monospace,Consolas,monospace;color:#a80d26}
+.g-sec .g-body kbd{background:#fff;border:1px solid #cfd8e6;border-bottom-width:2px;border-radius:5px;
+  padding:1px 6px;font-size:11.5px;font-family:inherit;color:var(--ink-2)}
+.g-tbl{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:12.5px}
+.g-tbl th,.g-tbl td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+.g-tbl th{background:#f7f9fd;font-weight:650;color:var(--ink);white-space:nowrap}
+.g-tbl td{color:var(--ink-2)}
+
+.g-top{position:sticky;bottom:20px;display:flex;justify-content:flex-end;margin-top:6px;pointer-events:none}
+.g-top button{pointer-events:auto;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+  background:#fff;color:var(--ink-2);border-radius:20px;padding:8px 15px;font-size:12px;cursor:pointer;
+  box-shadow:var(--shadow);font-family:inherit;transition:.16s var(--ease)}
+.g-top button:hover{color:var(--red);border-color:#f3c7cf;background:var(--red-soft)}
+
+/* 指南里的"相关模块"跳转条 */
+.g-links{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+.g-links a{font-size:11.5px;color:var(--ink-3);background:var(--line-2);border-radius:8px;padding:4px 10px;
+  transition:.15s var(--ease)}
+.g-links a:hover{background:var(--red-soft);color:#a80d26}
+
+/* 更新记录 */
+.g-log{border-left:2px solid var(--line);margin:2px 0 0 4px;padding:0 0 0 18px}
+.g-log-item{position:relative;padding:0 0 18px}
+.g-log-item:last-child{padding-bottom:0}
+.g-log-item:before{content:"";position:absolute;left:-24px;top:5px;width:9px;height:9px;border-radius:50%;
+  background:#fff;border:2px solid var(--ink-4)}
+.g-log-item.new:before{border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+.g-log-item h4{margin:0 0 3px;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.g-log-item h4 .g-ver{font-size:11px;color:#a80d26;background:var(--red-soft);border-radius:6px;padding:1px 7px;
+  font-weight:650}
+.g-log-item h4 .g-day{font-size:11px;color:var(--ink-4);font-weight:400}
+.g-log-item ul{margin:5px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink-2);line-height:1.85}
+.g-log-item li{margin:0 0 3px}
+
+/* 侧栏导航项禁止拖动（防止按住手抖就新开窗口）；文字不可选，拖动更稳 */
+.sidebar a{-webkit-user-drag:none;user-select:none}
+.sidebar{-webkit-user-select:none;user-select:none}

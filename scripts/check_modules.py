@@ -35,6 +35,8 @@ from domain import catalog  # noqa: E402
 
 PAGES = PROJECT / 'src' / 'web' / 'assets' / 'js' / 'pages'
 REPORT_JS = PAGES / 'report.js'
+GUIDE_JS = PROJECT / 'src' / 'web' / 'assets' / 'js' / 'guide-content.js'
+CHANGELOG_JS = PROJECT / 'src' / 'web' / 'assets' / 'js' / 'changelog.js'
 KINDS = {'metric', 'tool', 'placeholder', 'planned'}
 
 
@@ -60,6 +62,20 @@ def js_report_lines() -> dict[str, str]:
         return {}
     return {m.group(1): m.group(2) for m in
             re.finditer(r"id: '(\w+)',\s*name: '[^']*',\s*cat: '(\w+)'", block.group(1))}
+
+
+def js_guide_sections() -> set[str]:
+    """使用指南（guide-content.js）里的章节 id 集合。"""
+    if not GUIDE_JS.exists():
+        return set()
+    return set(re.findall(r"^\s{4}id: '([\w.-]+)',", GUIDE_JS.read_text('utf-8'), re.M))
+
+
+def js_changelog_versions() -> list[str]:
+    """changelog.js 里记录的版本号，按书写顺序（最新在最前）。"""
+    if not CHANGELOG_JS.exists():
+        return []
+    return re.findall(r"^\s{4}version: '([\d.]+)',", CHANGELOG_JS.read_text('utf-8'), re.M)
 
 
 def run() -> tuple[Checker, list[dict]]:
@@ -149,6 +165,36 @@ def run() -> tuple[Checker, list[dict]]:
         except Exception:
             dates = []
         rows.append({'line_stat': line, 'last': dates[-1] if dates else None, 'count': len(dates)})
+
+    # 使用指南：每个数据/工具模块都该有一节；changelog 顶部版本要等于 VERSION
+    # 覆盖规则放宽：也可以用「共享同一个 page+条线」的模块章节来覆盖（重点项目复用网金页面）；
+    # 工具类还可以由一节 id='tool' 的通用说明覆盖。
+    secs = js_guide_sections()
+    if not secs:
+        c.err('guide-content.js: 解析不到 GUIDE_SECTIONS（结构变了？）')
+    else:
+        live = [r for r in rows if r.get('kind') in ('metric', 'tool')]
+        shared = {}
+        for m in live:
+            shared.setdefault((m['page'], m['line']), []).append(m['id'])
+        for m in live:
+            if m['id'] in secs:
+                continue
+            if m['kind'] == 'tool' and 'tool' in secs:
+                continue
+            if any(x in secs for x in shared[(m['page'], m['line'])]):
+                continue
+            c.warn(f"使用指南里没有 {m['id']}（{m['name']}）的说明")
+        versions = js_changelog_versions()
+        if not versions:
+            c.err('changelog.js: 解析不到版本条目')
+        else:
+            try:
+                cur = (PROJECT / 'VERSION').read_text('utf-8').strip()
+            except OSError:
+                cur = ''
+            if cur and versions[0] != cur:
+                c.warn(f'changelog.js 最新一条是 {versions[0]}，VERSION 是 {cur}（发版时补一条）')
 
     return c, rows
 
