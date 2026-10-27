@@ -145,7 +145,8 @@ function guideButton(anchor) {
   a.id = 'topGuide';
   a.href = anchor || '#/guide';
   a.title = '使用指南：每个按钮、每个模块怎么用';
-  a.innerHTML = `${ICON_GUIDE}<span>使用指南</span>`;
+  // 宽屏显示"使用指南"，窄屏换成短标签（CSS 控制，两份文字都在 DOM 里）
+  a.innerHTML = `${ICON_GUIDE}<span class="g-long">使用指南</span><span class="g-short">指南</span>`;
   return a;
 }
 
