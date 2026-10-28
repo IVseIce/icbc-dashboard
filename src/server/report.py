@@ -821,29 +821,41 @@ def build_pbs(on: str | None = None) -> dict:
     def md(iso):
         return f'{int(iso[5:7])}月末' if iso else '上季末'
 
+    # 文案里说"较9月末"，表头也用"比9月末"；上年末统一叫"比上年"（不写"比12月末"，免得歧义）
     q_label = md(per.get('quarter'))
-    y_label = md(per.get('year_end')) if per.get('year_end') else '年初'
+    y_label = '上年'
+    y_short = md(per.get('year_end')) if per.get('year_end') else '上年末'
 
     # ---------------------------------------------------------- 表格 1：支行
-    cols = ['支行', '客户数', f'比{y_label}', f'比{q_label}', '资产', f'资产比{y_label}',
-            f'资产比{q_label}', '日均存款余额', '遴选余额', '遴选四季度增量',
-            '快贷提款金额', '信托已出单', '保险已销售']
-    rows = []
-    for b in brs:
-        rows.append([
-            b['name'], b['cust'], b['cust_vs_year'], b['cust_vs_quarter'],
-            b['asset'], b['asset_vs_year'], b['asset_vs_quarter'], b['dep'],
-            b['xl_bal'], b['xl_q4'], b['kd_amt'], b['xt_out'], b['bx_sold'],
-        ])
-    rows.append(['合计', total['cust'], total['cust_vs_year'], total['cust_vs_quarter'],
-                 total['asset'], total['asset_vs_year'], total['asset_vs_quarter'], total['dep'],
-                 total['xl_bal'], total['xl_q4'], total['kd_amt'], total['xt_out'], total['bx_sold']])
+    # 注意：通报页的 tableCard 读 {key,title,type} 与「对象行」，
+    # 不要用字符串列名 / 数组行，否则前端渲染成一排 undefined。
+    cols = [
+        {'key': 'name', 'title': '支行', 'type': 'text'},
+        {'key': 'cust', 'title': '客户数', 'type': 'num'},
+        {'key': 'cust_vs_year', 'title': f'比{y_label}', 'type': 'num'},
+        {'key': 'cust_vs_quarter', 'title': f'比{q_label}', 'type': 'num'},
+        {'key': 'asset', 'title': '资产', 'type': 'num'},
+        {'key': 'asset_vs_year', 'title': f'资产比{y_label}', 'type': 'num'},
+        {'key': 'asset_vs_quarter', 'title': f'资产比{q_label}', 'type': 'num'},
+        {'key': 'dep', 'title': '日均存款', 'type': 'num'},
+        {'key': 'xl_bal', 'title': '遴选余额', 'type': 'num'},
+        {'key': 'xl_q4', 'title': '遴选季度增量', 'type': 'num'},
+        {'key': 'kd_amt', 'title': '快贷提款金额', 'type': 'num'},
+        {'key': 'xt_out', 'title': '信托已出单', 'type': 'num'},
+        {'key': 'bx_sold', 'title': '保险已销售', 'type': 'num'},
+    ]
+    rows = [dict(b) for b in brs]
 
     # ---------------------------------------------------------- 表格 2：网点发展情况
-    dev_rows = []
-    for n in d['nets']:
-        dev_rows.append([n['branch'], n['name'], n['cust'], n.get('prev_cust'),
-                         n.get('cust_vs_year'), None])
+    dev_rows = [dict(n) for n in d['nets']]
+    dev_cols = [
+        {'key': 'branch', 'title': '支行', 'type': 'text'},
+        {'key': 'name', 'title': '网点', 'type': 'text'},
+        {'key': 'cust', 'title': '当前存量客户', 'type': 'num'},
+        {'key': 'prev_cust', 'title': f'上年末（{y_short}）', 'type': 'num'},
+        {'key': 'cust_vs_year', 'title': '较年初', 'type': 'num'},
+        {'key': 'cust_yoy', 'title': '本年增幅', 'type': 'pct'},
+    ]
 
     # ---------------------------------------------------------- 文案
     by_yoy = [b for b in brs if b.get('cust_vs_year') is not None]
@@ -909,17 +921,16 @@ def build_pbs(on: str | None = None) -> dict:
         'ok': True, 'kind': 'pbs', 'title': f'阜阳分行私人银行核心指标通报（{as_of_cn}）',
         'as_of': d['as_of'], 'period': per,
         'tables': [
-            {'name': '支行核心指标', 'columns': cols, 'rows': rows},
-            {'name': '网点发展情况',
-             'columns': ['支行', '网点', '当前存量客户', f'上年末（{y_label}）', '较年初', '本年增幅'],
-             'rows': dev_rows},
+            {'name': '支行核心指标', 'columns': cols, 'rows': rows,
+             'totals': dict(total, name='合计')},
+            {'name': '网点发展情况', 'columns': dev_cols, 'rows': dev_rows},
         ],
         'text': text,
         'kpi': k,
     }
 
 
-def _copy_sheet(src_ws, dst_ws):
+def _copy_sheet(src_ws, dst_ws, keep_merges=True):
     """跨工作簿搬 sheet：值 + 样式 + 合并 + 行列尺寸（openpyxl 没有现成 API）。
 
     先拆掉目标表已有的合并区，再逐个写——否则写进 MergedCell 会报
@@ -940,17 +951,27 @@ def _copy_sheet(src_ws, dst_ws):
     for r, v in src_ws.row_dimensions.items():
         if v.height:
             dst_ws.row_dimensions[r].height = v.height
-    for mr in src_ws.merged_cells.ranges:
-        dst_ws.merge_cells(str(mr))
+    if keep_merges:
+        for mr in src_ws.merged_cells.ranges:
+            dst_ws.merge_cells(str(mr))
 
 
 def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
-    """按成表版式导两份表：`定稿`（支行核心指标）+ `发展情况`（网点）。
+    """按官方成表版式导两份表：`定稿`（支行核心指标）+ `发展情况`（网点）。
 
-    配色（用户确认，与成表一致）：
-      * 定稿：C/D/F/G/I~M 九列，好的 2 个红、坏的 2 个绿
-      * 发展情况：E 列（较年初）好的 3 红、坏的 3 绿；C 列（当前存量）= 0 标黄
-    一律用**条件格式**（跟成表一样），不要手工涂色，否则排序/改数就对不上。
+    ## 配色（对着 .xls 逐格读出来，别凭印象）
+
+    定稿：
+      * **I~M（私银产品销售 5 列）整列铺浅黄底** `FFFFFFCC`，这是区块底色，不是条件格式
+      * 其中每列再按"好 2 红 / 坏 2 绿"打条件格式（**只标数值本身**，不是整列）
+      * A~H 八列无底色、无红绿
+    发展情况：
+      * **各支行「小计」行整行浅黄** `FFFFFFCC`
+      * 「较年初」E 列：好 3 红 / 坏 3 绿（条件格式）
+      * 「当前存量客户」为 0 的格子标黄 `FFFFFF00`（成表里岳家湖、十字街就是这种亮黄）
+      * 表头区有 2560×1280 的红色横幅图片，母版里已带，别删
+
+    字体统一 **仿宋_GB2312 14**（数据区），标题黑体 22 白字红底。
     """
     import openpyxl
     from openpyxl.styles import PatternFill
@@ -966,9 +987,14 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
     def md(iso):
         return f'{int(iso[5:7])}月末' if iso else '上季末'
 
+    CREAM = PatternFill('solid', fgColor='FFFFFFCC')   # 区块底色（浅黄）
+    RED_HEAD = PatternFill('solid', fgColor='FFFF0000')  # 标题行红底
     RED = PatternFill('solid', fgColor='FFFF0000')
     GREEN = PatternFill('solid', fgColor='FF99CC00')
-    YELLOW = PatternFill('solid', fgColor='FFFFFF00')
+    ZERO = PatternFill('solid', fgColor='FFFFFF00')    # 亮黄：存量=0
+
+    order = {b['name']: b for b in src['branches']}
+    total = src['total']
 
     # ---------------------------------------------------------- 定稿
     wb = openpyxl.load_workbook(PBS_BASE)
@@ -978,8 +1004,6 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
     ws['D5'] = f'比{md(per.get("quarter"))}'
     ws['G5'] = f'比{md(per.get("quarter"))}'
 
-    order = {b['name']: b for b in src['branches']}
-    total = src['total']
     KEYS = ['cust', 'cust_vs_year', 'cust_vs_quarter', 'asset', 'asset_vs_year',
             'asset_vs_quarter', 'dep', 'xl_bal', 'xl_q4', 'kd_amt', 'xt_out', 'bx_sold']
     for i, name in enumerate(BRANCH_ORDER):
@@ -989,24 +1013,34 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
     for j, key in enumerate(KEYS, start=2):
         ws.cell(14, j).value = total.get(key)
 
+    # 整个数据区先统一成仿宋 14 号（母版继承过来的可能不齐）
     for r in range(6, 15):
-        for j in range(2, 14):
-            ws.cell(r, j).number_format = '#,##0' if j <= 4 else '#,##0.00'
+        for j in range(1, 14):
+            c = ws.cell(r, j)
+            c.font = c.font.copy(name='仿宋_GB2312', size=14, bold=False)
+            c.alignment = c.alignment.copy(horizontal='center', vertical='center')
+            c.number_format = '#,##0' if j <= 4 else '#,##0'
 
-    # 条件格式：好 2 红 / 坏 2 绿（B 客户数不上色）
+    # I~M 区块底色（产品销售的 5 列）
+    for r in range(6, 15):
+        for j in range(9, 14):
+            ws.cell(r, j).fill = copy(CREAM)
+
+    # 条件格式：好 2 红 / 坏 2 绿（C/D/F/G 六列 + I~M 五列）
     ws.conditional_formatting = openpyxl.formatting.formatting.ConditionalFormattingList()
-    for c in ('C', 'D', 'F', 'G', 'I', 'J', 'K', 'L', 'M'):
+    for col in ('C', 'D', 'F', 'G', 'I', 'J', 'K', 'L', 'M'):
         ws.conditional_formatting.add(
-            f'{c}6:{c}13',
-            FormulaRule(formula=[f'LARGE(${c}$6:${c}$13,MIN(2,COUNT(${c}$6:${c}$13)))<={c}6'],
+            f'{col}6:{col}13',
+            FormulaRule(formula=[f'LARGE(${col}$6:${col}$13,MIN(2,COUNT(${col}$6:${col}$13)))<={col}6'],
                         fill=RED, stopIfTrue=False))
         ws.conditional_formatting.add(
-            f'{c}6:{c}13',
-            FormulaRule(formula=[f'SMALL(${c}$6:${c}$13,MIN(2,COUNT(${c}$6:${c}$13)))>={c}6'],
+            f'{col}6:{col}13',
+            FormulaRule(formula=[f'SMALL(${col}$6:${col}$13,MIN(2,COUNT(${col}$6:${col}$13)))>={col}6'],
                         fill=GREEN, stopIfTrue=False))
 
     # ---------------------------------------------------------- 发展情况
-    dev = openpyxl.load_workbook(PBS_DEV_BASE)['Sheet1']
+    wb2 = openpyxl.load_workbook(PBS_DEV_BASE)
+    dev = wb2['Sheet1']
     dev['A2'] = f'阜阳分行网点私人银行客户发展情况表（{as_of_cn}）'
     dev['D4'] = f'上年末（{md(per.get("year_end"))}）'
 
@@ -1015,6 +1049,7 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
         nm = dev.cell(r, 2).value
         if nm:
             net_row[str(nm).strip()] = r
+
     for n in src['nets']:
         r = net_row.get(n['name'])
         if not r:
@@ -1023,10 +1058,20 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
         dev.cell(r, 3).value = n['cust']
         dev.cell(r, 4).value = prev
         dev.cell(r, 5).value = n.get('cust_vs_year')
-        dev.cell(r, 6).value = ((n['cust'] - prev) / prev) if prev else None
+        # 上年末为 0 时增幅没法算（分母 0），写 None；其余一律给到 1 位小数
+        dev.cell(r, 6).value = ((n['cust'] - prev) / prev) if prev else (0.0 if n['cust'] == 0 else None)
+        for j in range(1, 7):
+            c = dev.cell(r, j)
+            c.font = c.font.copy(name='仿宋_GB2312', size=14)
+            c.alignment = c.alignment.copy(horizontal='center', vertical='center')
+        dev.cell(r, 3).number_format = '0'
+        dev.cell(r, 4).number_format = '0'
+        dev.cell(r, 5).number_format = '0'
         dev.cell(r, 6).number_format = '0.0%'
+        if not (n['cust'] or 0):
+            dev.cell(r, 3).fill = copy(ZERO)        # 当前存量客户 = 0 → 亮黄
 
-    # 小计行：支行名在 A 列（合并单元格，值落在首行）
+    # 小计行：整行浅黄 + 一样式
     cur_branch = None
     for r in range(6, 54):
         a, b = dev.cell(r, 1).value, dev.cell(r, 2).value
@@ -1039,45 +1084,149 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
             dev.cell(r, 3).value = c_now
             dev.cell(r, 4).value = c_prev
             dev.cell(r, 5).value = bb.get('cust_vs_year')
-            dev.cell(r, 6).value = ((c_now - c_prev) / c_prev) if c_prev else None
+            dev.cell(r, 6).value = ((c_now - c_prev) / c_prev) if c_prev else (0.0 if c_now == 0 else None)
+            for j in range(1, 7):
+                dev.cell(r, j).fill = copy(CREAM)
+            dev.cell(r, 3).number_format = '0'
+            dev.cell(r, 4).number_format = '0'
+            dev.cell(r, 5).number_format = '0'
             dev.cell(r, 6).number_format = '0.0%'
+
     c_now = total.get('cust') or 0
     c_prev = c_now - (total.get('cust_vs_year') or 0)
     dev.cell(54, 3).value = c_now
     dev.cell(54, 4).value = c_prev
     dev.cell(54, 5).value = total.get('cust_vs_year')
-    dev.cell(54, 6).value = ((c_now - c_prev) / c_prev) if c_prev else None
+    dev.cell(54, 6).value = ((c_now - c_prev) / c_prev) if c_prev else (0.0 if c_now == 0 else None)
+    for j in range(1, 7):
+        dev.cell(54, j).fill = copy(CREAM)
+    dev.cell(54, 3).number_format = '0'
+    dev.cell(54, 4).number_format = '0'
+    dev.cell(54, 5).number_format = '0'
     dev.cell(54, 6).number_format = '0.0%'
 
-    for r in range(6, 54):
-        if dev.cell(r, 2).value and str(dev.cell(r, 2).value).strip() != '小计':
-            dev.cell(r, 3).number_format = '#,##0'
-            dev.cell(r, 4).number_format = '#,##0'
-            dev.cell(r, 5).number_format = '#,##0'
-            if not (dev.cell(r, 3).value or 0):
-                dev.cell(r, 3).fill = copy(YELLOW)      # 存量客户为 0 → 黄
-
+    # 较年初：好 3 红 / 坏 3 绿（只认网点行，跳过小计与合计）
     dev.conditional_formatting = openpyxl.formatting.formatting.ConditionalFormattingList()
     dev.conditional_formatting.add(
-        'E6:E53', FormulaRule(
-            formula=['AND($E6<>"",LARGE($E$6:$E$53,MIN(3,COUNT($E$6:$E$53)))<=$E6)'],
-            fill=RED, stopIfTrue=False))
+        'E6:E53',
+        FormulaRule(formula=['AND($B6<>"",$B6<>"小计",'
+                             'LARGE(IF($B$6:$B$53<>"小计",$E$6:$E$53),MIN(3,COUNT($E$6:$E$53)))<=$E6)'],
+                    fill=RED, stopIfTrue=False))
     dev.conditional_formatting.add(
-        'E6:E53', FormulaRule(
-            formula=['AND($E6<>"",SMALL($E$6:$E$53,MIN(3,COUNT($E$6:$E$53)))=$E6)'],
-            fill=GREEN, stopIfTrue=False))
+        'E6:E53',
+        FormulaRule(formula=['AND($B6<>"",$B6<>"小计",'
+                             'SMALL(IF($B$6:$B$53<>"小计",$E$6:$E$53),MIN(3,COUNT($E$6:$E$53)))=$E6)'],
+                    fill=GREEN, stopIfTrue=False))
 
     # ---------------------------------------------------------- 两表合一
+    # 不跨工作簿拷 sheet（openpyxl 的样式索引会越界），
+    # 而是：以「定稿」母版为底，先把定稿数据写进去；再新建 sheet，
+    # 逐格搬发展情况（值 + 显式样式），最后补横幅图片。
     out = openpyxl.load_workbook(PBS_BASE)
-    for name in list(out.sheetnames):          # 母版里的 邮件/Sheet1 是手工痕迹，丢掉
+    for name in list(out.sheetnames):
         if name != '定稿':
             del out[name]
     keep = out['定稿']
-    _copy_sheet(ws, keep)
-    keep.conditional_formatting = ws.conditional_formatting
+
+    keep['A1'] = d['title']
+    keep['C5'] = '比上年'
+    keep['D5'] = f'比{md(per.get("quarter"))}'
+    keep['G5'] = f'比{md(per.get("quarter"))}'
+    for i, name in enumerate(BRANCH_ORDER):
+        b = order.get(name) or {}
+        for j, key in enumerate(KEYS, start=2):
+            keep.cell(6 + i, j).value = b.get(key)
+    for j, key in enumerate(KEYS, start=2):
+        keep.cell(14, j).value = total.get(key)
+
+    # 字体分区（照 .xls 逐格读出来的，别统一成一种）：
+    #   R1 标题        黑体 22 白字 + 红底
+    #   R2 单位        黑体 12
+    #   R3 一级表头    微软雅黑 14（A 列「支行」是仿宋 14）
+    #   R4/R5 二级表头 仿宋_GB2312 13
+    #   数据区        仿宋_GB2312 14
+    B_ = openpyxl.styles.Border(*[openpyxl.styles.Side(style='thin')] * 4)
+    for r in range(1, 16):
+        for j in range(1, 14):
+            c = keep.cell(r, j)
+            c.border = B_
+            if r == 1:
+                c.fill = copy(RED_HEAD)
+                c.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+            elif r == 2:
+                c.alignment = openpyxl.styles.Alignment(horizontal='right', vertical='center')
+            elif r in (3, 4, 5):
+                c.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center',
+                                                        wrap_text=True)
+            else:
+                c.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center',
+                                                        wrap_text=True)
+                c.number_format = '#,##0'
+            if r >= 6 and 9 <= j <= 13:
+                c.fill = copy(CREAM)      # I~M 五列浅黄底（原表就是这 5 列）
+
+    # ---------------- 红绿与底色：对着原表 .xls 逐格读出来的清单，别改
+    #
+    # 原表的真实情况（用 xlrd 读静态底色 + 读 conditionalFormatting 双重确认）：
+    #   A~H（支行、客户数、比上年、比9月末、资产、资产比上年、资产比9月末、日均存款）
+    #        —— **没有任何底色，也没有红绿**
+    #   I/J（遴选余额、遴选四季度增量）—— **浅黄底 FFFFFFCC**，无红绿
+    #   K~M（快贷、信托、保险）—— **浅黄底 FFFFFFCC** + 后 2 绿
+    #   注意：原表"红"在 U(遴选余额) 上，是"数值排前 2"；K~M 当期没有红（因为
+    #   这几个指标只有两家有值，其余为 0，按并列规则 0 都算最差→绿）。
+    #
+    # 统一用**条件格式**表达（跟原表一致，数据改了颜色会跟着走）：
+    keep.conditional_formatting = openpyxl.formatting.formatting.ConditionalFormattingList()
+    for col in ('I', 'K', 'L', 'M'):
+        rng = f'{col}6:{col}13'
+        keep.conditional_formatting.add(
+            rng, FormulaRule(
+                formula=[f'AND({col}6>0,'
+                         f'LARGE(${col}$6:${col}$13,MIN(2,COUNTIF(${col}$6:${col}$13,">0")))<={col}6)'],
+                fill=RED, stopIfTrue=False))
+        keep.conditional_formatting.add(
+            rng, FormulaRule(
+                formula=[f'AND({col}6>=0,'
+                         f'SMALL(${col}$6:${col}$13,MIN(2,COUNT(${col}$6:${col}$13)))>={col}6)'],
+                fill=GREEN, stopIfTrue=False))
+
     new = out.create_sheet('发展情况')
-    _copy_sheet(dev, new)
+    for row in dev.iter_rows(min_row=1, max_row=54, max_col=6):
+        for cell in row:
+            tgt = new.cell(cell.row, cell.column)
+            tgt.value = cell.value
+            tgt.font = copy(cell.font)
+            tgt.alignment = copy(cell.alignment)
+            tgt.number_format = cell.number_format
+            if cell.fill is not None and cell.fill.patternType is not None:
+                tgt.fill = copy(cell.fill)
+            if cell.border is not None:
+                tgt.border = copy(cell.border)
+    for k, v in dev.column_dimensions.items():
+        if v.width:
+            new.column_dimensions[k].width = v.width
+    for r, v in dev.row_dimensions.items():
+        if v.height:
+            new.row_dimensions[r].height = v.height
+    for mr in dev.merged_cells.ranges:
+        new.merge_cells(str(mr))
     new.conditional_formatting = dev.conditional_formatting
+    for img in getattr(dev, '_images', []):
+        from openpyxl.drawing.image import Image as XLImage
+        ni = XLImage(io.BytesIO(img._data()))
+        ni.anchor = copy(img.anchor)
+        new.add_image(ni)
+
+    # 打印设置：A4 横向、缩放一页宽、窄边距（否则打印/预览会被切成好几页）
+    for sh in (keep, new):
+        sh.page_setup.orientation = 'landscape'
+        sh.page_setup.paperSize = sh.PAPERSIZE_A4
+        sh.page_setup.fitToWidth = 1
+        sh.page_setup.fitToHeight = 0
+        sh.sheet_properties.pageSetUpPr.fitToPage = True
+        sh.print_options.horizontalCentered = True
+        sh.page_margins.left = sh.page_margins.right = 0.25
+        sh.page_margins.top = sh.page_margins.bottom = 0.35
 
     buf = io.BytesIO()
     out.save(buf)

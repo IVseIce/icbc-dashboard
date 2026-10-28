@@ -571,10 +571,12 @@ def build_pbs(on: str | None = None) -> dict:
     nets = []
     for n in snap.get('nets') or []:
         y = ye_net.get(n['name']) or {}
+        prev = y.get('cust')
         nets.append(dict(n,
                          asset=_r(n['asset'] / 10000.0, 2), dep=_r(n['dep'] / 10000.0, 2),
-                         prev_cust=y.get('cust'), cum=y.get('cust'),
-                         cust_vs_year=(n['cust'] - (y.get('cust') or 0)) if ye_net else None))
+                         prev_cust=prev,
+                         cust_vs_year=(n['cust'] - (prev or 0)) if ye_net else None,
+                         cust_yoy=_pct((n['cust'] - (prev or 0)), prev or None, 4) if ye_net else None))
 
     by_cust = sorted(branches, key=lambda b: -(b['cust'] or 0))
     by_asset = sorted(branches, key=lambda b: -(b['asset'] or 0))

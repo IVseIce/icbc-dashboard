@@ -36,7 +36,7 @@
 | 网金 | 企微社群 | 企微社群 | `wj-wecom-social` | metric | community | qwsq | — |
 | 个贷 | 个人贷款 | 个贷规模与投放 | `loan-todo` | placeholder | — | — | — |
 | 银行卡 | 银行卡 | 发卡与动户 | `card-todo` | placeholder | — | — | — |
-| 私银 | 私人银行 | 私人银行 | `pbs-cust` | metric | pbs | pbs | — |
+| 私银 | 私人银行 | 私人银行 | `pbs-cust` | metric | pbs | pbs | [docs/modules/pbs-cust.md](../modules/pbs-cust.md) |
 | 工具 | 实用工具 | 时日差计算 | `tool-date-diff` | tool | tool | — | — |
 | 工具 | 实用工具 | 偏离度计算 | `tool-deviation` | tool | tool | — | — |
 | 重点项目 | 重点项目 | 网点争先 | `pj-contend` | placeholder | — | — | — |
