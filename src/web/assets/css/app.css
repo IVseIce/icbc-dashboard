@@ -799,3 +799,20 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .sales-tbl input:focus{outline:0;border-color:#9db9ea;background:#fff;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .sales-tbl input::-webkit-outer-spin-button,
 .sales-tbl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+/* ============================== 定期承接（到期承接率） ============================== */
+/* 统计区间控件：一行放得下，窄屏换行 */
+.jp-range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);
+  border-radius:12px;padding:10px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
+.jp-range .jp-lab{font-size:12px;color:var(--ink-3)}
+.jp-range input[type=date]{border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px;
+  font-family:inherit;color:var(--ink);background:#fbfcfe}
+.jp-range .jp-tilde{color:var(--ink-4);font-size:12px}
+.jp-range .jp-hint{font-size:11px;color:var(--ink-4);margin-left:4px}
+
+/* 头尾列表（优秀先锋 / 后五名） */
+.jp-toplist{display:flex;flex-direction:column;gap:6px;padding-top:2px}
+.jp-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:9px;background:#fbfcfe}
+.jp-row .jp-nm{font-size:12.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jp-row .jp-br{font-size:10.5px;color:var(--ink-4);flex:none}
+.jp-row b{font-size:12.5px;font-variant-numeric:tabular-nums}

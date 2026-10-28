@@ -469,6 +469,70 @@ def build_yika(on: str | None = None) -> dict:
 
 
 
+# ---------------------------------------------------------------- 定期承接（客编明细）
+def _jiepan_snap(on: str | None = None) -> dict | None:
+    return _latest('jp', on)
+
+
+def build_jiepan(on: str | None = None, start: str | None = None, end: str | None = None) -> dict:
+    """定期承接：网点 + 支行两层。窗口只能落在单份快照的 coverage 内。
+
+    start/end 缺省 = 取数日往前一周（含头尾 7 天）。
+    """
+    from ingest import jiepan as jp
+
+    s = _jiepan_snap(on)
+    if not s:
+        return _no_data('jp', on)
+
+    cov = s.get('coverage') or [s.get('as_of'), s.get('as_of')]
+    try:
+        agg = jp.aggregate(s, start, end)
+    except ValueError as exc:
+        return {'ok': False, 'as_of': s.get('as_of'), 'coverage': cov,
+                'period': {'start': start, 'end': end},
+                'reason': str(exc), 'out_of_range': True}
+
+    nets = [dict(n, short=jp.net_short(n['name'], n['branch'])) for n in agg['nets']]
+    top_ids = {n['name'] for n in agg['top_nets']}
+    tail_ids = {n['name'] for n in agg['tail_nets']}
+    for n in nets:
+        n['is_top'] = n['name'] in top_ids
+        n['is_tail'] = n['name'] in tail_ids
+
+    branches = [dict(b) for b in agg['branches']]
+    t = agg['totals']
+
+    # 趋势：历次快照在同一「周窗口」口径下的未承接金额
+    trend = []
+    for x in _upto('jp', on):
+        try:
+            a = jp.aggregate(x, None, None)
+        except Exception:
+            continue
+        trend.append({'d': x['as_of'], 'unpicked': a['totals']['unpicked'],
+                      'avg': a['totals']['avg_unpicked'], 'rate': a['totals']['rate']})
+
+    return {
+        'ok': True, 'as_of': s['as_of'], 'as_of_cn': s.get('as_of_cn'),
+        'coverage': cov, 'period': agg['period'],
+        'kpi': {
+            'unpicked': t['unpicked'], 'avg_unpicked': t['avg_unpicked'],
+            'rate': t['rate'], 'frate': t['frate'],
+            'nets': t['nets'], 'branches': len(branches), 'custs': t['custs'],
+            'due_amt': t['due_amt'],
+            'positive': sum(1 for b in branches if b['unpicked'] > 0),
+            'best_branch': branches[0] if branches else None,
+            'worst_branch': branches[-1] if branches else None,
+        },
+        'branches': branches,
+        'nets': nets,
+        'top_nets': [dict(n, short=jp.net_short(n['name'], n['branch'])) for n in agg['top_nets']],
+        'tail_nets': [dict(n, short=jp.net_short(n['name'], n['branch'])) for n in agg['tail_nets']],
+        'trend': trend,
+    }
+
+
 def _pbs_snap(on: str | None = None) -> dict | None:
     """私银当期快照（partial 的基线不参与详情）。"""
     return _latest('pbs', on)
@@ -615,10 +679,10 @@ def build_pbs(on: str | None = None) -> dict:
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
             'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika,
-            'pbs': build_pbs}
+            'pbs': build_pbs, 'jiepan': build_jiepan}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
            'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
-           'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs'}
+           'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs', 'jiepan': 'jp'}
 
 
 # ---------------------------------------------------------------- 汇总
@@ -628,6 +692,7 @@ def build_overview(on: str | None = None) -> dict:
     p, f = build_payroll(on), build_fivecards(on)
     g = build_downgrade(on)
     y = build_yika(on)
+    jp = build_jiepan(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -647,6 +712,9 @@ def build_overview(on: str | None = None) -> dict:
                       'nearest': g.get('nearest'), 'period': g.get('period')},
         'yika': {'ok': y.get('ok'), 'as_of': y.get('as_of'), 'kpi': y.get('kpi'),
                  'nearest': y.get('nearest'), 'period': y.get('period')},
+        'jiepan': {'ok': jp.get('ok'), 'as_of': jp.get('as_of'), 'kpi': jp.get('kpi'),
+                   'nearest': jp.get('nearest'), 'period': jp.get('period'),
+                   'coverage': jp.get('coverage')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,

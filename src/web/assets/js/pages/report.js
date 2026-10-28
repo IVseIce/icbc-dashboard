@@ -17,6 +17,7 @@ const LINES = [
   { id: 'wallet', name: '数字人民币钱包', cat: 'wj' },
   { id: 'community', name: '企微社群运营', cat: 'wj' },
   { id: 'downgrade', name: '降级挽回营销先锋', cat: 'jg' },
+  { id: 'jiepan', name: '到期承接情况通报', cat: 'jg' },
   { id: 'yika', name: '“一卡一户”日通报', cat: 'jg' },
   { id: 'pbs', name: '私人银行核心指标', cat: 'pbs' },
 ];
@@ -26,7 +27,18 @@ export default {
   title: '通报中心',
   render(view, _data, ctx) {
     const date = ctx.date;
-    const q = (k) => (date ? `?date=${encodeURIComponent(date)}` : '');
+    // 定期承接支持 ?start=&end=（与定期承接页面共用地址栏参数）
+    const sp = new URLSearchParams(location.search);
+    const q = (k) => {
+      const p = new URLSearchParams();
+      if (date) p.set('date', date);
+      if (k === 'jiepan') {
+        if (sp.get('s')) p.set('start', sp.get('s'));
+        if (sp.get('e')) p.set('end', sp.get('e'));
+      }
+      const t = p.toString();
+      return t ? `?${t}` : '';
+    };
     const visible = LINES.filter((l) => auth.can(l.cat));
     const cats = CATS.filter((c) => auth.can(c.id))
       .map((c) => ({ ...c, lines: visible.filter((l) => l.cat === c.id) }))

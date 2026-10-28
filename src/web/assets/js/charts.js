@@ -114,7 +114,11 @@ export function barRank(rows, { color = C.blue, unit = '', decimals = 0, max = n
     grid: { left: 10, right: 52, top: 8, bottom: 6, containLabel: true },
     tooltip: {
       ...base().tooltip,
-      formatter: (p) => `${p[0].name}<br/><b>${Number(p[0].value).toLocaleString('zh-CN', { maximumFractionDigits: decimals })}</b>${unit}`,
+      formatter: (p) => {
+        const row = rows[p[0].dataIndex] || {};
+        const txt = row.text || `${Number(p[0].value).toLocaleString('zh-CN', { maximumFractionDigits: decimals })}${unit}`;
+        return `${p[0].name}<br/><b>${txt}</b>`;
+      },
     },
     xAxis: {
       ...yAxis({ max: (mxPos || 1) * 1.04, min: mnNeg ? mnNeg * 1.35 : 0, show: false }),
@@ -151,7 +155,11 @@ export function barRank(rows, { color = C.blue, unit = '', decimals = 0, max = n
       barWidth: '58%',
       label: {
         show: !hideLabel, fontSize: 11, color: C.ink2,
-        formatter: (p) => (p.value === null ? '' : p.value.toLocaleString('zh-CN', { maximumFractionDigits: decimals }) + unit),
+        formatter: (p) => {
+          const row = rows[p.dataIndex] || {};
+          if (row.text) return row.text;           // 行内自定义文案（如"1 名 · 1.0 分"）
+          return p.value === null ? '' : p.value.toLocaleString('zh-CN', { maximumFractionDigits: decimals }) + unit;
+        },
       },
       markLine: mnNeg < 0 ? {
         silent: true, symbol: 'none',
@@ -207,7 +215,9 @@ export function stackedBar(x, series, { unit = '' } = {}) {
   });
 }
 
-export function scatter(points, { xName = '', yName = '', unit = '', branches = [] } = {}) {
+export function scatter(points, { xName = '', yName = '', unit = '', branches = [],
+  xUnit = '%', yUnit = '%', sizeName = '到店客群', sizeUnit = '户', showSize = true,
+  yFmt = '' } = {}) {
   const groups = {};
   points.forEach((p) => { (groups[p.branch] = groups[p.branch] || []).push(p); });
   return base({
@@ -215,12 +225,14 @@ export function scatter(points, { xName = '', yName = '', unit = '', branches = 
     grid: { left: 10, right: 18, top: 40, bottom: 26, containLabel: true },
     tooltip: {
       ...base().tooltip, trigger: 'item',
-      formatter: (p) => `<b>${p.data.name}</b><br/>${xName} ${p.data.x}% · ${yName} ${p.data.y}%<br/>到店客群 ${p.data.size} 户`,
+      formatter: (p) => `<b>${p.data.name}</b><br/>${xName} ${p.data.x}${xUnit} · ${yName} ${p.data.y}${yUnit}`
+        + (showSize ? `<br/>${sizeName} ${p.data.size}${sizeUnit}` : ''),
     },
     xAxis: { ...yAxis(), name: xName, nameLocation: 'middle', nameGap: 30,
       nameTextStyle: { color: C.ink3, fontSize: 11 }, scale: true },
     yAxis: { ...yAxis(), name: yName, nameLocation: 'middle', nameGap: 34,
-      nameTextStyle: { color: C.ink3, fontSize: 11 }, scale: true },
+      nameTextStyle: { color: C.ink3, fontSize: 11 }, scale: true,
+      axisLabel: { color: C.ink3, fontSize: 10, formatter: yFmt ? `{value}${yFmt}` : '{value}' } },
     series: Object.entries(groups).map(([br, ps], i) => ({
       name: br, type: 'scatter',
       data: ps.map((p) => ({ ...p, value: [p.x, p.y, p.size] })),

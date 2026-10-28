@@ -134,8 +134,8 @@ export const empty = (text = '暂无数据', hint = '导入该条线的源表后
   `<div class="empty"><b>${text}</b>${hint}</div>`;
 
 /** 表格渲染 + 排序（列配置声明式，便于以后加列） */
-export function table(columns, rows, { sortBy = null, limit = null, onRow = null } = {}) {
-  const state = { key: sortBy, dir: -1 };
+export function table(columns, rows, { sortBy = null, sortDir = -1, limit = null, onRow = null } = {}) {
+  const state = { key: sortBy, dir: sortDir };
   const wrap = document.createElement('div');
   wrap.className = 'tbl-wrap';
   const renderRows = () => {

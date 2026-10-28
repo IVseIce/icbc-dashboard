@@ -7,7 +7,7 @@
 
 | 板块 | id | 模块 | 已接入 | 说明 |
 |---|---|---|---|---|
-| 个人金融 | `jg` | 12 | 6 | 增存 · 增客 · 增收 |
+| 个人金融 | `jg` | 12 | 7 | 增存 · 增客 · 增收 |
 | 网络金融 | `wj` | 3 | 3 | 线上服务 · 数币 · 企微 |
 | 个人贷款 | `loan` | 1 | 0 | 框架预留，待接入 |
 | 银行卡 | `card` | 1 | 0 | 框架预留，待接入 |
@@ -20,7 +20,7 @@
 | 板块 | 分组 | 模块 | id | 类型 | 页面 | 导入条线 | 文档 |
 |---|---|---|---|---|---|---|---|
 | 个金 | 增存 | 定期存款 | `jg-deposit-time` | metric | deposit | dqzz | — |
-| 个金 | 增存 | 定期承接 | `jg-deposit-jiepan` | placeholder | — | — | — |
+| 个金 | 增存 | 定期承接 | `jg-deposit-jiepan` | metric | jiepan | jp | [docs/modules/jg-deposit-jiepan.md](../modules/jg-deposit-jiepan.md) |
 | 个金 | 增存 | 行外吸金 | `jg-deposit-waihang` | placeholder | — | — | — |
 | 个金 | 增存 | 降级挽回 | `jg-deposit-jiangji` | metric | downgrade | jjwh | [docs/modules/jg-deposit-jiangji.md](../modules/jg-deposit-jiangji.md) |
 | 个金 | 增存 | 经理队伍 | `jg-deposit-team` | placeholder | — | — | — |
@@ -59,3 +59,4 @@
 | `jjwh` | 1 | 2026-09-13 |
 | `ykh` | 1 | 2026-10-25 |
 | `pbs` | 3 | 2026-10-24 |
+| `jp` | 1 | 2026-10-25 |

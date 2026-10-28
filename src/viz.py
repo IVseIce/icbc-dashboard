@@ -50,6 +50,8 @@ LINES = {
             'hint': '社保卡（借记卡发卡统计报表）+ 个人养老金（多日期表），每天导当期即可'},
     'pbs': {'label': '私人银行', 'skill': '',
             'hint': '客编日均资产明细（归属支行/网点 + 本月月日均资产）；日期从文件名识别'},
+    'jp': {'label': '定期承接', 'skill': '',
+           'hint': '客编明细（含 归属支行/机构名称/最近到期日期/定期余额变化），取数日往前一个月'},
 }
 
 _mods: dict[str, object] = {}
@@ -691,10 +693,16 @@ def _cum_by_date(line: str) -> dict:
     return {s['as_of']: (s.get('cum') or {}) for s in load_snapshots(line)}
 
 
+def import_jiepan(files, line, root, data_date=None):
+    """定期承接：客编明细 → 网点/支行两层快照（取数日与覆盖范围都从表里来）。"""
+    from ingest import jiepan
+    return jiepan.parse_files(files, as_of=data_date)
+
+
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
              'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
-             'ykh': import_yika, 'pbs': import_pbs}
+             'ykh': import_yika, 'pbs': import_pbs, 'jp': import_jiepan}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,

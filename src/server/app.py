@@ -89,6 +89,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
         on = (qs.get('date') or [None])[0] or None
+        start = (qs.get('start') or [None])[0] or None
+        end = (qs.get('end') or [None])[0] or None
         try:
             if path in ('/', '/index.html'):
                 return self._send((WEB / 'index.html').read_bytes(), 'text/html; charset=utf-8')
@@ -136,8 +138,8 @@ class Handler(BaseHTTPRequestHandler):
                 if prof and not auth.can(sess, prof):
                     return self._json({'ok': False, 'error': '当前身份组没有该大类的通报权限'}, 403)
                 if not is_xlsx:
-                    return self._json(report_mod.build(kind, on))
-                blob, name = report_mod.xlsx(kind, on)
+                    return self._json(report_mod.build(kind, on, start, end))
+                blob, name = report_mod.xlsx(kind, on, start, end)
                 from urllib.parse import quote
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -148,7 +150,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(blob)
                 return
             if path == '/api/all':
-                return self._json(api.build_all(on))
+                out = api.build_all(on)
+                # 定期承接：页面要能用 ?start=&end= 切窗口
+                if start or end:
+                    try:
+                        out['jiepan'] = api.build_jiepan(on, start, end)
+                    except Exception as exc:
+                        out['jiepan'] = {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+                return self._json(out)
             if path.startswith('/api/line/'):
                 return self._json(api.build_line(path.rsplit('/', 1)[-1], on))
             if path == '/api/state':

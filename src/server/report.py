@@ -11,6 +11,7 @@ import io
 import math
 import sys
 from copy import copy
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -504,6 +505,158 @@ def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue(), f'降级挽回营销先锋（{d["period"]["label"]}）.xlsx'
+
+
+
+
+# ---------------------------------------------------------------- 定期承接（到期承接率）
+JIEPAN_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'jiepan_base.xlsx'
+
+
+def _br_short(name: str) -> str:
+    """支行简称：颍州支行 → 颍州。"""
+    n = (name or '').replace('阜阳', '')
+    return n[:-2] if n.endswith('支行') else n
+
+
+def build_jiepan(on: str | None = None, start: str | None = None, end: str | None = None) -> dict:
+    """定期承接通报：网点维度 + 支行维度两块，文案三段（整体/支行排名/优秀先锋）。"""
+    d = api.build_jiepan(on, start, end)
+    if not d.get('ok'):
+        err = d.get('reason') or '该日期无定期承接数据'
+        return {'ok': False, 'error': err, 'nearest': d.get('nearest'),
+                'coverage': d.get('coverage'), 'out_of_range': d.get('out_of_range')}
+
+    k = d['kpi']
+    per = d['period']
+    span = _span_cn(per)
+    # 文案里的期间要两头都带"日"：10月19日-10月25日（与定稿模板一致）
+    span_full = (f'{int(per["start"][5:7])}月{int(per["start"][8:10])}日-'
+                 f'{int(per["end"][5:7])}月{int(per["end"][8:10])}日')
+
+    branches = sorted(d['branches'], key=lambda b: (b.get('rank') or 99, b['name']))
+    # 前三 / 后三一律按名次取（别按正负筛，见 HANDOFF 8.2-21）
+    up = [_br_short(b['name']) for b in branches[:3]]
+    down = [_br_short(b['name']) for b in branches[-3:]][::-1]
+    # 「阜南、颍东、临泉支行」：只有最后一个带"支行"
+    up_txt = ('、'.join(up) + '支行') if up else '—'
+    top = d.get('top_nets') or []
+    # 7 天窗口说"本周"，其他区间说"本期"
+    days = (date.fromisoformat(per['end']) - date.fromisoformat(per['start'])).days + 1
+    when = '本周' if days == 7 else '本期'
+
+    text = '\n\n'.join([
+        '【“到期承接”营销先锋】',
+        f'1️⃣整体情况：{span_full}，定期未承接金额{k["unpicked"]:.0f}万元，'
+        f'网均未承接{k["avg_unpicked"]:.0f}万。',
+        f'2️⃣支行排名：{up_txt}综合评价位居前三名；'
+        f'{"、".join(down) or "—"}暂居后三位。',
+        f'3️⃣优秀先锋网点：恭喜{"、".join(n.get("short") or n["name"] for n in top) or "—"}'
+        f'荣获{when}到期承接优秀网点！',
+    ])
+
+    br_cols = [
+        {'key': 'rank', 'title': '综合评价', 'type': 'num'},
+        {'key': 'name', 'title': '支行', 'type': 'text'},
+        {'key': 'nets', 'title': '网点数', 'type': 'num'},
+        {'key': 'unpicked', 'title': '定期未承接金额（万元）', 'type': 'num'},
+        {'key': 'avg_unpicked', 'title': '网均未承接金额（万元）', 'type': 'num'},
+        {'key': 'rate', 'title': '定期承接率', 'type': 'pct'},
+        {'key': 'frate', 'title': '资金承接率', 'type': 'pct'},
+    ]
+    net_cols = [
+        {'key': 'rank', 'title': '排名', 'type': 'num'},
+        {'key': 'branch', 'title': '支行', 'type': 'text'},
+        {'key': 'name', 'title': '网点', 'type': 'text'},
+        {'key': 'unpicked', 'title': '定期未承接金额（万元）', 'type': 'num'},
+        {'key': 'rate', 'title': '定期承接率', 'type': 'pct'},
+        {'key': 'frate', 'title': '资金承接率', 'type': 'pct'},
+    ]
+    top_cols = [
+        {'key': 'rank', 'title': '排名', 'type': 'num'},
+        {'key': 'name', 'title': '网点', 'type': 'text'},
+        {'key': 'rate', 'title': '本期定期承接率', 'type': 'pct'},
+    ]
+
+    net_rows = []
+    for i, n in enumerate(d['nets'], 1):
+        net_rows.append(dict(n, rank=i, unpicked=n['bal_d'] / 10000.0))
+    top_rows = [dict(n, rank=i) for i, n in enumerate(top, 1)]
+
+    return {
+        'ok': True, 'kind': 'jiepan',
+        'title': f'到期承接情况通报（{span}）',
+        'as_of': d['as_of'], 'coverage': d.get('coverage'), 'period': per,
+        'text': text,
+        'tables': [
+            {'name': '支行', 'columns': br_cols, 'rows': [dict(b) for b in branches],
+             'totals': {'rank': '—', 'name': '合计', 'nets': k['nets'],
+                        'unpicked': k['unpicked'], 'avg_unpicked': k['avg_unpicked'],
+                        'rate': k['rate'], 'frate': k['frate']}},
+            {'name': '优秀先锋', 'columns': top_cols, 'rows': top_rows, 'totals': None},
+            {'name': '网点明细', 'columns': net_cols, 'rows': net_rows, 'totals': None},
+        ],
+    }
+
+
+def jiepan_xlsx(on: str | None = None, start: str | None = None, end: str | None = None) -> tuple[bytes, str]:
+    """按成表版式写数：
+
+    Sheet6（网点到期承接通报）：标题 + 40 个网点，A/C 列在母版里是隐藏的
+    （A=支行 C=元），用户只看 B 网点 / D 万元 / E 定期承接率 / F 资金承接率。
+    Sheet7（截止至…到期承接情况通报）：左 8 支行按综合评价排序 + 合计，右 8 个优秀先锋网点。
+    """
+    import openpyxl
+    d = build_jiepan(on, start, end)
+    if not d.get('ok'):
+        raise RuntimeError(d.get('error') or '该日期没有定期承接数据')
+
+    per = d['period']
+    # 成表标题样式：10月1日—10月25日（两头带"日"，长破折号）
+    span = (f'{int(per["start"][5:7])}月{int(per["start"][8:10])}日—'
+            f'{int(per["end"][5:7])}月{int(per["end"][8:10])}日')
+    wb = openpyxl.load_workbook(JIEPAN_BASE)
+
+    # ---- Sheet6：网点维度（40 行，按定期承接率降序）
+    ws6 = wb['Sheet6']
+    ws6['A1'] = f'网点到期承接通报（{span}）'
+    net_tbl = d['tables'][2]
+    for i, rec in enumerate(net_tbl['rows'][:40]):
+        r = 3 + i
+        ws6.cell(row=r, column=1, value=rec['branch'])
+        ws6.cell(row=r, column=2, value=rec['name'])
+        ws6.cell(row=r, column=3, value=round(rec['bal_d'], 2))
+        ws6.cell(row=r, column=4, value=rec['bal_d'] / 10000.0)
+        ws6.cell(row=r, column=5, value=rec['rate'])
+        ws6.cell(row=r, column=6, value=rec['frate'])
+
+    # ---- Sheet7：支行维度 + 优秀先锋
+    ws7 = wb['Sheet7']
+    ws7['A1'] = f'截止至{per["end"][5:7]}月{per["end"][8:10]}日到期承接情况通报'
+    br_tbl = d['tables'][0]
+    for i, rec in enumerate(br_tbl['rows'][:8]):
+        r = 4 + i
+        vals = [rec['name'], rec['nets'], rec['rank'], rec['unpicked'], rec['avg_unpicked'],
+                rec['rate'], rec['frate']]
+        for ci, v in enumerate(vals, start=1):
+            ws7.cell(row=r, column=ci, value=v)
+    t = br_tbl['totals']
+    for ci, v in enumerate(['合计', t['nets'], '—', t['unpicked'], t['avg_unpicked'],
+                            t['rate'], t['frate']], start=1):
+        ws7.cell(row=12, column=ci, value=v)
+    # H12 备注（合并 H12:K12 已存在）
+    ws7['H12'] = '综合排名根据网均未承接金额、本旬定期承接率、本旬资金承接率4:4:2评价。'
+
+    # 优秀先锋：右侧 8 行（H=排名 I=网点 J=负责人 K=承接率）；J 列母版里是隐藏的，留空
+    for i, rec in enumerate(d['tables'][1]['rows'][:8]):
+        r = 4 + i
+        ws7.cell(row=r, column=8, value=rec['rank'])
+        ws7.cell(row=r, column=9, value=rec['name'])
+        ws7.cell(row=r, column=11, value=rec['rate'])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), f'到期承接情况通报（{span.replace("月", ".").replace("日", "")}）.xlsx'
 
 
 # ---------------------------------------------------------------- 一卡一户
@@ -1164,18 +1317,22 @@ def pbs_dev_xlsx(on: str | None = None) -> tuple[bytes, str]:
 
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
             'deposit': build_deposit, 'community': build_community,
-            'downgrade': build_downgrade, 'yika': build_yika, 'pbs': build_pbs}
+            'downgrade': build_downgrade, 'yika': build_yika, 'pbs': build_pbs,
+            'jiepan': build_jiepan}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
 CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
-          'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs', 'pbs_dev': 'pbs'}
+          'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs', 'pbs_dev': 'pbs', 'jiepan': 'jg'}
 
 
-def build(kind: str, on: str | None = None) -> dict:
+def build(kind: str, on: str | None = None,
+          start: str | None = None, end: str | None = None) -> dict:
     fn = BUILDERS.get(kind)
     if not fn:
         return {'ok': False, 'error': f'通报未实现：{kind}'}
+    if kind == 'jiepan':                    # 唯一支持窗口的通报
+        return fn(on, start, end)
     return fn(on)
 
 # ---------------------------------------------------------------- Excel（套用技能模板）
@@ -1428,12 +1585,15 @@ def pbs_bundle(on: str | None = None) -> tuple[bytes, str]:
 
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
         'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx,
-        'yika': yika_xlsx, 'pbs': pbs_xlsx, 'pbs_dev': pbs_dev_xlsx}
+        'yika': yika_xlsx, 'pbs': pbs_xlsx, 'pbs_dev': pbs_dev_xlsx, 'jiepan': jiepan_xlsx}
 
 
-def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:
+def xlsx(kind: str, on: str | None = None,
+         start: str | None = None, end: str | None = None) -> tuple[bytes, str]:
     fn = XLSX.get(kind)
     if not fn:
         raise RuntimeError(f'导出未实现：{kind}')
+    if kind == 'jiepan':
+        return fn(on, start, end)
     return fn(on)
 
