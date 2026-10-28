@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import math
 import sys
+from copy import copy
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -771,14 +772,328 @@ def _date_obj(iso: str):
     return date.fromisoformat(iso)
 
 
+# ---------------------------------------------------------------- 私人银行
+PBS_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'pbs_base.xlsx'
+PBS_DEV_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'pbs_dev_base.xlsx'
+
+
+def _pbs_rank_cn(items: list[dict], key: str, n: int = 2, unit: str = '户',
+                 with_branch: bool = False, digits: int = 0, sep: str = '、') -> str:
+    """「颍州支行（3317万）、颍州（6户）」这类排名短语。
+
+    `with_branch` 控制是否加"支行"后缀：客户数不加，产品与资产都加（照成表文案）。
+    数字一律取整（成表文案里没有小数）。
+    """
+    out = []
+    for b in items[:n]:
+        v = b.get(key)
+        if v is None:
+            continue
+        tag = b['name'] + ('支行' if with_branch else '')
+        num = f'{v:.{digits}f}' if digits else f'{round(v)}'
+        out.append(f'{tag}（{num}{unit}）')
+    return sep.join(out)
+
+
+def _pbs_zero_names(items: list[dict], key: str) -> str:
+    """没有该项业务的支行，逗号连成一句：「颍泉、颍东、界首支行」。"""
+    names = [b['name'] for b in items if not (b.get(key) or 0)]
+    if not names:
+        return ''
+    return '、'.join(names) + '支行'
+
+
+
+def build_pbs(on: str | None = None) -> dict:
+    """私人银行业务通报：表格（支行 + 网点两张）+ 文案。"""
+    d = api.build_pbs(on)
+    if not d.get('ok'):
+        return {'ok': False, 'error': d.get('reason') or '该日期无私人银行数据',
+                'nearest': d.get('nearest')}
+    k, per = d['kpi'], d['period']
+    as_of_cn = d.get('as_of_cn') or ''
+    brs = d['branches']
+    total = d['total']
+    has_y = k.get('has_year_end')
+    has_q = k.get('has_quarter')
+
+    # 三个时点的中文口径（比9月末 / 比12月末）
+    def md(iso):
+        return f'{int(iso[5:7])}月末' if iso else '上季末'
+
+    q_label = md(per.get('quarter'))
+    y_label = md(per.get('year_end')) if per.get('year_end') else '年初'
+
+    # ---------------------------------------------------------- 表格 1：支行
+    cols = ['支行', '客户数', f'比{y_label}', f'比{q_label}', '资产', f'资产比{y_label}',
+            f'资产比{q_label}', '日均存款余额', '遴选余额', '遴选四季度增量',
+            '快贷提款金额', '信托已出单', '保险已销售']
+    rows = []
+    for b in brs:
+        rows.append([
+            b['name'], b['cust'], b['cust_vs_year'], b['cust_vs_quarter'],
+            b['asset'], b['asset_vs_year'], b['asset_vs_quarter'], b['dep'],
+            b['xl_bal'], b['xl_q4'], b['kd_amt'], b['xt_out'], b['bx_sold'],
+        ])
+    rows.append(['合计', total['cust'], total['cust_vs_year'], total['cust_vs_quarter'],
+                 total['asset'], total['asset_vs_year'], total['asset_vs_quarter'], total['dep'],
+                 total['xl_bal'], total['xl_q4'], total['kd_amt'], total['xt_out'], total['bx_sold']])
+
+    # ---------------------------------------------------------- 表格 2：网点发展情况
+    dev_rows = []
+    for n in d['nets']:
+        dev_rows.append([n['branch'], n['name'], n['cust'], n.get('prev_cust'),
+                         n.get('cust_vs_year'), None])
+
+    # ---------------------------------------------------------- 文案
+    by_yoy = [b for b in brs if b.get('cust_vs_year') is not None]
+    by_yoy.sort(key=lambda b: -(b['cust_vs_year'] or 0))
+    by_asset_yoy = [b for b in brs if b.get('asset_vs_year') is not None]
+    by_asset_yoy.sort(key=lambda b: -(b['asset_vs_year'] or 0))
+
+    top_cust = _pbs_rank_cn(by_yoy, 'cust_vs_year', 2, unit='户')
+    bot_cust = _pbs_rank_cn(list(reversed(by_yoy[-2:])), 'cust_vs_year', 2, unit='户')
+    top_asset = _pbs_rank_cn(by_asset_yoy, 'asset_vs_year', 2, unit='万', with_branch=True)
+    bot_asset = _pbs_rank_cn(list(reversed(by_asset_yoy[-2:])), 'asset_vs_year', 2,
+                             unit='万', with_branch=True)
+
+    xl = sorted(brs, key=lambda b: -(b['xl_bal'] or 0))
+    xl_top = _pbs_rank_cn(xl, 'xl_bal', 2, unit='万', with_branch=True)
+    xl_bot = _pbs_rank_cn(list(reversed(xl[-2:])), 'xl_bal', 2, unit='万', with_branch=True)
+
+    q4 = sorted([b for b in brs if (b['xl_q4'] or 0) > 0], key=lambda b: -b['xl_q4'])
+    q4_txt = _pbs_rank_cn(q4, 'xl_q4', 2, unit='万', with_branch=True)
+    q4_rest = [b['name'] for b in brs if not (b['xl_q4'] or 0)]
+
+    kd = sorted([b for b in brs if (b['kd_amt'] or 0) > 0], key=lambda b: -b['kd_amt'])
+    kd_txt = _pbs_rank_cn(kd, 'kd_amt', 3, unit='万', with_branch=True)
+    kd_zero = _pbs_zero_names(brs, 'kd_amt')
+
+    xt = sorted([b for b in brs if (b['xt_out'] or 0) > 0], key=lambda b: -b['xt_out'])
+    xt_txt = _pbs_rank_cn(xt, 'xt_out', 3, unit='万', with_branch=True)
+    xt_zero = _pbs_zero_names(brs, 'xt_out')
+
+    bx = sorted([b for b in brs if (b['bx_sold'] or 0) > 0], key=lambda b: -b['bx_sold'])
+    bx_txt = _pbs_rank_cn(bx, 'bx_sold', 9, unit='万', with_branch=True)
+    bx_zero = _pbs_zero_names(brs, 'bx_sold')
+
+    q4_line = f'{q4_txt}销量排名全辖前两名' if q4_txt else '本季度暂无支行破零'
+    if q4_txt and q4_rest:
+        q4_line += '；其余支行未破零'
+
+    text = f"""各支行：
+
+    截至{as_of_cn}，全辖【月日均600万元】私人银行客户{k['cust']}户，较年初净增{k['cust_vs_year']}户，较{q_label}净增{k['cust_vs_quarter']}户。{top_cust}较年初增量排名全辖前列；{bot_cust}较年初净增排名全辖末位。私人银行达标客户总资产{(k['asset'] or 0) / 10000:.2f}亿元，较年初提升{(k['asset_vs_year'] or 0) / 10000:.2f}亿元，私银达标客户【日均金融资产】较年初增量{top_asset}排名前两位，{bot_asset}全辖排名靠后。
+
+    私银重点产品营销情况
+
+    【私银遴选】从余额看，{xl_top}总量排名全辖前两名；{xl_bot}全辖排名靠后。
+
+              {q4_line}。
+
+  【私银快贷】本年度，{kd_txt}提款余额位全辖前列，{kd_zero}暂无提款。
+
+  【家族信托】本年度，{xt_txt}信托落地，{xt_zero}暂无家族信托落地。
+
+  【私银保险】本年度，{bx_txt}私银保险销售全辖前列，{bx_zero}暂无销售。
+
+                  【工作提示】
+
+        一、为进一步抢抓家族信托综合顾问服务业务市场机遇，省行于2026年9月至11月末开展“工银传诚家”家族信托百日攻坚专项活动，各支行要抓住专属激励政策，拓展家业服务。
+
+        二、各支行高管要持续落实“头雁计划”，务必做好高端客户资金争揽工作，通过高层拜访、专属权益等服务，提升客户资金在我行有效留存。
+
+        三、各支行对于高净值客户要加强拓客沉淀，为旺季经营奠定优质客户基础。"""
+
+    return {
+        'ok': True, 'kind': 'pbs', 'title': f'阜阳分行私人银行核心指标通报（{as_of_cn}）',
+        'as_of': d['as_of'], 'period': per,
+        'tables': [
+            {'name': '支行核心指标', 'columns': cols, 'rows': rows},
+            {'name': '网点发展情况',
+             'columns': ['支行', '网点', '当前存量客户', f'上年末（{y_label}）', '较年初', '本年增幅'],
+             'rows': dev_rows},
+        ],
+        'text': text,
+        'kpi': k,
+    }
+
+
+def _copy_sheet(src_ws, dst_ws):
+    """跨工作簿搬 sheet：值 + 样式 + 合并 + 行列尺寸（openpyxl 没有现成 API）。
+
+    先拆掉目标表已有的合并区，再逐个写——否则写进 MergedCell 会报
+    `MergedCell object attribute 'value' is read-only`（踩过）。
+    """
+    for mr in list(dst_ws.merged_cells.ranges):
+        dst_ws.unmerge_cells(str(mr))
+    for row in src_ws.iter_rows():
+        for c in row:
+            nc = dst_ws.cell(c.row, c.column)
+            if type(nc).__name__ != 'MergedCell':
+                nc.value = c.value
+            if c.has_style and hasattr(nc, '_style'):
+                nc._style = copy(c._style)
+    for k, v in src_ws.column_dimensions.items():
+        if v.width:
+            dst_ws.column_dimensions[k].width = v.width
+    for r, v in src_ws.row_dimensions.items():
+        if v.height:
+            dst_ws.row_dimensions[r].height = v.height
+    for mr in src_ws.merged_cells.ranges:
+        dst_ws.merge_cells(str(mr))
+
+
+def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    """按成表版式导两份表：`定稿`（支行核心指标）+ `发展情况`（网点）。
+
+    配色（用户确认，与成表一致）：
+      * 定稿：C/D/F/G/I~M 九列，好的 2 个红、坏的 2 个绿
+      * 发展情况：E 列（较年初）好的 3 红、坏的 3 绿；C 列（当前存量）= 0 标黄
+    一律用**条件格式**（跟成表一样），不要手工涂色，否则排序/改数就对不上。
+    """
+    import openpyxl
+    from openpyxl.styles import PatternFill
+    from openpyxl.formatting.rule import FormulaRule
+
+    d = build_pbs(on)
+    if not d.get('ok'):
+        raise RuntimeError('该日期没有私人银行数据')
+    src = api.build_pbs(on)
+    per = src['period']
+    as_of_cn = src.get('as_of_cn') or ''
+
+    def md(iso):
+        return f'{int(iso[5:7])}月末' if iso else '上季末'
+
+    RED = PatternFill('solid', fgColor='FFFF0000')
+    GREEN = PatternFill('solid', fgColor='FF99CC00')
+    YELLOW = PatternFill('solid', fgColor='FFFFFF00')
+
+    # ---------------------------------------------------------- 定稿
+    wb = openpyxl.load_workbook(PBS_BASE)
+    ws = wb['定稿']
+    ws['A1'] = d['title']
+    ws['C5'] = '比上年'
+    ws['D5'] = f'比{md(per.get("quarter"))}'
+    ws['G5'] = f'比{md(per.get("quarter"))}'
+
+    order = {b['name']: b for b in src['branches']}
+    total = src['total']
+    KEYS = ['cust', 'cust_vs_year', 'cust_vs_quarter', 'asset', 'asset_vs_year',
+            'asset_vs_quarter', 'dep', 'xl_bal', 'xl_q4', 'kd_amt', 'xt_out', 'bx_sold']
+    for i, name in enumerate(BRANCH_ORDER):
+        b = order.get(name) or {}
+        for j, key in enumerate(KEYS, start=2):
+            ws.cell(6 + i, j).value = b.get(key)
+    for j, key in enumerate(KEYS, start=2):
+        ws.cell(14, j).value = total.get(key)
+
+    for r in range(6, 15):
+        for j in range(2, 14):
+            ws.cell(r, j).number_format = '#,##0' if j <= 4 else '#,##0.00'
+
+    # 条件格式：好 2 红 / 坏 2 绿（B 客户数不上色）
+    ws.conditional_formatting = openpyxl.formatting.formatting.ConditionalFormattingList()
+    for c in ('C', 'D', 'F', 'G', 'I', 'J', 'K', 'L', 'M'):
+        ws.conditional_formatting.add(
+            f'{c}6:{c}13',
+            FormulaRule(formula=[f'LARGE(${c}$6:${c}$13,MIN(2,COUNT(${c}$6:${c}$13)))<={c}6'],
+                        fill=RED, stopIfTrue=False))
+        ws.conditional_formatting.add(
+            f'{c}6:{c}13',
+            FormulaRule(formula=[f'SMALL(${c}$6:${c}$13,MIN(2,COUNT(${c}$6:${c}$13)))>={c}6'],
+                        fill=GREEN, stopIfTrue=False))
+
+    # ---------------------------------------------------------- 发展情况
+    dev = openpyxl.load_workbook(PBS_DEV_BASE)['Sheet1']
+    dev['A2'] = f'阜阳分行网点私人银行客户发展情况表（{as_of_cn}）'
+    dev['D4'] = f'上年末（{md(per.get("year_end"))}）'
+
+    net_row = {}
+    for r in range(6, 54):
+        nm = dev.cell(r, 2).value
+        if nm:
+            net_row[str(nm).strip()] = r
+    for n in src['nets']:
+        r = net_row.get(n['name'])
+        if not r:
+            continue
+        prev = n.get('prev_cust')
+        dev.cell(r, 3).value = n['cust']
+        dev.cell(r, 4).value = prev
+        dev.cell(r, 5).value = n.get('cust_vs_year')
+        dev.cell(r, 6).value = ((n['cust'] - prev) / prev) if prev else None
+        dev.cell(r, 6).number_format = '0.0%'
+
+    # 小计行：支行名在 A 列（合并单元格，值落在首行）
+    cur_branch = None
+    for r in range(6, 54):
+        a, b = dev.cell(r, 1).value, dev.cell(r, 2).value
+        if a:
+            cur_branch = str(a).strip()
+        if b and str(b).strip() == '小计':
+            bb = order.get(cur_branch) or {}
+            c_now = bb.get('cust') or 0
+            c_prev = c_now - (bb.get('cust_vs_year') or 0)
+            dev.cell(r, 3).value = c_now
+            dev.cell(r, 4).value = c_prev
+            dev.cell(r, 5).value = bb.get('cust_vs_year')
+            dev.cell(r, 6).value = ((c_now - c_prev) / c_prev) if c_prev else None
+            dev.cell(r, 6).number_format = '0.0%'
+    c_now = total.get('cust') or 0
+    c_prev = c_now - (total.get('cust_vs_year') or 0)
+    dev.cell(54, 3).value = c_now
+    dev.cell(54, 4).value = c_prev
+    dev.cell(54, 5).value = total.get('cust_vs_year')
+    dev.cell(54, 6).value = ((c_now - c_prev) / c_prev) if c_prev else None
+    dev.cell(54, 6).number_format = '0.0%'
+
+    for r in range(6, 54):
+        if dev.cell(r, 2).value and str(dev.cell(r, 2).value).strip() != '小计':
+            dev.cell(r, 3).number_format = '#,##0'
+            dev.cell(r, 4).number_format = '#,##0'
+            dev.cell(r, 5).number_format = '#,##0'
+            if not (dev.cell(r, 3).value or 0):
+                dev.cell(r, 3).fill = copy(YELLOW)      # 存量客户为 0 → 黄
+
+    dev.conditional_formatting = openpyxl.formatting.formatting.ConditionalFormattingList()
+    dev.conditional_formatting.add(
+        'E6:E53', FormulaRule(
+            formula=['AND($E6<>"",LARGE($E$6:$E$53,MIN(3,COUNT($E$6:$E$53)))<=$E6)'],
+            fill=RED, stopIfTrue=False))
+    dev.conditional_formatting.add(
+        'E6:E53', FormulaRule(
+            formula=['AND($E6<>"",SMALL($E$6:$E$53,MIN(3,COUNT($E$6:$E$53)))=$E6)'],
+            fill=GREEN, stopIfTrue=False))
+
+    # ---------------------------------------------------------- 两表合一
+    out = openpyxl.load_workbook(PBS_BASE)
+    for name in list(out.sheetnames):          # 母版里的 邮件/Sheet1 是手工痕迹，丢掉
+        if name != '定稿':
+            del out[name]
+    keep = out['定稿']
+    _copy_sheet(ws, keep)
+    keep.conditional_formatting = ws.conditional_formatting
+    new = out.create_sheet('发展情况')
+    _copy_sheet(dev, new)
+    new.conditional_formatting = dev.conditional_formatting
+
+    buf = io.BytesIO()
+    out.save(buf)
+    iso = per.get('as_of') or ''
+    stamp = f'{int(iso[5:7])}.{int(iso[8:10])}' if iso else '当期'
+    return buf.getvalue(), f'阜阳分行私人银行通报（{stamp}）.xlsx'
+
+
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
             'deposit': build_deposit, 'community': build_community,
-            'downgrade': build_downgrade, 'yika': build_yika}
+            'downgrade': build_downgrade, 'yika': build_yika, 'pbs': build_pbs}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
 CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
-          'downgrade': 'jg', 'yika': 'jg'}
+          'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs'}
 
 
 def build(kind: str, on: str | None = None) -> dict:
@@ -1009,7 +1324,7 @@ def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
 
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
         'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx,
-        'yika': yika_xlsx}
+        'yika': yika_xlsx, 'pbs': pbs_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:

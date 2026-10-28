@@ -19,12 +19,13 @@ import report from './pages/report.js';
 import jgPage from './pages/jg.js';
 import toolPage from './pages/tool.js';
 import downgrade from './pages/downgrade.js';
+import pbs from './pages/pbs.js';
 import yika from './pages/yika.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 import guide, { guideHref, changelogPage } from './pages/guide.js';
 
-const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards, downgrade,
-  yika, tool: toolPage };
+const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards,
+  downgrade, pbs, yika, tool: toolPage };
 
 /** 模块角标：数据页看是否接入，工具页是"开发中" */
 function modBadge(m) {

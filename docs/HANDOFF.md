@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-27（**版本 0.1.5**｜新增「一卡一户」模块）
+> 最后更新：2026-10-28（**版本 0.1.6**｜新增「私人银行」模块 + 带数据升级）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -9,6 +9,7 @@
 > → 0.1.4.1（更新日志独立成页、指南按钮改版、README 退回简介）
 > → 0.1.4.2（标识换工商银行红金立体 logo、标题改「工商银行阜阳分行 / 经营驾驶舱」）
 > → 0.1.5（一卡一户：社保卡 + 个人养老金，按日存累计值、三个时点自动拼成表）
+> → 0.1.6（私人银行：达标客户/资产/产品销售；三个时点；`update.sh --with-data`）
 
 ---
 
@@ -116,14 +117,19 @@ icbc-dashboard/
 │  │  ├─ readers.py          多格式读取（xlsx/xls/csv，按内容嗅探）
 │  │  ├─ payroll.py          代发明细解析（月度多 sheet）
 │  │  ├─ fivecards.py        五卡汇总表解析
-│  │  └─ downgrade.py        降级挽回解析（客编明细 + 内置映射，口径写在文件头）
+│  │  ├─ downgrade.py        降级挽回解析（客编明细 + 内置映射，口径写在文件头）
+│  │  ├─ yika.py             一卡一户解析（社保卡 + 养老金，按日累计值）
+│  │  └─ pbs.py              私人银行解析（客编明细 → 支行/网点，日期靠文件名）
 │  ├─ parsers/               vendor 进来的 5 个 icbc-* 技能（解析逻辑）
 │  │  └─ icbc-{dqzz,xsfw,sbqb,xgj,qwsq}/{*.py, assets/}
-│  ├─ report/assets/         6 个"样式母版" xlsx（从正式成表清数据得到）+ 1 份内置映射
+│  ├─ report/assets/         8 个"样式母版" xlsx（从正式成表清数据得到）+ 3 份内置配置
 │  │  ├─ {online,salary,wallet,deposit,community,downgrade}_base.xlsx
 │  │  ├─ downgrade_map.json  客编 → 支行/网点（1749 条，固定映射）
 │  │  ├─ yika_base.xlsx      一卡一户样式母版（通报/社保卡/养老金 三 sheet）
-│  │  └─ yika_targets.json   网点顺序 / 支行 / 当日目标（固定值 4 或 6）
+│  │  ├─ yika_targets.json   网点顺序 / 支行 / 当日目标（固定值 4 或 6）
+│  │  ├─ pbs_base.xlsx       私银定稿母版（13 列，按用户截图裁剪；旧 .xls 里的手工列已删）
+│  │  ├─ pbs_dev_base.xlsx   私银网点发展情况母版（40 网点 + 小计行）
+│  │  └─ pb_nets.json        私银 40 网点 / 网点→支行 / 上年末存量
 │  └─ web/
 │     ├─ index.html
 │     ├─ assets/css/app.css  全部设计变量在 :root
@@ -142,6 +148,7 @@ icbc-dashboard/
 │  ├─ check_modules.py       模块接线自检 + 生成 docs/MODULES.md
 │  ├─ package_release.py     打 U 盘发布包（VERSION + SHA256SUMS，可带 runtime）
 │  ├─ check_report_parity.py 与技能成表逐格对账
+│  └─ merge_seed.py          把发布包 seed/ 合并进生产库（只补缺不覆盖）
 │  └─ build_yika_assets.py   从成表生成一卡一户母版与目标表（改口径时重跑）
 ├─ data/                     运行时数据（git 忽略）
 │  ├─ icbc.db                 主库（+ -wal / -shm；备份要连 wal 一起，或用 backup_db.py）
@@ -203,6 +210,7 @@ icbc-dashboard/
 | `wk` | 五卡唤醒 | `build_fivecards` | 2026-09-09 |
 | `jjwh` | 降级挽回（旬） | `build_downgrade` | 2026-09-13（基期） |
 | `ykh` | 一卡一户（日） | `build_yika` | 2026-10-25 |
+| `pbs` | 私人银行（旬） | `build_pbs` | 2026-10-24 |
 | `ykh_sb` / `ykh_yl` | 一卡一户的**按日累计值**（辅助条线，不出页面） | — | — |
 
 - 带 `partial: true` 的快照只用于画趋势，**详情页会跳过**（`api._latest` 里过滤）
@@ -510,6 +518,17 @@ icbc-dashboard/
 61. **对账要两边都重算**：一卡一户的成表两侧都留了公式（F/J、Q/R），
     `check_report_parity.py` 现在会检测我方文件里有没有公式并自动重算，别只重算参考文件。
 
+62. **`splitRank` 只做"头尾切片"，返回的仍是 rows，必须再包一层 `barRank`**：
+    `mount(el, splitRank(...))` 少了 `barRank` 会让 echarts 收到裸数组，
+    报 `t.split is not a function`（栈全在 echarts 内部，看不出是自己的错）。
+    正确写法：`mount(el, barRank(splitRank(rows, {...}), {...}))`。
+63. **源表里的"归属支行"可能不是你要的分行**：私银源表有 12 个值，其中 4 个（牡丹/文峰/城建/汇通）
+    要映射到 8 家支行，而且是**对着成表验算**出来的（牡丹→颍泉、文峰→颍州、城建→颍州、汇通→颍东）。
+    用户口述与成表不一致时，**以成表为准**并当场确认。
+64. **源表可能没有日期列**：私银明细只有客编和金额，日期只能从文件名来。
+    `ingest/pbs.py::date_from_name` 覆盖 `20261024` / `2026-10-24` / `2026.10.24` / `10.24` / `1024` / `202512`；
+    认不出**必须报错让用户手填**，不要默认今天。
+
 ---
 
 ## 9. 当前状态 / 卡在哪
@@ -540,6 +559,11 @@ icbc-dashboard/
 - **老内核修复**（0.1.4）：薪管家页 `tr.at(-1)` 在 Chromium<92 上整页报错，已换成下标
 - **标识与品牌**（0.1.4.2）：侧栏换成工商银行红金立体 logo（透明底 PNG），标题「工商银行阜阳分行 / 经营驾驶舱」；
   浏览器标签、收藏夹图标、加载动画同步换掉
+- **私人银行**（0.1.6）：客编明细单表导入（日期靠文件名识别，认不出让用户手填）；
+  三个时点（当天 / 上年末 / 上季度末）拼表；产品销售 7 项做成导入页里的**可编辑表格**、
+  存 setting、与文件共用提交按钮；成表导出与官方成表**逐格一致**（定稿 13 列 + 发展情况 40 网点）
+- **带数据升级**（0.1.6）：`update.sh --with-data` 用 `scripts/merge_seed.py` 把包内 seed **合并**进生产库
+  （快照按 `(line, as_of)` 只补缺、setting 只补缺失键，绝不覆盖口令与手工维护的数据）
 - **一卡一户**（0.1.5）：社保卡 + 个人养老金，支行/网点两层；导入按日存累计值（`ykh_sb`/`ykh_yl`），
   出通报自动拼「当日/前一日/上周末」三个时点；文案与用户模板**逐字一致**，Excel 三张 sheet
   与正式成表**逐格零差异**，已进对账用例
@@ -602,6 +626,10 @@ icbc-dashboard/
 | 一卡一户的网点/目标 | 改 `src/report/assets/yika_targets.json`，或改 `scripts/build_yika_assets.py` 后重跑 |
 | 一卡一户的母版样式 | 换 `src/report/assets/yika_base.xlsx`（务必跑 `build_yika_assets.py` 生成，别手清） |
 | 降级挽回的客编映射 | 换 `src/report/assets/downgrade_map.json`（`[[客编, 支行, 网点], …]`，改完重启） |
+| 私银的网点清单 / 支行归属 | `src/report/assets/pb_nets.json`；支行别名在 `src/ingest/pbs.py::BRANCH_ALIAS` |
+| 私银的产品销售初值 | 页面上改并保存，或直接写 `setting.pbs_sales`（`{支行: {7 个键}}`） |
+| 私银成表列布局 | 换 `src/report/assets/pbs_base.xlsx`（13 列）/ `pbs_dev_base.xlsx`，改完同步 `report.pbs_xlsx` 的列号 |
+| 带数据升级 | `update.sh <包> --with-data`（调 `scripts/merge_seed.py`，只补缺不覆盖） |
 | 使用指南的正文 | `src/web/assets/js/guide-content.js`（纯数据；`body` 只许 p/ul/ol/li/b/code/kbd/table 等白名单标签） |
 | 更新日志 | `src/web/assets/js/changelog.js`（发版往最前面插一条，版本号与 `VERSION` 一致）；页面在 `pages/guide.js` 的 `changelogPage` |
 | 版本号 | 仓库根 `VERSION`；打包时写 `BUILD`（日期-git短sha） |
@@ -611,7 +639,7 @@ icbc-dashboard/
 
 ## 11. 交接检查清单
 
-1. `git log --oneline -5` 看到 `0.1.4` 那次提交或更新；`cat VERSION` 应为 `0.1.4` 或更高
+1. `git log --oneline -5` 能看到最近一次提交；`cat VERSION` 应为 `0.1.6` 或更高
 2. 起服务 → `curl /api/health` 返回 `ok:true`，且 `version` 与 `VERSION` 一致
    （版本号有缓存：改完 `VERSION` 要**重启进程**才生效）
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
@@ -627,8 +655,11 @@ icbc-dashboard/
    应直接落到「定期存款」那一节；`#/changelog` 是独立一页，左上角两个页签能互切
 9. `python scripts/check_report_parity.py` 里 yika 应 OK（三 sheet 零差异）；
    打开 `#/m/jg-customer-yika` 能看到 6 张数字卡、3 张图和两张表
-10. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
+10. 私银：`#/m/pbs-cust` 应显示 252 户 / 26.97 亿 / 40 网点；`#/report` 的「私人银行核心指标」
+   导出的 Excel 与 `D:\资料\ICBC\20261028私银\阜阳分行私人银行业务通报（2026.1024）.xls`
+   定稿页 **13 列逐格一致**（合计行 9989 / 160 / 1531 / 3900 / 320 / 3900 / 423）
+11. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
    浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
-11. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+12. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

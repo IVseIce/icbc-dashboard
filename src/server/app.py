@@ -101,6 +101,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(f.read_bytes(), ctype,
                                       cache='public, max-age=3600' if '/vendor/' in path else 'no-store')
                 return self.send_error(404)
+            if path == '/api/pbs/sales':
+                sess = self._need_auth()
+                if not sess:
+                    return
+                from ingest.pbs import BRANCHES, SALES_KEYS
+                raw = store.get('pbs_sales') or {}
+                sales = {b: {k: float(((raw.get(b) or {}).get(k)) or 0) for k, _ in SALES_KEYS}
+                         for b in BRANCHES}
+                return self._json({'ok': True, 'sales': sales,
+                                   'columns': [{'key': k, 'name': n} for k, n in SALES_KEYS],
+                                   'branches': BRANCHES})
             if path == '/api/catalog':
                 cat = catalog_mod.catalog()
                 dates = api.available_dates()
@@ -181,6 +192,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/auth/logout':
             auth.logout(self._token())
             return self._json({'ok': True})
+        if path == '/api/pbs/sales':
+            if not self._need_auth():
+                return
+            return self._pbs_sales(body)
         if path == '/api/import':
             if not self._need_auth():
                 return
@@ -208,6 +223,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': False, 'error': '只有管理员能改口令'}, 403)
         p = self._payload(body)
         return self._json(auth.set_password(p.get('role') or '', p.get('password') or ''))
+
+    def _pbs_sales(self, body: bytes):
+        """保存私银产品销售（人工维护的 7 项 × 8 家支行）。"""
+        try:
+            data = json.loads(body.decode('utf-8') or '{}')
+        except Exception:
+            return self._json({'ok': False, 'error': '请求体不是合法 JSON'}, 400)
+        sales = data.get('sales')
+        if not isinstance(sales, dict):
+            return self._json({'ok': False, 'error': 'sales 必须是 {支行: {键: 值}}'}, 400)
+        clean = viz.pbs_set_sales(sales)
+        # 立刻把新值合进最新一期快照，页面/通报马上能看到
+        try:
+            viz.refresh_pbs_sales()
+        except Exception as exc:
+            return self._json({'ok': True, 'sales': clean, 'warning': f'已保存，但刷新快照失败：{exc}'})
+        return self._json({'ok': True, 'sales': clean})
 
     def _import(self, body: bytes):
         try:

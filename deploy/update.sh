@@ -1,19 +1,30 @@
 #!/bin/bash
 # update.sh —— 用 U 盘里的新包升级（失败自动回滚）。
 #
-#   bash update.sh <包目录 | 包.tar.gz> [--force]
+#   bash update.sh <包目录 | 包.tar.gz> [--force] [--with-data]
 #
 # 流程：校验包 → 装到 releases/<新版本> → 在数据库副本上预演迁移 → 备份生产库
-#       → 停服 → 切 current → 起服 → 健康检查
+#       → 停服 → 切 current → （--with-data 时）把包内 seed/ **合并**进生产库
+#       → 起服 → 健康检查
 #       → 任何一步失败：切回旧版本 + 恢复备份的库 + 再起服。
+#
+# --with-data：包里带了 seed/ 时，把里面的数据并进生产库（只补缺、不覆盖）。
+#              用于"新模块首次上线要带初始数据"这类情况；不加就是纯代码升级。
 set -uo pipefail
 
-usage() { echo "用法: bash update.sh <包目录 | 包.tar.gz> [--force]"; exit 2; }
+usage() { echo "用法: bash update.sh <包目录 | 包.tar.gz> [--force] [--with-data]"; exit 2; }
 SRC=${1:-}
 [ -n "$SRC" ] || usage
 [ -e "$SRC" ] || { echo "找不到：$SRC" >&2; exit 2; }
 FORCE=0
-[ "${2:-}" = "--force" ] && FORCE=1
+WITH_DATA=0
+for arg in "${@:2}"; do
+    case "$arg" in
+        --force)     FORCE=1 ;;
+        --with-data) WITH_DATA=1 ;;
+        *)           echo "未知参数：$arg" >&2; usage ;;
+    esac
+done
 
 ICBC_HOME=${ICBC_HOME:-$HOME/icbc-dashboard}
 SHARED="$ICBC_HOME/shared"
@@ -114,6 +125,32 @@ chmod 755 "$BIN"/*.sh
 printf '%s\n' "$NEW_PY" > "$SHARED/python.path"
 ln -sfn "$RELEASE" "$CURRENT"
 log "current -> $RELEASE"
+
+# ---------- 5.5 合并包内数据（只补缺、不覆盖）
+if [ "$WITH_DATA" -eq 1 ]; then
+    if [ -d "$RELEASE/seed" ]; then
+        log "合并包内 seed/ 到生产库（只补缺不覆盖）"
+        if PYTHONPATH="$RELEASE/vendor/pylib" "$NEW_PY" "$RELEASE/scripts/merge_seed.py" \
+                --seed "$RELEASE/seed" --root "$DATA_DIR" 2>&1 | sed 's/^/    /' | tee -a "$UPDLOG"; then
+            log "seed 合并完成"
+        else
+            log "!! seed 合并失败，回滚"
+            bash "$BIN/stop.sh" >>"$UPDLOG" 2>&1 || true
+            if [ -n "$OLD_RELEASE" ] && [ -d "$OLD_RELEASE" ]; then
+                ln -sfn "$OLD_RELEASE" "$CURRENT"
+                if [ -n "$ROLLBACK_DB" ] && [ -f "$ROLLBACK_DB" ]; then
+                    rm -f "$DATA_DIR/icbc.db-wal" "$DATA_DIR/icbc.db-shm"
+                    cp -f "$ROLLBACK_DB" "$DATA_DIR/icbc.db"
+                fi
+                bash "$BIN/start.sh" >>"$UPDLOG" 2>&1 || true
+                log "已回滚到 $OLD_VER"
+            fi
+            exit 1
+        fi
+    else
+        log "!! 包内没有 seed/，--with-data 无效（做一个带 --seed 的包）"
+    fi
+fi
 
 # ---------- 6. 起服 + 健康检查
 if bash "$BIN/start.sh" >>"$UPDLOG" 2>&1; then

@@ -14,6 +14,9 @@ export default {
     let prof = null;
     let mod = null;
     let ledger = [];
+    let sales = null;            // {支行: {键: 值}}：当前编辑中的值
+    let salesSaved = null;       // 已保存的值（用于判断"有没有改"）
+    let salesDirty = false;
 
     const canSee = (p) => auth.can(p.id);
     const who = auth.admin ? '管理员 · 全部板块' : `${auth.label} · 含重点项目`;
@@ -58,7 +61,7 @@ export default {
           <div style="display:flex;gap:10px;margin-top:14px">
             <button class="btn" id="btnClear">清空</button>
             <button class="btn btn-primary" id="btnSubmit" disabled style="margin-left:auto">
-              ${icon('arrow', 15)} 开始导入
+              ${icon('arrow', 15)} 提交
             </button>
           </div>
         </div>
@@ -67,6 +70,20 @@ export default {
           <div class="card-head"><h3>数据时点</h3>
             <div class="right"><span class="chip">仅显示有权限的条线</span></div></div>
           <div class="timeline" id="impTimeline"></div>
+        </div>
+      </div>
+
+      <div class="card" id="salesCard" style="margin-top:14px;display:none">
+        <div class="card-head"><h3>④ 私银产品销售（人工维护）</h3>
+          <div class="right"><span class="chip">单位：万元 / 户</span>
+            <span class="chip amber" id="salesDirty" style="display:none">有未保存的修改</span></div></div>
+        <p style="margin:0 0 10px;color:var(--ink-3);font-size:12px">
+          这块是手工填的，**不用每次重填**：改哪个格子改哪个，提交后一直留着；
+          导入当天明细时会一起合进通报，页面和 Excel 随即更新。</p>
+        <div id="salesGrid"></div>
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <button class="btn" id="btnSalesReset">还原为已保存</button>
+          <button class="btn btn-primary" id="btnSalesSave" style="margin-left:auto">保存产品销售</button>
         </div>
       </div>
 
@@ -136,8 +153,95 @@ export default {
     function pickModule(m) {
       mod = m;
       modGrid.querySelectorAll('.mod-pick').forEach((x) => x.classList.toggle('on', x.dataset.id === m.id));
+      showSales(m.as_line === 'pbs');
       sync();
     }
+
+    // ---------- ④ 私银产品销售（只有 pbs 模块才出现）
+    const SALES_COLS = [
+      ['xl_bal', '遴选余额'], ['xl_q4', '遴选季度增量'], ['kd_amt', '快贷提款'],
+      ['xt_out', '信托已出单'], ['xt_sold', '信托已销售'],
+      ['bx_out', '保险已出单'], ['bx_sold', '保险已销售'],
+    ];
+    const SALES_BR = ['颍州', '颍泉', '颍东', '界首', '临泉', '阜南', '颍上', '太和'];
+    const salesCard = view.querySelector('#salesCard');
+    const salesGrid = view.querySelector('#salesGrid');
+
+    function emptySales() {
+      const o = {};
+      SALES_BR.forEach((b) => { o[b] = {}; SALES_COLS.forEach(([k]) => { o[b][k] = 0; }); });
+      return o;
+    }
+
+    function showSales(on) {
+      salesCard.style.display = on ? '' : 'none';
+      if (!on) return;
+      if (!sales) { sales = emptySales(); salesSaved = emptySales(); }
+      paintSales();
+    }
+
+    function paintSales() {
+      salesGrid.innerHTML = `<div class="tbl-wrap"><table class="tbl sales-tbl" style="table-layout:fixed;width:100%">
+        <thead><tr><th style="width:64px">支行</th>
+          ${SALES_COLS.map(([, n]) => `<th>${n}</th>`).join('')}</tr></thead>
+        <tbody>${SALES_BR.map((b) => `<tr>
+          <td class="strong" style="text-align:left">${b}</td>
+          ${SALES_COLS.map(([k]) => `<td><input type="number" step="any" data-br="${b}" data-k="${k}"
+            value="${sales[b][k] ?? 0}"></td>`).join('')}
+        </tr>`).join('')}</tbody></table></div>`;
+      salesGrid.querySelectorAll('input').forEach((el) => {
+        el.oninput = () => {
+          const v = Number(el.value);
+          sales[el.dataset.br][el.dataset.k] = Number.isFinite(v) ? v : 0;
+          checkDirty();
+        };
+      });
+    }
+
+    function checkDirty() {
+      salesDirty = JSON.stringify(sales) !== JSON.stringify(salesSaved);
+      view.querySelector('#salesDirty').style.display = salesDirty ? '' : 'none';
+      sync();
+    }
+
+    async function loadSales() {
+      try {
+        const r = await authFetch('/api/pbs/sales', { cache: 'no-store' }).then((x) => x.json());
+        if (r.ok) { sales = r.sales; salesSaved = JSON.parse(JSON.stringify(r.sales)); }
+      } catch (err) {
+        if (err.auth) return;
+      }
+      if (!sales) { sales = emptySales(); salesSaved = emptySales(); }
+      checkDirty();
+      if (mod?.as_line === 'pbs') paintSales();
+    }
+
+    view.querySelector('#btnSalesSave').onclick = async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        const res = await authFetch('/api/pbs/sales', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sales }),
+        });
+        const r = await res.json();
+        if (!r.ok) throw new Error(r.error || '保存失败');
+        salesSaved = JSON.parse(JSON.stringify(sales));
+        checkDirty();
+        toast('产品销售已保存');
+        if (ctx.reloadData) await ctx.reloadData();
+      } catch (err) {
+        if (!err.auth) toast(err.message, 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    view.querySelector('#btnSalesReset').onclick = () => {
+      sales = JSON.parse(JSON.stringify(salesSaved));
+      paintSales();
+      checkDirty();
+      toast('已还原为上次保存的值');
+    };
 
     // ---------- ③ 文件
     const input = view.querySelector('#fileInput');
@@ -163,7 +267,8 @@ export default {
       list.querySelectorAll('.rm').forEach((el) => {
         el.onclick = () => { files.splice(+el.dataset.i, 1); sync(); };
       });
-      view.querySelector('#btnSubmit').disabled = !(mod && files.length);
+      // 只要有任意一边有内容就能提交：文件 或 产品销售
+      view.querySelector('#btnSubmit').disabled = !(mod && (files.length || salesDirty));
     }
     view.querySelector('#btnClear').onclick = () => { files.length = 0; sync(); view.querySelector('#result').innerHTML = ''; };
 
@@ -172,6 +277,30 @@ export default {
       const btn = e.currentTarget;
       btn.disabled = true;
       const box = view.querySelector('#result');
+
+      // 只有产品销售有改动时：先保存，不必再导文件
+      if (!files.length && salesDirty) {
+        box.innerHTML = '<div class="result"><h4>正在保存产品销售…</h4></div>';
+        try {
+          const res = await authFetch('/api/pbs/sales', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sales }),
+          });
+          const r = await res.json();
+          if (!r.ok) throw new Error(r.error || '保存失败');
+          salesSaved = JSON.parse(JSON.stringify(sales));
+          checkDirty();
+          box.innerHTML = '<div class="result ok"><h4>产品销售已保存</h4>'
+            + '<p style="margin:4px 0 0;color:var(--ink-3)">通报与页面已按新值更新</p></div>';
+          toast('产品销售已保存');
+          if (ctx.reloadData) await ctx.reloadData();
+          paint();
+        } catch (err) {
+          if (!err.auth) box.innerHTML = `<div class="result bad"><h4>保存失败</h4><p>${err.message}</p></div>`;
+        }
+        btn.disabled = false;
+        return;
+      }
       box.innerHTML = `<div class="result"><h4>正在识别与计算…</h4>
         <p style="color:var(--ink-3);margin:4px 0 0">${prof.name} / ${mod.name} · ${files.length} 个文件</p></div>`;
       const fd = new FormData();
@@ -264,5 +393,6 @@ export default {
 
     paint();
     sync();
+    loadSales();
   },
 };

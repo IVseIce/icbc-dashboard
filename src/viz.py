@@ -48,6 +48,8 @@ LINES = {
     'jjwh': {'label': '降级挽回', 'skill': '', 'hint': '客编资产明细（客编映射已内置）'},
     'ykh': {'label': '一卡一户', 'skill': '',
             'hint': '社保卡（借记卡发卡统计报表）+ 个人养老金（多日期表），每天导当期即可'},
+    'pbs': {'label': '私人银行', 'skill': '',
+            'hint': '客编日均资产明细（归属支行/网点 + 本月月日均资产）；日期从文件名识别'},
 }
 
 _mods: dict[str, object] = {}
@@ -524,6 +526,148 @@ def import_yika(files, line, root, data_date=None):
     return as_of, snap
 
 
+def import_pbs(files, line, root, data_date=None):
+    """私人银行：一张客编明细 + 可选的三个时点。
+
+    一次最多三份文件，按文件名里的日期归位：
+
+        当天        → 必填（`as_of`，出通报用）
+        上年末      → 算「比上年」，`partial=True` 存进库里当基线
+        上季度末    → 算「比9月末」，同上
+
+    识别不出日期就抛错，前端据此提示"手填数据日期"。
+    产品销售（遴选/快贷/信托/保险 7 项）是人工维护的，从 setting 读进来合进快照。
+    """
+    from ingest import pbs
+
+    # 日期 → [(文件名, blob)]
+    slots: dict[str, list] = {}
+    used = []
+    for name, blob in files:
+        d = pbs.date_from_name(name)
+        if not d:
+            raise ValueError(f'「{name}」文件名里认不出日期，请手动指定该文件的数据日期')
+        slots.setdefault(d, []).append((name, blob))
+        used.append({'name': name, 'role': f'待定（{d}）'})
+
+    # 本次的"当天"：优先参数；否则取最大的日期
+    as_of = data_date or max(slots)
+    if as_of not in slots:
+        raise ValueError(f'标记为当天的 {as_of} 没有对应文件；识别到的日期有：'
+                         + '、'.join(sorted(slots)))
+    if as_of != max(slots):
+        raise ValueError(f'当天 {as_of} 不是最新的一份（最新是 {max(slots)}），请核对文件')
+
+    today_files = slots[as_of]
+    if len(today_files) > 1:
+        raise ValueError(f'{as_of} 这一天给了多份文件：' + '、'.join(n for n, _ in today_files))
+
+    dd, snap = pbs.parse_files(today_files, as_of=as_of)
+    if dd != as_of:
+        raise ValueError(f'文件名识别出 {dd}，与指定的 {as_of} 不一致')
+
+    # 其他日期的文件：各存一份 partial 快照当基线
+    extras = []
+    for d in sorted(slots):
+        if d == as_of:
+            continue
+        files_d = slots[d]
+        if len(files_d) > 1:
+            raise ValueError(f'{d} 这一天给了多份文件：' + '、'.join(n for n, _ in files_d))
+        try:
+            _, s2 = pbs.parse_files(files_d, as_of=d)
+        except Exception as exc:
+            raise ValueError(f'{d} 那份文件解析失败：{exc}')
+        s2['_files'] = [{'name': files_d[0][0], 'role': f'{d} 基线'}]
+        s2['partial'] = True
+        save_snapshot('pbs', d, s2, root)
+        extras.append(d)
+        used = [{'name': u['name'], 'role': (f'{d} 基线（partial）'
+                                            if u['name'] == files_d[0][0] else u['role'])}
+                for u in used]
+
+    # 产品销售：从 setting 读（人工维护，可能为空）
+    sales = _pbs_sales()
+    snap['sales'] = sales
+    snap['sales_source'] = '手工维护' if any(v for s2 in sales.values() for v in s2.values()) else '未录入'
+
+    # 时点：本旬用到的三个日期，库里没有的要提示
+    snap['period'] = {
+        'as_of': as_of,
+        'year_end': _pbs_pick_baseline('pbs', _year_end(as_of), extras),
+        'quarter': _pbs_pick_baseline('pbs', pbs.quarter_end(as_of), extras),
+    }
+    notes = list(snap.get('_notes') or [])
+    if not snap['period']['year_end']:
+        notes.append(f'库里没有上年末（{_year_end(as_of)}）数据，「比上年」会是空的——'
+                     '把上年末那份明细一起导进来即可')
+    if not snap['period']['quarter']:
+        notes.append(f'库里没有上季度末（{pbs.quarter_end(as_of)}）数据，「比上季末」会是空的——'
+                     '把上季度末那份明细一起导进来即可')
+    if extras:
+        notes.insert(0, '同时存入基线：' + '、'.join(extras))
+    used = [{'name': u['name'],
+             'role': ('私银客编明细（当天）' if u['name'] == today_files[0][0] else u['role'])}
+            for u in used]
+    snap['_files'] = used
+    snap['_notes'] = notes
+    return dd, snap
+
+
+def _year_end(as_of: str) -> str:
+    y = int(as_of[:4]) - 1
+    return f'{y}-12-31'
+
+
+def _pbs_pick_baseline(line: str, want: str, just_saved: list) -> str | None:
+    """取「不晚于 want 的最新一期」，且必须是库里真有的日期。"""
+    dates = sorted({s['as_of'] for s in load_snapshots(line)} | set(just_saved))
+    cand = [d for d in dates if d <= want]
+    return cand[-1] if cand else None
+
+
+def _pbs_sales() -> dict:
+    """人工维护的产品销售：{支行: {键: 值}}；没录过就是空 dict。"""
+    from ingest.pbs import SALES_KEYS
+    raw = store.get('pbs_sales') or {}
+    out = {}
+    for br, rec in (raw.items() if isinstance(raw, dict) else []):
+        out[br] = {k: float((rec or {}).get(k) or 0) for k, _ in SALES_KEYS}
+    return out
+
+
+def pbs_set_sales(sales: dict) -> dict:
+    """保存产品销售（只存 8 家支行 × 7 项，其余丢弃）。"""
+    from ingest.pbs import BRANCHES, SALES_KEYS
+    clean = {}
+    for br in BRANCHES:
+        rec = (sales or {}).get(br) or {}
+        clean[br] = {k: float(rec.get(k) or 0) for k, _ in SALES_KEYS}
+    store.set_setting('pbs_sales', clean)
+    return clean
+
+
+def refresh_pbs_sales() -> bool:
+    """产品销售改了之后，把新值合进最新一期私银快照（不重算明细，只换 sales）。
+
+    页面与通报都读快照里的 sales，所以改完必须跑这一步，否则要等下次导入。
+    """
+    snaps = [x for x in load_snapshots('pbs') if not x.get('partial')]
+    if not snaps:
+        return False
+    latest = snaps[-1]
+    body = latest if isinstance(latest, dict) else {}
+    # load_snapshots 返回的是组装好的快照（payload 已摊平）
+    as_of = body.get('as_of')
+    if not as_of:
+        return False
+    sales = _pbs_sales()
+    body['sales'] = sales
+    body['sales_source'] = '手工维护' if any(v for s2 in sales.values() for v in s2.values()) else '未录入'
+    save_snapshot('pbs', as_of, body, None)
+    return True
+
+
 def _date_from_name(name: str):
     """文件名里的日期兜底：1026 / 20261026 / 10.26。"""
     import re
@@ -550,7 +694,7 @@ def _cum_by_date(line: str) -> dict:
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
              'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
-             'ykh': import_yika}
+             'ykh': import_yika, 'pbs': import_pbs}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,
@@ -572,7 +716,7 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         norm.append((n, b))
     files = norm
     try:
-        if line in ('xgj', 'wk', 'dfmx', 'ykh'):
+        if line in ('xgj', 'wk', 'dfmx', 'ykh', 'pbs'):
             dd, snap = IMPORTERS[line](files, line, root, data_date=data_date)
         else:
             dd, snap = IMPORTERS[line](files, line, root)
@@ -593,7 +737,7 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                 conv = [(n, readers.text_to_xlsx(b)) if readers.sniff(b) == 'text' else (n, b)
                         for n, b in files]
                 dd, snap = (IMPORTERS[line](conv, line, root, data_date=data_date)
-                            if line in ('xgj', 'wk', 'dfmx', 'ykh')
+                            if line in ('xgj', 'wk', 'dfmx', 'ykh', 'pbs')
                             else IMPORTERS[line](conv, line, root))
                 snap['line'] = line
                 snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

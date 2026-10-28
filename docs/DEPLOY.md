@@ -160,6 +160,25 @@ bash /media/usb/icbc-dashboard/deploy/update.sh /media/usb/icbc-dashboard
 流程：校验 `SHA256SUMS` → 落到 `releases/<新版本>` → **在数据库副本上预演迁移** → 备份生产库 →
 停服 → 切软链 → 起服 → 健康检查；任一步失败自动切回旧版本 + 恢复备份的库。整个过程约 5 秒（失败回滚约 25 秒）。
 
+**带数据的升级**（新模块首次上线、要把包里的初始数据一起带上时）：
+
+```bash
+bash ~/icbc-dashboard/bin/update.sh /media/usb/icbc-dashboard-0.1.6.tar.gz --with-data
+```
+
+`--with-data` 会用 `scripts/merge_seed.py` 把包内 `seed/` **合并**进生产库，规则是
+「**只补缺、不覆盖**」：
+
+| 对象 | 规则 |
+|---|---|
+| 快照 | 生产库没有的 `(条线, 日期)` 补进去；已有的保留生产库那份（`--overwrite-line <线>` 可指定某条线以包内为准） |
+| 导入台账 / 原件 | 按「时间 + 条线 + 文件名」去重后补，已有的不动 |
+| `setting` | **只补缺失的键**；口令、手工维护的产品销售等一律保留生产库的值 |
+
+不加 `--with-data` 就是纯代码升级，`seed/` 只会被忽略（老包里其实也一直带着它）。
+
+> 首次安装走 `install.sh`：只有当生产库**还不存在**时才整包铺 `seed/`，已有库一律跳过。
+
 ### 3.3 回滚
 
 `update.sh` 失败会自动回滚。人工回滚：

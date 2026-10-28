@@ -18,6 +18,7 @@ const LINES = [
   { id: 'community', name: '企微社群运营', cat: 'wj' },
   { id: 'downgrade', name: '降级挽回营销先锋', cat: 'jg' },
   { id: 'yika', name: '“一卡一户”日通报', cat: 'jg' },
+  { id: 'pbs', name: '私人银行核心指标', cat: 'pbs' },
 ];
 
 export default {

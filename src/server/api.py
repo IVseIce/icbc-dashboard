@@ -468,12 +468,155 @@ def build_yika(on: str | None = None) -> dict:
     }
 
 
+
+def _pbs_snap(on: str | None = None) -> dict | None:
+    """私银当期快照（partial 的基线不参与详情）。"""
+    return _latest('pbs', on)
+
+
+def _pbs_baseline(line: str, want: str, on: str | None) -> dict | None:
+    """取「不晚于 want」的最新一期（可以是 partial）。"""
+    snaps = [x for x in _snaps(line) if (x.get('as_of') or '') <= want and
+             (not on or (x.get('as_of') or '') <= on)]
+    return snaps[-1] if snaps else None
+
+
+def build_pbs(on: str | None = None) -> dict:
+    """私人银行：支行 + 网点两层。
+
+    - 客户数 / 资产 / 存款 = 当期明细汇总
+    - 比上年   = 当期 − 上年末
+    - 比上季末 = 当期 − 上季度末
+    - 产品销售 7 项 = 快照里合进来的手工维护值
+    """
+    s = _pbs_snap(on)
+    if not s:
+        return _no_data('pbs', on)
+    snap = s.get('payload') or s
+    per = snap.get('period') or {}
+    as_of = s['as_of']
+    year_end = per.get('year_end')
+    quarter = per.get('quarter')
+
+    ye = _pbs_baseline('pbs', year_end, on) if year_end else None
+    qt = _pbs_baseline('pbs', quarter, on) if quarter else None
+
+    def base_totals(snap_obj):
+        if not snap_obj:
+            return {}
+        body = snap_obj.get('payload') or snap_obj
+        return body.get('totals') or {}
+
+    def base_branch(snap_obj):
+        if not snap_obj:
+            return {}
+        body = snap_obj.get('payload') or snap_obj
+        return {b['name']: b for b in (body.get('branches') or [])}
+
+    ye_tot, qt_tot = base_totals(ye), base_totals(qt)
+    ye_br, qt_br = base_branch(ye), base_branch(qt)
+    sales = snap.get('sales') or {}
+
+    branches = []
+    for b in snap.get('branches') or []:
+        nm = b['name']
+        y = ye_br.get(nm) or {}
+        q = qt_br.get(nm) or {}
+        sa = sales.get(nm) or {}
+        asset, dep = b['asset'] / 10000.0, b['dep'] / 10000.0
+        y_asset, q_asset = (y.get('asset') or 0) / 10000.0, (q.get('asset') or 0) / 10000.0
+        branches.append({
+            'name': nm, 'cust': b['cust'],
+            'cust_vs_year': b['cust'] - (y.get('cust') or 0) if ye_br else None,
+            'cust_vs_quarter': b['cust'] - (q.get('cust') or 0) if qt_br else None,
+            'cust_yoy': _pct(b['cust'] - (y.get('cust') or 0), y.get('cust') or None, 4),
+            'asset': _r(asset, 2), 'dep': _r(dep, 2),
+            'asset_vs_year': _r(asset - y_asset, 2) if ye_br else None,
+            'asset_vs_quarter': _r(asset - q_asset, 2) if qt_br else None,
+            'nets': b['nets'], 'active_nets': b['active_nets'],
+            'wmp_rate': _pct(b['wmp'], b['cust'], 4), 'fund_rate': _pct(b['fund'], b['cust'], 4),
+            'ins_rate': _pct(b['ins'], b['cust'], 4),
+            # 产品销售（单位万元 / 户）
+            'xl_bal': _r(sa.get('xl_bal'), 2), 'xl_q4': _r(sa.get('xl_q4'), 2),
+            'kd_amt': _r(sa.get('kd_amt'), 2), 'xt_out': _r(sa.get('xt_out'), 2),
+            'xt_sold': _r(sa.get('xt_sold'), 2), 'bx_out': _r(sa.get('bx_out'), 2),
+            'bx_sold': _r(sa.get('bx_sold'), 2),
+        })
+
+    tot = snap.get('totals') or {}
+    total = {
+        'cust': tot.get('cust'), 'asset': _r((tot.get('asset') or 0) / 10000.0, 2),
+        'dep': _r((tot.get('dep') or 0) / 10000.0, 2),
+        'cust_vs_year': (tot.get('cust') - (ye_tot.get('cust') or 0)) if ye_tot else None,
+        'cust_vs_quarter': (tot.get('cust') - (qt_tot.get('cust') or 0)) if qt_tot else None,
+        'asset_vs_year': _r(((tot.get('asset') or 0) - (ye_tot.get('asset') or 0)) / 10000.0, 2) if ye_tot else None,
+        'asset_vs_quarter': _r(((tot.get('asset') or 0) - (qt_tot.get('asset') or 0)) / 10000.0, 2) if qt_tot else None,
+        'nets': tot.get('nets'), 'active_nets': tot.get('active_nets'),
+        'zero_nets': [n if isinstance(n, str) else (n.get('name') or '')
+                      for n in (tot.get('zero_nets') or [])],
+        'xl_bal': _r(sum(b['xl_bal'] or 0 for b in branches), 2),
+        'xl_q4': _r(sum(b['xl_q4'] or 0 for b in branches), 2),
+        'kd_amt': _r(sum(b['kd_amt'] or 0 for b in branches), 2),
+        'xt_out': _r(sum(b['xt_out'] or 0 for b in branches), 2),
+        'xt_sold': _r(sum(b['xt_sold'] or 0 for b in branches), 2),
+        'bx_out': _r(sum(b['bx_out'] or 0 for b in branches), 2),
+        'bx_sold': _r(sum(b['bx_sold'] or 0 for b in branches), 2),
+    }
+
+    # 网点层：附上当年对比（用上年末基线同网点值）
+    ye_net = {}
+    if ye:
+        body = ye.get('payload') or ye
+        ye_net = {n['name']: n for n in (body.get('nets') or [])}
+    nets = []
+    for n in snap.get('nets') or []:
+        y = ye_net.get(n['name']) or {}
+        nets.append(dict(n,
+                         asset=_r(n['asset'] / 10000.0, 2), dep=_r(n['dep'] / 10000.0, 2),
+                         prev_cust=y.get('cust'), cum=y.get('cust'),
+                         cust_vs_year=(n['cust'] - (y.get('cust') or 0)) if ye_net else None))
+
+    by_cust = sorted(branches, key=lambda b: -(b['cust'] or 0))
+    by_asset = sorted(branches, key=lambda b: -(b['asset'] or 0))
+    by_yoy = sorted([b for b in branches if b['cust_vs_year'] is not None],
+                    key=lambda b: -(b['cust_vs_year'] or 0))
+    zero = [n for n in nets if not n['cust']]
+
+    return {
+        'ok': True, 'as_of': as_of, 'as_of_cn': snap.get('as_of_cn') or '',
+        'period': per,
+        'kpi': {
+            'cust': total['cust'], 'asset': total['asset'], 'dep': total['dep'],
+            'cust_vs_year': total['cust_vs_year'], 'cust_vs_quarter': total['cust_vs_quarter'],
+            'asset_vs_year': total['asset_vs_year'], 'asset_vs_quarter': total['asset_vs_quarter'],
+            'nets': total['nets'], 'active_nets': total['active_nets'],
+            'zero_net_count': len(total['zero_nets']),
+            'xl_bal': total['xl_bal'], 'xl_q4': total['xl_q4'], 'kd_amt': total['kd_amt'],
+            'xt_out': total['xt_out'], 'xt_sold': total['xt_sold'],
+            'bx_out': total['bx_out'], 'bx_sold': total['bx_sold'],
+            'best': by_cust[0] if by_cust else None,
+            'worst': by_cust[-1] if by_cust else None,
+            'best_yoy': by_yoy[0] if by_yoy else None,
+            'worst_yoy': by_yoy[-1] if by_yoy else None,
+            'has_year_end': bool(ye), 'has_quarter': bool(qt),
+        },
+        'branches': [dict(b, rank=i + 1) for i, b in enumerate(by_cust)],
+        'branches_by_asset': [dict(b, rank=i + 1) for i, b in enumerate(by_asset)],
+        'branches_by_yoy': [dict(b, rank=i + 1) for i, b in enumerate(by_yoy)],
+        'nets': sorted(nets, key=lambda n: -(n['cust'] or 0)),
+        'zero_nets': zero,
+        'total': total,
+        'notes': snap.get('_notes') or [],
+        'sales_source': snap.get('sales_source'),
+    }
+
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
-            'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika}
+            'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika,
+            'pbs': build_pbs}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
            'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
-           'downgrade': 'jjwh', 'yika': 'ykh'}
+           'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs'}
 
 
 # ---------------------------------------------------------------- 汇总

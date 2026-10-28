@@ -107,10 +107,13 @@ PROFESSIONALS = [
         ]}],
     },
     {
-        'id': 'pbs', 'name': '私人银行', 'short': '私银', 'color': 'red', 'status': 'planned',
-        'desc': '框架预留，待接入',
-        'groups': [{'id': 'pbs-main', 'name': '私人银行', 'modules': [
-            {'id': 'pbs-todo', 'name': '私银客户与 AUM', 'kind': 'placeholder', 'desc': '待接入数据'},
+        'id': 'pbs', 'name': '私人银行', 'short': '私银', 'color': 'red', 'status': 'active',
+        'desc': '达标客户 · 资产规模 · 产品销售',
+        'groups': [{'id': 'pbs-main', 'name': '私人银行', 'status': 'active', 'modules': [
+            {'id': 'pbs-cust', 'name': '私人银行', 'page': 'pbs', 'kind': 'metric',
+             'source': '客编日均资产明细（归属支行/网点）', 'level': '支行 + 网点',
+             'freq': '旬', 'as_line': 'pbs', 'group': '私人银行',
+             'desc': '月日均600万以上客户、达标资产、产品销售与网点发展'},
         ]}],
     },
     {
