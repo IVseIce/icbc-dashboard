@@ -54,6 +54,7 @@ export default {
         <div class="rep-actions">
           <button class="btn btn-primary" id="copyText">${icon('file', 14)} 复制文案</button>
           <button class="btn" id="dlExcel">${icon('down', 14)} 下载 Excel</button>
+          <button class="btn" id="dlDev" style="display:none">${icon('down', 14)} 下载发展情况表</button>
           <button class="btn" id="copyImg">${icon('spark', 14)} 复制图片</button>
           <button class="btn" id="saveImg">${icon('down', 14)} 导出图片</button>
         </div>
@@ -123,25 +124,32 @@ export default {
         </div>
         ${r.tables.map((t, i) => tableCard(t, i)).join('')}`;
 
+      // 私银有两份成表，第二个按钮单独下"网点发展情况表"
+      const dlDev = view.querySelector('#dlDev');
+      if (dlDev) {
+        dlDev.style.display = kind === 'pbs' ? '' : 'none';
+        if (kind === 'pbs') dlDev.onclick = () => downloadExcel('pbs_dev');
+      }
       view.querySelector('#copyText').onclick = async () => {
         try { await navigator.clipboard.writeText(r.text); toast('文案已复制'); }
         catch { fallbackCopy(r.text); }
       };
       view.querySelector('#saveImg').onclick = () => exportImage('download');
       view.querySelector('#copyImg').onclick = () => exportImage('copy');
-      view.querySelector('#dlExcel').onclick = downloadExcel;
+      view.querySelector('#dlExcel').onclick = () => downloadExcel();
     }
 
-    async function downloadExcel() {
-      const btn = view.querySelector('#dlExcel');
+    async function downloadExcel(which) {
+      const target = which || kind;
+      const btn = which ? view.querySelector('#dlDev') : view.querySelector('#dlExcel');
       btn.disabled = true;
       try {
-        const res = await authFetch(`/api/report/${kind}.xlsx${q(kind)}`);
+        const res = await authFetch(`/api/report/${target}.xlsx${q(target)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
         const cd = res.headers.get('Content-Disposition') || '';
         const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-        const name = m ? decodeURIComponent(m[1]) : `${payload?.title || kind}.xlsx`;
+        const name = m ? decodeURIComponent(m[1]) : `${payload?.title || target}.xlsx`;
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = name; a.click();
