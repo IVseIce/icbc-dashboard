@@ -54,7 +54,6 @@ export default {
         <div class="rep-actions">
           <button class="btn btn-primary" id="copyText">${icon('file', 14)} 复制文案</button>
           <button class="btn" id="dlExcel">${icon('down', 14)} 下载 Excel</button>
-          <button class="btn" id="dlDev" style="display:none">${icon('down', 14)} 下载发展情况表</button>
           <button class="btn" id="copyImg">${icon('spark', 14)} 复制图片</button>
           <button class="btn" id="saveImg">${icon('down', 14)} 导出图片</button>
         </div>
@@ -124,11 +123,13 @@ export default {
         </div>
         ${r.tables.map((t, i) => tableCard(t, i)).join('')}`;
 
-      // 私银有两份成表，第二个按钮单独下"网点发展情况表"
-      const dlDev = view.querySelector('#dlDev');
-      if (dlDev) {
-        dlDev.style.display = kind === 'pbs' ? '' : 'none';
-        if (kind === 'pbs') dlDev.onclick = () => downloadExcel('pbs_dev');
+      // 私银的两份成表由一个按钮打包下载（后端返回 zip），这里不用额外按钮。
+      // 按钮文案随通报变化，让用户知道下载的是压缩包。
+      const dlBtn = view.querySelector('#dlExcel');
+      if (dlBtn) {
+        dlBtn.innerHTML = kind === 'pbs'
+          ? `${icon('down', 14)} 下载 Excel（两份打包）`
+          : `${icon('down', 14)} 下载 Excel`;
       }
       view.querySelector('#copyText').onclick = async () => {
         try { await navigator.clipboard.writeText(r.text); toast('文案已复制'); }
@@ -139,9 +140,9 @@ export default {
       view.querySelector('#dlExcel').onclick = () => downloadExcel();
     }
 
-    async function downloadExcel(which) {
-      const target = which || kind;
-      const btn = which ? view.querySelector('#dlDev') : view.querySelector('#dlExcel');
+    async function downloadExcel() {
+      const target = kind;
+      const btn = view.querySelector('#dlExcel');
       btn.disabled = true;
       try {
         const res = await authFetch(`/api/report/${target}.xlsx${q(target)}`);

@@ -1082,26 +1082,64 @@ def _pbs_fill_dev(wb, d, src):
     dev.cell(54, 5).value = total.get('cust_vs_year')
     dev.cell(54, 6).value = ((now - was) / was) if was else None
 
-    # 较年初（E 列）：好的 3 个红、坏的 3 个绿。
-    # 原件里这是**手工静态涂色**（条件格式只有一条无关的 M36 规则），
-    # 所以这里直接算排名再上色，跟人工做出来的一样。
+    # ---------------- 红绿：较年初（E 列）+ 当前存量客户（C 列）
+    #
+    # 判定用 LARGE/SMALL 的语义（和条件格式一致）：
+    #   **第 3 大的值及以上全标红、第 3 小的值及以下全标绿**
+    # 所以并列会全部标上（比如最差那一档有 5 个相同的 1，5 个全绿）。
+    #
+    # 小计行、合计行不参与排名，也不上色。
+    # C 列还要排除 0：`当前存量客户 = 0` 的格子用**亮黄**表示（岳家湖、十字街），
+    # 用户明确要求"标黄的是只看为零的，不用动"，所以 0 不参加红绿。
     from openpyxl.styles import PatternFill
     from copy import copy as _copy
     RED = PatternFill('solid', fgColor='FFFF0000')
     GREEN = PatternFill('solid', fgColor='FF99CC00')
-    rows = [(r, dev.cell(r, 5).value) for r in range(6, 54)
-            if dev.cell(r, 2).value and str(dev.cell(r, 2).value).strip() != '小计']
-    rows = [(r, v) for r, v in rows if isinstance(v, (int, float))]
-    # 先把 E 列的网络行底色清成白（母版里带的是上次的旧色）
     WHITE = PatternFill('solid', fgColor='FFFFFFFF')
-    for r, _ in rows:
-        dev.cell(r, 5).fill = _copy(WHITE)
-    if len(rows) >= 6:
-        by_val = sorted(rows, key=lambda x: (-x[1], x[0]))
-        for r, _ in by_val[:3]:
-            dev.cell(r, 5).fill = _copy(RED)
-        for r, _ in by_val[-3:]:
-            dev.cell(r, 5).fill = _copy(GREEN)
+    ZERO = PatternFill('solid', fgColor='FFFFFF00')
+
+    # 网点行（B 列有名字且不是小计）
+    net_rows = [r for r in range(6, 54)
+                if dev.cell(r, 2).value and str(dev.cell(r, 2).value).strip() != '小计']
+
+    def paint(col: int, top=3, bottom=None, zero_yellow=False):
+        """给一列打红绿，规则与 Excel 的 LARGE/SMALL 一致。
+
+            >= 第 top 大   → 红
+            <= 第 bottom 小 → 绿（bottom=None 时**不打绿**）
+
+        「第 N 大/小」是**按名次**（排序后取第 N 个），不是"第 N 个不同的值"：
+          * 值 `1 1 1 2 3 4` → 第 3 小 = 1 → 只标那三个 1（不会往上再补两个）
+          * 值 `1 1 1 1 1 2` → 第 3 小 = 1 → 五个 1 全标（并列全标）
+
+        `zero_yellow=True`（C 列用）：0 值单独涂亮黄，且**不参加红绿**。
+        """
+        vals = []
+        for r in net_rows:
+            v = dev.cell(r, col).value
+            if not isinstance(v, (int, float)):
+                continue
+            if zero_yellow and v == 0:
+                continue            # 0 走黄色，不参与排名
+            vals.append((r, v))
+        for r in net_rows:          # 先复位成白底（母版带的是上次的旧色）
+            dev.cell(r, col).fill = _copy(WHITE)
+        if vals:
+            asc = sorted(v for _, v in vals)
+            hi = asc[-min(top, len(asc))]
+            lo = asc[min(bottom, len(asc)) - 1] if bottom else None
+            for r, v in vals:
+                if v >= hi:
+                    dev.cell(r, col).fill = _copy(RED)
+                elif lo is not None and v <= lo:
+                    dev.cell(r, col).fill = _copy(GREEN)
+        if zero_yellow:             # 0 最后涂黄，优先级最高
+            for r in net_rows:
+                if (dev.cell(r, col).value or 0) == 0:
+                    dev.cell(r, col).fill = _copy(ZERO)
+
+    paint(5, top=3, bottom=3)                 # E 较年初：好 3 红 / 坏 3 绿
+    paint(3, top=3, bottom=None, zero_yellow=True)   # C 当前存量客户：只红+黄，不标绿
     return wb
 
 
@@ -1360,9 +1398,37 @@ def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
     wb.save(buf)
     return buf.getvalue(), f"企微社群数据统计通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
+def pbs_bundle(on: str | None = None) -> tuple[bytes, str]:
+    """私银的两份成表**打包成一个 zip**，一个按钮下载。
+
+    用户要的是"一个按钮拿两个文件"，而不是塞进一个工作簿
+    （塞一起会让两张表的列宽/条件格式互相干扰，而且原件本来就是两个文件）。
+    """
+    import zipfile
+
+    d = build_pbs(on)
+    if not d.get('ok'):
+        raise RuntimeError('该日期没有私人银行数据')
+    per = (api.build_pbs(on) or {}).get('period') or {}
+    iso = per.get('as_of') or ''
+    stamp = f'{int(iso[5:7])}.{int(iso[8:10])}' if iso else '当期'
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for fn in (pbs_xlsx, pbs_dev_xlsx):
+            blob, name = fn(on)
+            z.writestr(name, blob)
+        z.writestr('说明.txt',
+                   '阜阳分行私人银行通报（' + stamp + '）\n\n'
+                   '两个文件对应两份官方成表，格式与手工做的一致：\n'
+                   '  1. 核心指标通报 —— 8 家支行的客户数、资产、日均存款、产品销售\n'
+                   '  2. 网点私人银行客户发展情况表 —— 40 个网点的存量与较年初\n')
+    return buf.getvalue(), f'阜阳分行私人银行通报（{stamp}）.zip'
+
+
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
         'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx,
-        'yika': yika_xlsx, 'pbs': pbs_xlsx, 'pbs_dev': pbs_dev_xlsx}
+        'yika': yika_xlsx, 'pbs': pbs_bundle, 'pbs_dev': pbs_dev_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:
