@@ -1428,7 +1428,7 @@ def pbs_bundle(on: str | None = None) -> tuple[bytes, str]:
 
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
         'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx,
-        'yika': yika_xlsx, 'pbs': pbs_bundle, 'pbs_dev': pbs_dev_xlsx}
+        'yika': yika_xlsx, 'pbs': pbs_xlsx, 'pbs_dev': pbs_dev_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None) -> tuple[bytes, str]:
