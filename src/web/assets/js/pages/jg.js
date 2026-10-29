@@ -10,6 +10,7 @@ export default {
     const prof = cat.professionals.find((p) => p.id === 'jg');
     const d = data.deposit?.kpi, s = data.salary?.kpi, pay = data.payroll?.kpi;
     const five = data.fivecards?.totals;
+    const tm = data.team?.kpi?.ck;
 
     view.innerHTML = `
       <div class="page-head">
@@ -28,7 +29,8 @@ export default {
           ${baseTile('代发客户', pay ? fmt.n(pay.cust) : null, '人', pay ? '企业 ' + fmt.n(pay.comps) + ' 户' : '待接入', 'blue')}
           ${baseTile('薪管家代发', s ? fmt.n(s.year, 0) : null, '万元', s ? '当月 ' + fmt.n(s.month, 2) : '', 'teal')}
           ${baseTile('五卡存量', five ? fmt.n(five.stock) : null, '户', five ? '长尾率 ' + fmt.pct(five.long_rate, 1) : '', 'amber')}
-          ${baseTile('全量客户', null, '户', '待接入', 'green')}
+          ${baseTile('财客存款增量', tm ? fmt.n(tm.dep_inc, 2) : null, '亿元',
+            tm ? `非存 ${fmt.n(tm.nstock_inc, 2)} 亿 · ${tm.mgrs} 人` : '待接入', 'green')}
         </div>
       </div>
 

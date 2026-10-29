@@ -20,6 +20,8 @@ const LINES = [
   { id: 'jiepan', name: '到期承接情况通报', cat: 'jg' },
   { id: 'yika', name: '“一卡一户”日通报', cat: 'jg' },
   { id: 'pbs', name: '私人银行核心指标', cat: 'pbs' },
+  { id: 'ck', name: '财客经理经营业绩', cat: 'jg' },
+  { id: 'yw', name: '远维经理经营业绩', cat: 'jg' },
 ];
 
 export default {

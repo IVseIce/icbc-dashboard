@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-29（**版本 0.1.7.1**｜定期承接可导入前手工改明细；修 xlsx 图片与分块上传）
+> 最后更新：2026-10-29（**版本 0.1.8**｜新增「经理队伍」：财客 + 远维两块）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -15,6 +15,7 @@
 > → 0.1.6.3（红绿字色改黑、发展情况当前存量加红/黄、并列按名次、下载按钮回退为两个）
 > → 0.1.7（**定期承接**：客编明细按到期日筛行聚合、任意区间、网点+支行双 sheet 成表）
 > → 0.1.7.1（定期承接「手动编辑明细」；xlsx 图片在无 Pillow 运行时不再丢；支持 chunked 上传）
+> → 0.1.8（**经理队伍**：财客 支行/网点/经理 三级、远维 支行/经理 两级；两条通报）
 
 ---
 
@@ -117,7 +118,7 @@ icbc-dashboard/
 │  │  ├─ app.py              HTTP：静态资源 + 全部 /api/*（约 260 行）
 │  │  ├─ auth.py             口令：六个身份组、会话、pbkdf2 哈希落盘
 │  │  ├─ api.py              视图模型：每条线一个 build_xxx()
-│  │  └─ report.py           通报：表格/文案/Excel（5 条线）
+│  │  └─ report.py           通报：表格/文案/Excel（11 条线）
 │  ├─ domain/catalog.py      唯一的目录配置（导航/首页/上传/路由都读它）
 │  ├─ ingest/
 │  │  ├─ readers.py          多格式读取（xlsx/xls/csv，按内容嗅探）
@@ -125,17 +126,22 @@ icbc-dashboard/
 │  │  ├─ fivecards.py        五卡汇总表解析
 │  │  ├─ downgrade.py        降级挽回解析（客编明细 + 内置映射，口径写在文件头）
 │  │  ├─ yika.py             一卡一户解析（社保卡 + 养老金，按日累计值）
-│  │  └─ pbs.py              私人银行解析（客编明细 → 支行/网点，日期靠文件名）
+│  │  ├─ pbs.py              私人银行解析（客编明细 → 支行/网点，日期靠文件名）
+│  │  ├─ jiepan.py           定期承接解析（客编明细按到期日筛行，窗口在单份快照内切）
+│  │  └─ team.py             经理队伍解析（财客/远维列映射 + 三行表头校验 + 双块合并）
 │  ├─ parsers/               vendor 进来的 5 个 icbc-* 技能（解析逻辑）
 │  │  └─ icbc-{dqzz,xsfw,sbqb,xgj,qwsq}/{*.py, assets/}
-│  ├─ report/assets/         8 个"样式母版" xlsx（从正式成表清数据得到）+ 3 份内置配置
+│  ├─ report/assets/         10 个"样式母版" xlsx（从正式成表清数据得到）+ 若干内置配置
 │  │  ├─ {online,salary,wallet,deposit,community,downgrade}_base.xlsx
 │  │  ├─ downgrade_map.json  客编 → 支行/网点（1749 条，固定映射）
 │  │  ├─ yika_base.xlsx      一卡一户样式母版（通报/社保卡/养老金 三 sheet）
 │  │  ├─ yika_targets.json   网点顺序 / 支行 / 当日目标（固定值 4 或 6）
 │  │  ├─ pbs_base.xlsx       私银定稿母版（**原件转 xlsx 后清数据**，列结构与隐藏列原样保留）
 │  │  ├─ pbs_dev_base.xlsx   私银网点发展情况母版（同上，含横幅图片）
-│  │  └─ pb_nets.json        私银 40 网点 / 网点→支行 / 上年末存量
+│  │  ├─ pb_nets.json        私银 40 网点 / 网点→支行 / 上年末存量
+│  │  ├─ jiepan_base.xlsx / jiepan_nets.json / jiepan_exclude.json  定期承接母版与配置
+│  │  ├─ ck_base.xlsx        经理队伍·财客母版（通报 + 明细 双 sheet）
+│  │  └─ yw_base.xlsx        经理队伍·远维母版（同上）
 │  └─ web/
 │     ├─ index.html
 │     ├─ assets/css/app.css  全部设计变量在 :root
@@ -153,9 +159,10 @@ icbc-dashboard/
 │  ├─ selftest.py            解释器/依赖/数据库自检（install/update 都调它）
 │  ├─ check_modules.py       模块接线自检 + 生成 docs/MODULES.md
 │  ├─ package_release.py     打 U 盘发布包（VERSION + SHA256SUMS，可带 runtime）
-│  ├─ check_report_parity.py 与技能成表逐格对账
-│  └─ merge_seed.py          把发布包 seed/ 合并进生产库（只补缺不覆盖）
-│  └─ build_yika_assets.py   从成表生成一卡一户母版与目标表（改口径时重跑）
+│  ├─ check_report_parity.py 与技能成表逐格对账（11 条线）
+│  ├─ merge_seed.py          把发布包 seed/ 合并进生产库（只补缺不覆盖）
+│  ├─ build_yika_assets.py   从成表生成一卡一户母版与目标表（改口径时重跑）
+│  └─ build_team_bases.py    从官方成表生成 ck/yw 母版（换版式时重跑）
 ├─ data/                     运行时数据（git 忽略）
 │  ├─ icbc.db                 主库（+ -wal / -shm；备份要连 wal 一起，或用 backup_db.py）
 │  ├─ imports/<line>/<stamp>/  上传原件留档
@@ -218,6 +225,7 @@ icbc-dashboard/
 | `jp` | 定期承接（周） | `build_jiepan` | 2026-10-25（取数日） |
 | `ykh` | 一卡一户（日） | `build_yika` | 2026-10-25 |
 | `pbs` | 私人银行（旬） | `build_pbs` | 2026-10-24 |
+| `team` | 经理队伍（累计） | `build_team` | 2026-10-21 |
 | `ykh_sb` / `ykh_yl` | 一卡一户的**按日累计值**（辅助条线，不出页面） | — | — |
 
 - 带 `partial: true` 的快照只用于画趋势，**详情页会跳过**（`api._latest` 里过滤）
@@ -229,7 +237,11 @@ icbc-dashboard/
 - **`jjwh` 与别的线不同**：它不是"截至某日的一期"，而是**基期+末期两个时点**（间隔 6 天）。
   `as_of` 存的是**基期日期**，`period.start/end` 是通报口径（基期+1 天 ~ 基期+7 天）。
   页面/通报里的期间一律用 `period`，别用 `as_of` 直接当"本旬起始"。
-- **精度**：快照里比率保留 6 位（`round(x, 6)`），代发/五卡/企微的 ytd、rate 均为原始值；报表层**不要再四舍五入**，否则对账必挂
+- **`team`（经理队伍）是一份快照两块内容**：payload 里 `ck`（财客）与 `yw`（远维）各一棵子树，
+  `blocks` 记录这块有哪些。**可以只导一块**（`team.merge` 从同日旧快照带过来），
+  `as_of` 来自文件名（源表内没有日期）。见 `src/ingest/team.py`、HANDOFF 8.13
+- **精度**：快照里比率保留 6 位（`round(x, 6)`），代发/五卡/企微的 ytd、rate 均为原始值；报表层**不要再四舍五入**，否则对账必挂。
+  **`team` 是个例外：一律存 double 原值**，`round` 会让成表对账差最后几位（8.13-84）
 
 ### 4.3 组装与视图
 
@@ -285,7 +297,7 @@ icbc-dashboard/
 
 ```
 个金（nested=True，三级）
- ├ 增存：定期存款✓ | 定期承接 | 行外吸金 | 降级挽回 | 经理队伍
+ ├ 增存：定期存款✓ | 定期承接✓ | 行外吸金 | 降级挽回✓ | 经理队伍✓
  ├ 增客：全量客户 | 代发工资✓ | 薪管家✓ | 一卡一户 | 五卡唤醒✓
  └ 增收：基保理 | 三方支付
 网金（平铺）：线上服务✓ | 数币钱包✓ | 企微社群✓
@@ -297,7 +309,7 @@ icbc-dashboard/
 ✓ = `kind: "metric"`，有页面、可上传；`kind: "tool"` 是工具（无数据、标"开发中"）；
 其余为 `placeholder`（灰、不可点）或 `planned`（可点但进占位页）。
 
-**当前 25 个模块：数据 10 / 工具 2 / 占位 13**（`python scripts/check_modules.py` 会打印）。
+**当前 25 个模块：数据 14 / 工具 2 / 占位 9**（`python scripts/check_modules.py` 会打印）。
 
 模块 id（路由 `#/m/<id>`）：
 
@@ -318,7 +330,8 @@ icbc-dashboard/
 #/p/<profId>       板块页（个金走专用 jg.js，其余通用 browse）
 #/g/<prof>/<group> 分组页（只有个金有）
 #/m/<moduleId>     模块页（按 page 分发到 RENDERERS）
-#/report[/<kind>]  通报中心（kind: online/salary/wallet/deposit/community/downgrade/yika/pbs/jiepan）
+#/report[/<kind>]  通报中心（kind: online/salary/wallet/deposit/community/downgrade/
+                   yika/pbs/jiepan/ck/yw）
 #/m/jg-deposit-jiepan?…   定期承接页；统计区间放地址栏 ?s=2026-10-01&e=2026-10-25
                    （/api/all 与 /api/report/jiepan 都认 start/end 两个参数）
 #/upload           上传（两级选择，默认落到自己大类）
@@ -632,6 +645,33 @@ icbc-dashboard/
     我们用 `RANK` 语义重算，与官方的**并列第 1**一致。
 
 
+### 8.13 经理队伍（0.1.8 新增，改这条线必看）
+
+81. **只读明细子表，别碰中间表**。一份工作簿里有 `财客明细` + `计算１` + `ＶＬＯＯＫ` + `Sheet3`：
+    `计算１` 是 `财客明细` **换了表头的同一份数据**（49×88 逐格一致），`ＶＬＯＯＫ` 是按支行聚合的
+    透视结果。我们的聚合自己做，读中间表只会把官方那套 VLOOKUP 序号错误一起抄进来。
+82. **两块可以只导一块**，`ingest/team.py::merge()` 从**同一天**的旧快照里把另一块带过来；
+    页面「导入说明」会写清是"沿用"还是"本次只导了X"。别把"只导一块"当成覆盖整条线。
+83. **源表没有日期**，`as_of` 从文件名认（复用 `ingest.pbs.date_from_name`）：
+    `20261021` / `2026.10.21` / `2026-10-21` / `10.21` / `1021` / `10-21` / `10月21(日)` 都认，
+    不带年按今年。认不出**必须让用户手填**（`DATE_ARG_LINES` 里加了 `team`）。
+84. **绝不要 `round()`**：成表对账是逐格比 double。当初按惯例 `round(x, 6)`，
+    ck 差 63 处、yw 差 59 处，全是 `92.2885807957933` vs `92.288581` 这种末位差异。
+    `team` 的聚合与导出**一律存原值**（其他条线的 6 位约定不适用这里）。
+85. **官方远维成表的 R~V 五列取错了字段**（透视表比财客多一列「社保卡存量」，VLOOKUP 序号没跟着改）：
+    R=社保卡存量、S=社保卡增量、T=养老金增量、U=借记卡绑卡增量、V=贷记卡绑卡消费增量；
+    「贷记卡纯消费增量」压根没被引用。**用户 2026-10-29 拍板按表头取数（与财客对齐）**，
+    所以这 5 列与官方原件不同，对账用 `SKIP_CELLS['yw']` 跳过，**别"修回去"对齐官方**。
+86. **远维明细末尾有隐藏的临时名单区**（15 行起，只有姓名 + 网点名、没有支行）：
+    解析按"支行列为空"跳过；母版里已删掉这些行。对账用 `SKIP_DETAIL_ROWS = {'yw': 15}`。
+87. **表头校验不能省**：`CK_COLS` / `YW_COLS` 是「字段→列号」的硬映射，导入时用**三行表头
+    合并后的路径**逐列核对（`CHECK`）。源表哪天加了列，直接报错，不会静默取错数。
+88. **成表母版由脚本生成**：`scripts/build_team_bases.py` 拿官方成表 → 只留两个子表 →
+    清掉数据格、保留 B 列机构名/表头/合并/条件格式/隐藏列 J。**换版式要重跑这个脚本**，
+    不要手改 xlsx。清数据时 `A13` 的 `－` 是固定标签，要留住。
+89. **汇总规则**：`总得分` + 两个营销通执行率取**平均**，其余**求和**；单位换算只在导出/页面做
+    （财客理财转亿元，远维理财留万元）；「50万以上客户」表头写"万户"但值其实是**户**。
+
 ### 8.12 两个"本机正常、到内网就坏"的坑（0.1.7.1）
 
 79. **openpyxl 读写 xlsx 里的图片依赖 Pillow，而内网运行时没有 Pillow**。
@@ -702,13 +742,17 @@ icbc-dashboard/
   出通报自动拼「当日/前一日/上周末」三个时点；文案与用户模板**逐字一致**，Excel 三张 sheet
   与正式成表**逐格零差异**，已进对账用例
 
+- **经理队伍**（0.1.8）：财客（支行 8 / 网点 40 / 经理 49）+ 远维（支行 8 / 经理 10）两块，
+  页签切换；两个文件可只导一个；日期认文件名（7 种写法）；通报两条，Excel 版式与官方成表**逐格零差异**
+  （远维 R~V 五列按用户要求修正了官方的取数错误）
+
 ### 未完成 / 待定
 
 | 事项 | 现状 | 需要的输入 |
 |---|---|---|
 | 网点争先、挑战回访100位客户 | 占位页 | 名单/排名/积分口径 |
 | 全量客户拓展 | 占位页（`planned`） | 现在是文字进度表，需要结构化字段 |
-| 定期承接、行外吸金、经理队伍、一卡一户、全量客户 | 占位 | 数据源 |
+| 行外吸金、全量客户 | 占位 | 数据源 |
 | 实用工具的两个工具（时日差 / 偏离度） | 页面是空壳 | 输入输出定义 |
 | 基保理、三方支付（增收） | 占位 | 数据源；基保理=基金/保险/理财 |
 | 个贷、银行卡 | 占位 | 数据源 |
@@ -721,6 +765,7 @@ icbc-dashboard/
 | 内置运行时 | 机制就绪（自检+回退），arm64 二进制未实测 | 首次装完用 `bin/status.sh` 确认解释器 |
 | Excel/CSV 批量导出 | 未做（通报中心可导单份 Excel；对外只导 .db） | 需要时定义表口径 |
 | 降级挽回对账用例 | 未进 `check_report_parity`（缺第二期成表） | 拿到下一期成表后补 `CASES` |
+| 经理队伍对账用例 | 已进 `CASES`（ck/yw 各一条），但只有这一期成表 | 下一期成表来了再加一条做回归 |
 | 降级挽回映射更新 | 映射是固定 json（1749 条），客编新增需手工更新 | 需要时加"映射表覆盖导入" |
 | 定期承接的「大额流失户」剔除 | **未做**：官方做法是人工在源表里把两列改成 0；`parse(exclude=…)` 留了接口 | 用户说以后在导入前处理，届时把客编传进来即可 |
 | 定期承接的网点负责人 | **未做**（成表 J 列，用户确认最终不展示） | 无 |
@@ -776,6 +821,8 @@ icbc-dashboard/
 | 私银的产品销售初值 | 页面上改并保存，或直接写 `setting.pbs_sales`（`{支行: {7 个键}}`） |
 | 私银成表列布局 | 换 `src/report/assets/pbs_base.xlsx` / `pbs_dev_base.xlsx`，改完同步 `_pbs_fill_report` 里的 `COLS/KEY_OF_COL` 列号 |
 | 带数据升级 | `update.sh <包> --with-data`（调 `scripts/merge_seed.py`，只补缺不覆盖） |
+| 经理队伍的列映射 | `src/ingest/team.py` 的 `CK_COLS`/`YW_COLS`/`CHECK`（改完跑一遍导入验证表头） |
+| 经理队伍成表版式 | 重跑 `python scripts/build_team_bases.py`（不要手改母版 xlsx） |
 | 使用指南的正文 | `src/web/assets/js/guide-content.js`（纯数据；`body` 只许 p/ul/ol/li/b/code/kbd/table 等白名单标签） |
 | 更新日志 | `src/web/assets/js/changelog.js`（发版往最前面插一条，版本号与 `VERSION` 一致）；页面在 `pages/guide.js` 的 `changelogPage` |
 | 版本号 | 仓库根 `VERSION`；打包时写 `BUILD`（日期-git短sha） |
@@ -789,7 +836,7 @@ icbc-dashboard/
 2. 起服务 → `curl /api/health` 返回 `ok:true`，且 `version` 与 `VERSION` 一致
    （版本号有缓存：改完 `VERSION` 要**重启进程**才生效）
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
-   `python scripts/migrate_to_sqlite.py --db-info` → 8 条线、最新 2026-10-22、schema v1
+   `python scripts/migrate_to_sqlite.py --db-info` → 13 条数据线、最新 2026-10-25、schema v1
 4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time`、`#/m/jg-deposit-jiangji` 各看一眼
    （顶栏"数据截至"应分别是 10/22、10/22、10/15、9/13）
 5. `#/report` 应弹口令框；输 `gejin2026` 只看到「定期存款增长 / 薪管家 / 降级挽回营销先锋」三项；
@@ -797,7 +844,7 @@ icbc-dashboard/
 6. `#/upload` 输 `wangjin2026` 后网金可选、其余灰掉；从 `#/m/wj-wallet` 点右上角"导入数据"应预选到「数币钱包」
 7. `python scripts/selftest.py --root data` → OK；`python scripts/check_modules.py` → OK；
    打包前 `python scripts/package_release.py --seed` 能从干净提交出包
-8. 打开 `#/guide` 能看到 19 节（含「一卡一户」）；从 `#/m/jg-deposit-time` 点右上角「使用指南」
+8. 打开 `#/guide` 能看到 20 节（含「一卡一户」「经理队伍」）；从 `#/m/jg-deposit-time` 点右上角「使用指南」
    应直接落到「定期存款」那一节；`#/changelog` 是独立一页，左上角两个页签能互切
 9. `python scripts/check_report_parity.py` 里 yika 应 OK（三 sheet 零差异）；
    打开 `#/m/jg-customer-yika` 能看到 6 张数字卡、3 张图和两张表
@@ -814,8 +861,10 @@ icbc-dashboard/
     改完提交时 `notes` 里应出现「导入前手工修改 N 行」；
 13. `#/report` 里「私人银行核心指标」旁边点「下载发展情况表」→ 用解压工具看 xlsx 里
     应有 `xl/media/image1.jpeg`（**内网机同理，这是 0.1.7.1 修的那个坑**）；
-14. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
+14. `#/m/jg-deposit-team` 能看到「财客 / 远维」两个页签；财客 3 张图（含网点头尾）、远维 2 张；
+    红绿按名次（前二红后二绿）；`#/report` 里「财客经理经营业绩」「远维经理经营业绩」两份 Excel 都能下载
+15. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
    浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
-15. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+16. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

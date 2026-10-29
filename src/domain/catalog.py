@@ -32,8 +32,10 @@ PROFESSIONALS = [
                      'source': '客编资产明细（客编→支行/网点映射已内置）', 'level': '支行 + 网点',
                      'freq': '旬', 'as_line': 'jjwh', 'group': '增存',
                      'desc': '本旬资产/存款提升、网均与头部尾部网点'},
-                    {'id': 'jg-deposit-team', 'name': '经理队伍', 'kind': 'placeholder', 'group': '增存',
-                     'desc': '客户经理管户、产能与考核（待接入）'},
+                    {'id': 'jg-deposit-team', 'name': '经理队伍', 'page': 'team', 'kind': 'metric',
+                     'level': '支行 + 网点 + 经理', 'freq': '不定期', 'as_line': 'team', 'group': '增存',
+                     'source': '财富/远维客户经理经营业绩通报（明细表）',
+                     'desc': '财客（支行/网点/经理）+ 远维（支行/经理）两块'}, 
                 ],
             },
             {

@@ -658,6 +658,307 @@ def jiepan_xlsx(on: str | None = None, start: str | None = None, end: str | None
     return data, f'到期承接情况通报（{span.replace("月", ".").replace("日", "")}）.xlsx'
 
 
+# ---------------------------------------------------------------- 经理队伍（财客 / 远维）
+# 两条通报共用一份快照（line=team），各取其中一块。
+# 成表版式直接拿官方成表当母版（scripts/build_team_bases.py 生成），只写数据格。
+TEAM_ASSETS = Path(__file__).resolve().parent.parent / 'report' / 'assets'
+CK_BASE = TEAM_ASSETS / 'ck_base.xlsx'
+YW_BASE = TEAM_ASSETS / 'yw_base.xlsx'
+
+# 成表里的「列号 → (字段, 除数)」。远维已修正官方错列（HANDOFF 8.13），按表头写的取数。
+_COMMON = {
+    3: ('score', 1), 4: ('dep_stock', 1e4), 5: ('dep_inc', 1e4),
+    6: ('nstock_stock', 1e4), 7: ('nstock_inc', 1e4),
+    8: ('c50_stock', 1), 9: ('c50_inc', 1), 10: None, 11: None, 12: None,   # J/K/L 空白列
+    13: ('rej_stock', 1), 14: ('rej_inc', 1),
+    15: ('kp_stock', 1), 16: ('kp_inc', 1),
+    17: ('mobile_inc', 1), 18: ('sb_inc', 1), 19: ('yl_inc', 1),
+    20: ('debit_inc', 1), 21: ('cc_inc', 1), 22: ('cp_inc', 1),
+}
+TEAM_COLS = {
+    'ck': {**_COMMON, 23: ('ins_year', 1), 24: ('fund_year', 1), 25: ('licai_year', 1e4),
+           26: ('wx_friends', 1), 27: ('wx_net', 1), 28: ('mkt_norm', 1), 29: ('mkt_time', 1)},
+    # 远维没有期缴保险列；个人理财在成表里是**万元**（财客是亿元）
+    'yw': {**_COMMON, 23: ('fund_year', 1), 24: ('licai_year', 1),
+           25: ('wx_friends', 1), 26: ('wx_net', 1), 27: ('mkt_norm', 1), 28: ('mkt_time', 1)},
+}
+
+TEAM_META = {
+    'ck': {
+        'base': CK_BASE, 'page': 29, 'title': '财富客户经理经营业绩通报',
+        'who': '财客', 'short': '财客', 'block_name': '财富客户经理',
+        'cust_top': '50万元以上客户增量居全市前2位',
+        'cust_bot': '50万元客户增量居全市后2位',
+        'rej_label': '融e借增量', 'rej_dec': 0,
+        'kp_top': '卡分期任务完成率居全市前列', 'kp_bot': '居全市后2位', 'kp_dec': 1,
+        'tail': '后2位',
+    },
+    'yw': {
+        'base': YW_BASE, 'page': 28, 'title': '远维客户经理经营业绩通报',
+        'who': '远维', 'short': '远维', 'block_name': '远维客户经理',
+        'cust_top': '10万元以上客户管户增量居全市前2位',
+        'cust_bot': '居全市末位',
+        'rej_label': '融e借任务完成率', 'rej_dec': 0,
+        'kp_top': '卡分期任务完成率居全市前2位', 'kp_bot': '居全市末位', 'kp_dec': 0,
+        'tail': '末位',
+    },
+}
+
+# 报表/页面上的列名（成表顺序）
+TEAM_HEAD = [
+    (1, '排名'), (2, '机构'), (3, '总得分'),
+    (4, '日均存款存量\n(亿元)'), (5, '日均存款增量\n(亿元)'),
+    (6, '日均非存存量\n(亿元)'), (7, '日均非存增量\n(亿元)'),
+    (8, '50万以上客户\n存量(户)'), (9, '50万以上客户\n增量(户)'),
+    (13, '融e借存量\n(万元)'), (14, '融e借增量\n(万元)'),
+    (15, '卡分期存量\n(万元)'), (16, '卡分期增量\n(万元)'),
+    (17, '手机银行\n净增(户)'), (18, '社保卡\n净增(户)'), (19, '养老金\n净增(户)'),
+    (20, '借记卡绑卡\n净增(户)'), (21, '贷记卡绑卡消费\n净增(户)'), (22, '信用卡纯消费\n净增(户)'),
+]
+TEAM_HEAD_Y = [(23, '非货币基金\n(万元)'), (24, '个人理财\n(万元)')]
+TEAM_HEAD_C = [(23, '期缴保险\n(万元)'), (24, '非货币基金\n(万元)'), (25, '个人理财\n(亿元)')]
+TEAM_TAIL = [(26, '企业微信好友\n(户)'), (27, '企业微信\n净增(户)'),
+             (28, '营销通常态化'), (29, '营销通限时')]
+TEAM_TAIL_Y = [(25, '企业微信好友\n(户)'), (26, '企业微信\n净增(户)'),
+               (27, '营销通常态化'), (28, '营销通限时')]
+
+
+def _team_snap(on: str | None = None) -> dict | None:
+    s = api._latest('team', on)
+    return s or None
+
+
+def team_matrix(block: str, on: str | None = None) -> dict:
+    """把一块（ck/yw）整理成"成表矩阵"：8 家支行 + 合计，值已按成表单位换算。"""
+    s = _team_snap(on)
+    if not s or not s.get(block):
+        return {'ok': False, 'error': f'该日期没有{TEAM_META[block]["short"]}数据',
+                'nearest': (api.build_team(on) or {}).get('nearest')}
+    body = s[block]
+    cols = TEAM_COLS[block]
+
+    def conv(src: dict) -> dict:
+        out = {}
+        for ci, spec in cols.items():
+            if not spec:
+                continue
+            key, div = spec
+            out[ci] = (src.get(key) or 0) / div
+        return out
+
+    rows = []
+    for b in body.get('branches') or []:
+        vals = conv(b)
+        rows.append({'name': b['name'], 'rank': b.get('rank'), 'mgrs': b.get('mgrs'),
+                     'vals': vals})
+    rows.sort(key=lambda r: (r['rank'] or 99, r['name']))
+    total = conv(body.get('total') or {})
+    return {'ok': True, 'block': block, 'as_of': s.get('as_of'), 'rows': rows,
+            'total': total, 'cols': cols, 'body': body, 'meta': TEAM_META[block]}
+
+
+def _team_rows_table(block: str, m: dict) -> dict:
+    """通报里的支行表：按成表列顺序，附合计行。"""
+    head = list(TEAM_HEAD)
+    head += TEAM_HEAD_C if block == 'ck' else TEAM_HEAD_Y
+    head += TEAM_TAIL if block == 'ck' else TEAM_TAIL_Y
+
+    cols = [{'key': 'rank', 'title': '排名', 'type': 'int'},
+            {'key': 'name', 'title': '机构', 'type': 'text'}]
+    for ci, label in head[2:]:
+        spec = m['cols'].get(ci)
+        if not spec:
+            continue
+        cols.append({'key': f'c{ci}', 'title': label.replace('\n', ''),
+                     'type': 'money' if spec[1] != 1 else 'num', 'digits': 2 if spec[1] != 1 else None})
+
+    rows = []
+    for r in m['rows']:
+        rec = {'rank': r['rank'], 'name': r['name']}
+        rec.update({f'c{ci}': round(v, 4) for ci, v in r['vals'].items()})
+        rows.append(rec)
+    tot = {'rank': '—', 'name': '总计'}
+    tot.update({f'c{ci}': round(v, 4) for ci, v in m['total'].items()})
+    return {'name': '支行', 'columns': cols, 'rows': rows, 'totals': tot}
+
+
+def _team_mgr_table(block: str, m: dict) -> dict:
+    body = m['body']
+    cols = [{'key': 'rank', 'title': '排名', 'type': 'int'},
+            {'key': 'branch', 'title': '支行', 'type': 'text'},
+            {'key': 'mgr', 'title': '客户经理', 'type': 'text'}]
+    if body.get('has_net'):
+        cols.insert(2, {'key': 'net', 'title': '网点', 'type': 'text'})
+    for key, label, div in (
+            ('score', '总得分', 1), ('dep_inc', '存款增量\n(亿元)', 1e4),
+            ('nstock_inc', '非存增量\n(亿元)', 1e4), ('c50_inc', '50万以上\n客户增量(户)', 1),
+            ('rej_inc', '融e借增量\n(万元)', 1), ('kp_inc', '卡分期增量\n(万元)', 1),
+            ('wx_net', '企业微信\n净增(户)', 1)):
+        cols.append({'key': key, 'title': label.replace('\n', ''),
+                     'type': 'money' if div != 1 else 'num'})
+    rows = []
+    for r in body.get('mgr_rows') or []:
+        rec = {'rank': r.get('rank'), 'branch': r.get('branch'), 'net': r.get('net') or '',
+               'mgr': r.get('mgr')}
+        for key, _l, div in (('score', '', 1), ('dep_inc', '', 1e4), ('nstock_inc', '', 1e4),
+                             ('c50_inc', '', 1), ('rej_inc', '', 1), ('kp_inc', '', 1),
+                             ('wx_net', '', 1)):
+            rec[key] = round((r.get(key) or 0) / div, 4)
+        rows.append(rec)
+    return {'name': '客户经理', 'columns': cols, 'rows': rows, 'totals': None}
+
+
+def _team_text(block: str, m: dict) -> str:
+    """按定稿文案的句式生成，数字全部来自快照。
+
+    句式、标点、"前2位/末位"这些说法都照定稿抄；只有数字与支行名是算出来的。
+    开场白「各支行：现将…通报如下：」只放在（一）里 —— 两份文案按顺序粘起来
+    就是完整的那一份通报。
+    """
+    meta = m['meta']
+    rows = m['rows']
+    tot = m['total']
+    as_of = m['as_of']
+    mo, dy = int(as_of[5:7]), int(as_of[8:10])
+    year = as_of[:4]
+
+    # 成表列号 → 字段名，便于按字段名取数
+    col_of = {spec[0]: ci for ci, spec in m['cols'].items() if spec}
+
+    def pair(name, v, dec, unit):
+        # 不带千分位：定稿里是「颍东(330户)」「界首(1478户)」
+        return f'{_br_short(name)}({v:.{dec}f}{unit})'
+
+    def pick(field):
+        ci = col_of[field]
+        ordered = sorted(rows, key=lambda r: (r['vals'].get(ci) or 0), reverse=True)
+        return [ordered[:2], [ordered[-2], ordered[-1]][::-1]]   # 前二；后二（最差在前）
+
+    def group(field, dec, unit):
+        up, dn = pick(field)
+        ci = col_of[field]
+        up_txt = '、'.join(pair(r['name'], r['vals'].get(ci) or 0, dec, unit) for r in up)
+        dn_txt = '、'.join(pair(r['name'], r['vals'].get(ci) or 0, dec, unit) for r in dn)
+        return up_txt, dn_txt
+
+    s_up, s_dn = group('score', 2, '分')
+    d_up, d_dn = group('dep_inc', 2, '亿元')
+    n_up, n_dn = group('nstock_inc', 2, '亿元')
+    c_up, c_dn = group('c50_inc', 0, '户')
+    r_up, r_dn = group('rej_inc', meta['rej_dec'], '万')
+    k_up, k_dn = group('kp_inc', meta['kp_dec'], '万')
+
+    head = (f'截至{mo}月{dy}日，{"阜阳分行" if block == "ck" else ""}{meta["who"]}管户年日均存款、'
+            f'年日均非存资产较年初分别净增{tot[col_of["dep_inc"]]:.2f}亿元、'
+            f'{tot[col_of["nstock_inc"]]:.2f}亿元。')
+
+    body = [
+        f'（一）{meta["block_name"]}' if block == 'ck' else f'（二）{meta["block_name"]}',
+        '', head, '',
+        '1.排名情况', '',
+        f'{s_up}总分居全市前2位，{s_dn}居全市{meta["tail"]}。', '',
+        '2.增存情况', '',
+        f'{d_up}管户客户日均存款较年初增量居全市前2位，{d_dn}居全市{meta["tail"]}。', '',
+        f'{n_up}管户客户日均非存资产较年初增量居全市前2位，{n_dn}居全市{meta["tail"]}。', '',
+        '3.增客情况', '',
+        f'{c_up}{meta["cust_top"]}，{c_dn}{meta["cust_bot"]}。', '',
+        '4.增贷情况', '',
+        f'{r_up}{meta["rej_label"]}居全市前2位，{r_dn}居全市{meta["tail"]}。', '',
+        f'{k_up}{meta["kp_top"]}，{k_dn}{meta["kp_bot"]}。', '',
+        '备注：具体产品销量、管户覆盖、人员配备以及个人客户经理明细业绩等详见子表。',
+    ]
+
+    if block == 'ck':
+        lead = [
+            '各支行：', '',
+            f'现将{year}年{mo}月{dy}日财富、远维客户经理经营业绩通报如下：', '', '',
+        ]
+        return '\n'.join(lead) + '\n'.join(body)
+    return '\n'.join(body)
+
+
+def build_team_report(block: str, on: str | None = None) -> dict:
+    m = team_matrix(block, on)
+    if not m.get('ok'):
+        return {'ok': False, 'error': m.get('error'), 'nearest': m.get('nearest')}
+    meta = m['meta']
+    return {
+        'ok': True, 'kind': block, 'cat': 'jg',
+        'title': f'{m["as_of"][:4]}年{meta["title"]}（{int(m["as_of"][5:7])}月{int(m["as_of"][8:10])}日）',
+        'as_of': m['as_of'],
+        'tables': [_team_rows_table(block, m), _team_mgr_table(block, m)],
+        'text': _team_text(block, m),
+        'blocks': ['ck', 'yw'],
+    }
+
+
+def build_ck(on: str | None = None) -> dict:
+    return build_team_report('ck', on)
+
+
+def build_yw(on: str | None = None) -> dict:
+    return build_team_report('yw', on)
+
+
+def _team_xlsx(block: str, on: str | None = None) -> tuple[bytes, str]:
+    """拿官方成表当母版：写 `支行通报数据` 的数据格 + `明细` 的整张明细，另存。"""
+    import copy
+
+    import openpyxl
+
+    m = team_matrix(block, on)
+    if not m.get('ok'):
+        raise RuntimeError(m.get('error') or '该日期没有数据')
+    meta = m['meta']
+    base = meta['base']
+    if not base.exists():
+        raise RuntimeError(f'缺少母版 {base.name}，先跑 scripts/build_team_bases.py')
+    wb = openpyxl.load_workbook(base)
+    rep = wb['支行通报数据']
+
+    as_of = m['as_of']
+    mo, dy = int(as_of[5:7]), int(as_of[8:10])
+    rep.cell(1, 2).value = f'{as_of[:4]}年{meta["title"]}（{mo}月{dy}日）'
+
+    # 数据行：母版 B 列是固定机构顺序，按名字对上号再写数
+    by_name = {r['name']: r for r in m['rows']}
+    for row in range(5, 13):
+        name = rep.cell(row, 2).value
+        rec = by_name.get(name)
+        if not rec:
+            continue
+        rep.cell(row, 1).value = rec['rank']
+        for ci, v in rec['vals'].items():
+            rep.cell(row, ci).value = v
+    rep.cell(13, 1).value = '－'                  # 合计行的"排名"格是破折号
+    for ci, v in m['total'].items():
+        rep.cell(13, ci).value = v
+
+    # 明细子表：整张明细原样回填（列位置不动，保留全部列）
+    det = wb[wb.sheetnames[1]]
+    detail = m['body'].get('detail') or []
+    style_row = 4 if det.max_row >= 4 else None
+    for i, raw in enumerate(detail):
+        r = 4 + i
+        if r > det.max_row and style_row:
+            for c in range(1, len(raw) + 1):
+                det.cell(r, c)._style = copy.copy(det.cell(style_row, c)._style)
+        for c, v in enumerate(raw, start=1):
+            det.cell(r, c).value = v
+
+    data = xlsx_keep.save_like(base, wb)
+    name = f'{as_of[:4]}年{meta["title"]}（{mo}.{dy}）.xlsx'
+    return data, name
+
+
+def ck_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    return _team_xlsx('ck', on)
+
+
+def yw_xlsx(on: str | None = None) -> tuple[bytes, str]:
+    return _team_xlsx('yw', on)
+
+
 # ---------------------------------------------------------------- 一卡一户
 YIKA_BASE = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'yika_base.xlsx'
 YIKA_FIRST_ROW, YIKA_LAST_ROW = 4, 52
@@ -1314,12 +1615,13 @@ def pbs_dev_xlsx(on: str | None = None) -> tuple[bytes, str]:
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
             'deposit': build_deposit, 'community': build_community,
             'downgrade': build_downgrade, 'yika': build_yika, 'pbs': build_pbs,
-            'jiepan': build_jiepan}
+            'jiepan': build_jiepan, 'ck': build_ck, 'yw': build_yw}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
 
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
 CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
-          'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs', 'pbs_dev': 'pbs', 'jiepan': 'jg'}
+          'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs', 'pbs_dev': 'pbs', 'jiepan': 'jg',
+          'ck': 'jg', 'yw': 'jg'}
 
 
 def build(kind: str, on: str | None = None,
@@ -1576,7 +1878,8 @@ def pbs_bundle(on: str | None = None) -> tuple[bytes, str]:
 
 XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
         'deposit': deposit_xlsx, 'community': community_xlsx, 'downgrade': downgrade_xlsx,
-        'yika': yika_xlsx, 'pbs': pbs_xlsx, 'pbs_dev': pbs_dev_xlsx, 'jiepan': jiepan_xlsx}
+        'yika': yika_xlsx, 'pbs': pbs_xlsx, 'pbs_dev': pbs_dev_xlsx, 'jiepan': jiepan_xlsx,
+        'ck': ck_xlsx, 'yw': yw_xlsx}
 
 
 def xlsx(kind: str, on: str | None = None,

@@ -34,6 +34,13 @@ CASES = [
     # 官方 Sheet6 的 B 列是外部链接公式（=[1]网点草稿!B45），必须让 LibreOffice 重算才有值；
     # 官方 G12（合计资金承接率）公式范围只到 4902 行，本身有错，跳过该格。
     ('jiepan', '2026-10-25', Path('/mnt/d/资料/ICBC/20261028定期承接/10.25到期承接率.xlsx'), True),
+    # 经理队伍：两份官方成表。远维的 R~V 五列官方 VLOOKUP 序号错位（取到了社保卡存量等），
+    # 我们按表头自己取数，所以这几列比不过，列在 KNOWN_BAD 里跳过；A14 备注行按需求留空。
+    # 官方报表区全是 VLOOKUP/RANK 公式（引用同簿的中间透视表），必须让 LibreOffice 重算
+    ('ck', '2026-10-21',
+     Path('/mnt/d/资料/ICBC/20261029财客远维/2026年财富客户经理经营业绩通报（2026年10月21日）.xlsx'), True),
+    ('yw', '2026-10-21',
+     Path('/mnt/d/资料/ICBC/20261029财客远维/2026年远维经理营销PK赛通报（2026年10月21日）.xlsx'), True),
 ]
 
 # 每条通报导出时的额外参数（目前只有 jiepan 用得到）
@@ -42,6 +49,13 @@ EXPORT_ARGS = {
 }
 # 已知的"官方本身有错"的单元格：(kind, sheet, row, col) —— 跳过不比
 KNOWN_BAD = {('jiepan', 'Sheet7', 12, 7)}
+# 远维成表 14 行 A 列是当期手写备注（"阜南支行因远维更换…"），按需求导出时留空；
+# R~V（18~22 列）官方 VLOOKUP 序号错位，我们按表头取数，必然与官方不同。
+SKIP_CELLS = {
+    'yw': {(r, 1) for r in (14,)} | {(r, c) for r in range(5, 14) for c in range(18, 23)},
+}
+# 官方明细子表末尾的隐藏临时名单区（远维 15 行往后），母版里已删掉，不比
+SKIP_DETAIL_ROWS = {'yw': 15}
 # 按"名称对齐"比数值的通报（行顺序两边不同，逐格比没意义）：
 #   jiepan 的 Sheet6 按网点排序、Sheet7 按支行排序；官方 Sheet7 的 A 列顺序本身是错的
 #   （它把排名算在固定的 H16:I23 上，数据行又被重排过，`C4=I16` 这类引用整体错位），
@@ -159,8 +173,17 @@ def main() -> int:
             if spec:
                 d = diff_by_name(ref_wb[sn], our_wb[sn], spec)
             else:
-                d = [x for x in diff_sheets(ref_wb[sn], our_wb[sn])
-                     if (kind, sn, x[0], x[1]) not in KNOWN_BAD]
+                skip = SKIP_CELLS.get(kind) or set()
+                det_from = SKIP_DETAIL_ROWS.get(kind)
+                d = []
+                for x in diff_sheets(ref_wb[sn], our_wb[sn]):
+                    if (kind, sn, x[0], x[1]) in KNOWN_BAD:
+                        continue
+                    if sn == '支行通报数据' and (x[0], x[1]) in skip:
+                        continue
+                    if det_from and sn != '支行通报数据' and x[0] >= det_from:
+                        continue
+                    d.append(x)
             total += len(d)
             detail += [(sn,) + x for x in d[:3]]
         flag = 'OK' if total == 0 else f'{total} 处差异'

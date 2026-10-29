@@ -676,13 +676,61 @@ def build_pbs(on: str | None = None) -> dict:
         'sales_source': snap.get('sales_source'),
     }
 
+def build_team(on: str | None = None) -> dict:
+    """经理队伍：财客 / 远维 两块（同一份快照里各占一个键）。
+
+    每块都给三层：`branches`（8 家支行）、`nets`（财客有 40 个网点）、`mgr_rows`（客户经理）。
+    金额一律**原始万元**，换算交给页面与报表（财客成表把理财换成亿元、远维不换）。
+    `detail` 是整张明细（导出 Excel 的第二个子表要用），体量大，**不进 /api/all**。
+    """
+    s = _latest('team', on)
+    if not s:
+        return _no_data('team', on)
+
+    def pack(b):
+        if not b:
+            return None
+        return {
+            'label': b.get('label'), 'short': b.get('short'), 'has_net': b.get('has_net'),
+            'n': b.get('n'), 'src': b.get('src'), 'as_of': b.get('as_of'),
+            'branches': b.get('branches') or [],
+            'nets': b.get('nets') or [],
+            'mgr_rows': b.get('mgr_rows') or [],
+            'total': b.get('total') or {},
+        }
+
+    blocks = s.get('blocks') or []
+    out = {'ok': True, 'as_of': s.get('as_of'), 'as_of_cn': s.get('as_of_cn'),
+           'blocks': blocks, 'notes': s.get('_notes') or [],
+           'ck': pack(s.get('ck')), 'yw': pack(s.get('yw'))}
+    if not blocks:
+        return _no_data('team', on)
+    return out
+
+
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
             'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika,
-            'pbs': build_pbs, 'jiepan': build_jiepan}
+            'pbs': build_pbs, 'jiepan': build_jiepan, 'team': build_team}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
            'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
-           'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs', 'jiepan': 'jp'}
+           'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs', 'jiepan': 'jp',
+           'team': 'team'}
+
+
+def team_kpi(d: dict) -> dict:
+    """首页卡片用：财客/远维的总分与存款增量（亿元）。"""
+    out = {}
+    for k in ('ck', 'yw'):
+        b = d.get(k)
+        if not b:
+            continue
+        t = b.get('total') or {}
+        out[k] = {'score': _r(t.get('score'), 2),
+                  'dep_inc': _r((t.get('dep_inc') or 0) / 10000.0, 2),
+                  'nstock_inc': _r((t.get('nstock_inc') or 0) / 10000.0, 2),
+                  'mgrs': b.get('n')}
+    return out
 
 
 # ---------------------------------------------------------------- 汇总
@@ -693,6 +741,7 @@ def build_overview(on: str | None = None) -> dict:
     g = build_downgrade(on)
     y = build_yika(on)
     jp = build_jiepan(on)
+    tm = build_team(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -715,6 +764,8 @@ def build_overview(on: str | None = None) -> dict:
         'jiepan': {'ok': jp.get('ok'), 'as_of': jp.get('as_of'), 'kpi': jp.get('kpi'),
                    'nearest': jp.get('nearest'), 'period': jp.get('period'),
                    'coverage': jp.get('coverage')},
+        'team': {'ok': tm.get('ok'), 'as_of': tm.get('as_of'), 'kpi': team_kpi(tm),
+                 'nearest': tm.get('nearest'), 'blocks': tm.get('blocks')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,

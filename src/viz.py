@@ -52,6 +52,8 @@ LINES = {
             'hint': '客编日均资产明细（归属支行/网点 + 本月月日均资产）；日期从文件名识别'},
     'jp': {'label': '定期承接', 'skill': '',
            'hint': '客编明细（含 归属支行/机构名称/最近到期日期/定期余额变化），取数日往前一个月'},
+    'team': {'label': '经理队伍', 'skill': '',
+             'hint': '财客/远维客户经理明细（可只传一个；日期认文件名，认不出会提示手填）'},
 }
 
 _mods: dict[str, object] = {}
@@ -702,13 +704,30 @@ def import_jiepan(files, line, root, data_date=None, overrides=None):
     return jiepan.parse_files(files, as_of=data_date, overrides=overrides)
 
 
+def import_team(files, line, root, data_date=None):
+    """经理队伍：财客 / 远维 两块。
+
+    一次给两个工作簿也行，只给一个就只更新那一块；同一天之前导过另一块的话，
+    从旧快照里带过来合并（见 ingest.team.merge）。
+    """
+    from ingest import team
+    dd, snap = team.parse_files(files, as_of=data_date)
+    existing = None
+    for old in store.load_snapshots('team'):
+        if (old.get('as_of') or '') == dd:
+            existing = old
+            break
+    return dd, team.merge(existing, snap)
+
+
 # 这些导入器的签名带 data_date=(, overrides=)
-DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp')
+DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp', 'team')
 
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
              'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
-             'ykh': import_yika, 'pbs': import_pbs, 'jp': import_jiepan}
+             'ykh': import_yika, 'pbs': import_pbs, 'jp': import_jiepan,
+             'team': import_team}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,

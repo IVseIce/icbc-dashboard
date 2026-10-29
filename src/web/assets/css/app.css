@@ -834,3 +834,20 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .jp-edit-grid input:focus{outline:none;border-color:var(--blue)}
 .jp-edit-foot{display:flex;align-items:center;gap:10px;margin-top:9px}
 .jp-edit-warn{font-size:11px;color:#b07d00;flex:1}
+
+/* ============================== 经理队伍（财客 / 远维） ============================== */
+.tm-tabs{display:inline-flex;gap:4px;background:#eef2f8;border-radius:20px;padding:3px;margin:2px 0 14px}
+.tm-tab{border:0;background:transparent;color:var(--ink-3);font-size:12.5px;padding:5px 16px;
+  border-radius:16px;cursor:pointer;font-family:inherit;transition:.16s var(--ease)}
+.tm-tab:hover{color:var(--ink)}
+.tm-tab.on{background:#fff;color:var(--ink);font-weight:650;box-shadow:0 1px 4px rgba(13,27,49,.12)}
+
+.tm-list{display:flex;flex-direction:column;gap:1px;padding-top:2px}
+.tm-row{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:9px;font-size:12.5px;
+  transition:.15s var(--ease)}
+.tm-row:hover{background:#f7f9fd}
+.tm-row .tm-nm{font-weight:650;color:var(--ink);min-width:76px}
+.tm-row .tm-sub{color:var(--ink-3);font-size:11.5px;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-row b{font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.tm-notes{color:var(--ink-3);font-size:12px;line-height:1.9;padding:2px 2px 4px}
