@@ -182,6 +182,18 @@ def _header_paths(ws, ncols: int, rows=(1, 2, 3)) -> dict[int, tuple[str, ...]]:
     return out
 
 
+def _is_subseq(want: tuple[str, ...], got: tuple[str, ...]) -> bool:
+    """want 的每一段都要在 got 里**按顺序**出现（允许中间夹别的）。
+
+    不用等值比较，是因为同一份表在两种情况下「表头路径」长度会不同：
+      - 合并区被 Excel 展平过（第 2 行不再有合并，路径会短一截）
+      - 表头里补了空格/换行/「（万元）」这类后缀
+    这两种都不该拦人；而**列位置真的挪了**时，want 里的某段就会对不上位置。
+    """
+    it = iter(got)
+    return all(any(w == g for g in it) for w in want)
+
+
 def _check_headers(name: str, ws, block: str) -> None:
     want = CHECK[block]
     ncols = BLOCKS[block]['ncols']
@@ -191,10 +203,102 @@ def _check_headers(name: str, ws, block: str) -> None:
     paths = _header_paths(ws, ncols)
     for c, expect in want.items():
         got = paths.get(c) or ()
-        if tuple(expect) != got[-len(expect):]:
+        if not _is_subseq(tuple(expect), got):
             raise ValueError(
                 f'「{name}/{ws.title}」第 {c} 列表头是 {"/".join(got) or "空"}，'
-                f'预期 {"/".join(expect)} —— 源表列位置变了，先核对再导')
+                f'预期包含 {"/".join(expect)} —— 源表列位置变了，先核对再导')
+
+
+# ---------------------------------------------------------------- 识别是哪一块
+# 判定顺序（与 jiepan / pbs 一致：**内容优先，名字只作加分**）：
+#   1. 逐个子表扫表头，用「必须同时出现的列名」判这块是财客还是远维
+#   2. 表头判不出来时，才用子表名（`财客明细` / `远维明细`）+ 文件名兜底
+# 这样源表把子表改名（甚至改成 Sheet1）、或把两块塞进同一个工作簿，都还能认出来。
+
+def _row_text(ws, r: int, ncols: int) -> str:
+    return ''.join(_norm(ws.cell(r, c).value) for c in range(1, ncols + 1))
+
+
+# 每块的三行表头特征：必须**同时**出现。用「表头路径里是否含这些片段」判，
+# 不做等值比较（源表偶尔给表头补空格/换行/"（万元）"这类后缀）。
+SIGNATURE = {
+    'ck': {
+        'must': ('分行', '支行', '网点', '客户经理姓名', '统一认证号', '管户数',
+                 '总得分', '储蓄存款', '非存金融资产', '期缴保险', '个人理财'),
+        'any': ('增存', '增客', '增收', '增贷', '产品', '履职类'),
+    },
+    'yw': {
+        'must': ('支行', '客户经理姓名', '统一认证号', '管户数',
+                 '总得分', '储蓄存款', '非存金融资产', '个人理财'),
+        # 远维**没有**网点列、也**没有**期缴保险列 —— 用它区分财客
+        'without': ('网点', '期缴保险', '分行'),
+        'any': ('增存', '增客', '增收', '增贷', '产品', '履职'),
+    },
+}
+
+
+def _looks_like(block: str, text: str) -> bool:
+    """这段表头文字像不像 `block` 的明细表。"""
+    sig = SIGNATURE[block]
+    n = len(text)
+    if n < 200:                                  # 表头太短，不可能是明细
+        return False
+    if not all(k in text for k in sig['must']):
+        return False
+    if any(k in text for k in sig.get('without') or ()):
+        return False
+    return any(k in text for k in sig.get('any') or ())
+
+
+def _three_row_header(ws, ncols: int) -> bool:
+    """明细表是**三行表头**（第 4 行才是第一条数据）。
+
+    这条是区分「财客明细」和同簿的「计算１」的关键：`计算１` 里是同一份数据，
+    但表头被压成了一行（第 2 行就是"阜阳 / 颍泉支行 / …"的数据行）。
+    判据：第 2、3 行都够宽，且第 2 行里**没有任何数字**（表头文字里不会有数值）。
+    """
+    # 数"这一行有几列有东西"要**按合并区展开**：第 2 行是分组表头，
+    # 大量单元格其实在合并区里（openpyxl 读出来是 None），直接数会严重偏少。
+    covered: dict[int, set[int]] = {2: set(), 3: set()}
+    for mr in ws.merged_cells.ranges:
+        for r in (2, 3):
+            if mr.min_row <= r <= mr.max_row:
+                covered[r].update(range(mr.min_col, mr.max_col + 1))
+
+    for r in (2, 3):
+        filled = sum(1 for c in range(1, ncols + 1)
+                     if c in covered[r] or _text(ws.cell(r, c).value))
+        if filled < 30:
+            return False
+    # 表头行里不该出现纯数值（中间表/透视表的第 2 行就是数据行）
+    for c in range(1, ncols + 1):
+        v = ws.cell(2, c).value
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return False
+    return True
+
+
+def _sniff_sheet(ws) -> tuple[str | None, str]:
+    """看一眼这张子表能不能当明细用：返回 (block|None, 说明)。"""
+    if ws.max_row < 5 or ws.max_column < 40:
+        return None, f'行列太少（{ws.max_row}×{ws.max_column}），不是明细表'
+    ncols = min(ws.max_column, 100)
+    if not _three_row_header(ws, ncols):
+        return None, '不是三行表头（可能是中间表/透视表）'
+    head = ' '.join(_row_text(ws, r, ncols) for r in (1, 2, 3))
+    for block in ('ck', 'yw'):
+        if _looks_like(block, head):
+            return block, '按表头识别'
+    return None, '表头对不上财客/远维明细'
+
+
+def _by_name(wb) -> dict[str, str]:
+    """名字兜底：子表名或工作簿名里带「财客 / 财富」「远维」，且容器里只有这一张像样的表。"""
+    out = {}
+    for block, cfg in BLOCKS.items():
+        if cfg['sheet'] in wb.sheetnames:
+            out[block] = cfg['sheet']
+    return out
 
 
 # ---------------------------------------------------------------- 读一张明细
@@ -323,20 +427,54 @@ def parse_files(files, as_of: str | None = None) -> tuple[str, dict]:
     dates = []
     for name, blob in files:
         wb = openpyxl.load_workbook(io.BytesIO(blob), data_only=True)
-        hit = None
-        for block, cfg in BLOCKS.items():
-            if cfg['sheet'] in wb.sheetnames:
-                hit = block
-                break
-        if hit is None:
-            raise ValueError(f'「{name}」里找不到「财客明细」或「远维明细」子表'
-                             f'（现有子表：{"、".join(wb.sheetnames)}）')
-        if hit in found:
-            raise ValueError(f'两个文件都是「{BLOCKS[hit]["short"]}」，只能各传一个')
-        body = _finish(hit, _read_block(name, wb[BLOCKS[hit]['sheet']], hit))
-        body['as_of'] = None
-        found[hit] = body
-        used.append({'name': name, 'role': f'{BLOCKS[hit]["label"]}明细'})
+
+        # ① 先按**内容**扫全部子表：谁的表头像财客/远维就用谁（子表名字随便取也认）
+        cands: dict[str, list[tuple[str, str]]] = {}
+        skipped: list[str] = []
+        for ws in wb.worksheets:
+            block, why = _sniff_sheet(ws)
+            if block:
+                cands.setdefault(block, []).append((ws.title, why))
+            elif ws.title in (v['sheet'] for v in BLOCKS.values()):
+                skipped.append(f'{ws.title}（{why}）')
+
+        # ② 同一个工作簿里两块都有：直接都收（用户把两个表塞进一个文件也不奇怪）
+        #    同一块出现多次：优先名字正好叫「财客明细 / 远维明细」的那张
+        picked: list[tuple[str, str]] = []
+        for block, hits in cands.items():
+            name_hit = [h for h in hits if h[0] == BLOCKS[block]['sheet']]
+            title = (name_hit or hits)[0][0]
+            if len(hits) > 1 and not name_hit:
+                used.append({'name': name, 'role': f'{BLOCKS[block]["label"]}：'
+                             f'有 {len(hits)} 张子表都像，取第一张「{title}」'})
+            picked.append((block, title))
+
+        # ③ 内容一个都没认出来 → 才用子表名兜底（老版本的行为）
+        if not picked:
+            named = _by_name(wb)
+            for block, title in named.items():
+                ws = wb[title]
+                if ws.max_row >= 5:
+                    picked.append((block, title))
+                    used.append({'name': name,
+                                 'role': f'{BLOCKS[block]["label"]}明细（按子表名识别）'})
+            if not picked:
+                detail = f'；跳过的：「{"、".join(skipped)}」' if skipped else ''
+                raise ValueError(
+                    f'「{name}」里没认出财客/远维明细表。判断依据是表头：'
+                    f'财客要有「分行/网点/客户经理姓名/储蓄存款/期缴保险」，'
+                    f'远维要有「支行/客户经理姓名/储蓄存款」且没有网点列。'
+                    f'现有子表：{"、".join(wb.sheetnames)}{detail}')
+
+        for block, title in picked:
+            if block in found:
+                raise ValueError(f'两个文件都是「{BLOCKS[block]["short"]}」，只能各传一个')
+            body = _finish(block, _read_block(name, wb[title], block))
+            body['as_of'] = None
+            found[block] = body
+            if not any(u['name'] == name and BLOCKS[block]['label'] in u['role'] for u in used):
+                used.append({'name': name, 'role': f'{BLOCKS[block]["label"]}明细（{title}）'})
+
         d = date_from_name(name)
         if d:
             dates.append(d)
