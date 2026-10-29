@@ -129,8 +129,16 @@ def run() -> tuple[Checker, list[dict]]:
                 })
 
     # 通报三处对齐
+    # 母版检查：一份通报可以有多份成表（pbs / team），按 XLSX 注册的 key 找母版，
+    # 只有"既不是 builder 又没有 downloads"的才算缺（team 用 ck_base / yw_base）
+    # 一份通报可以有多份成表：pbs（核心指标 + 发展情况）、team（财客 + 远维）。
+    # 这类通报的 builder 名与母版名不同，按 XLSX 注册表里"以它自己开头"的 key 找母版。
+    def bases_of(k: str) -> list[str]:
+        return list(report.BASES_OF.get(k) or (k,))
+
     xlsx_missing = [k for k in report.BUILDERS
-                    if not (PROJECT / 'src' / 'report' / 'assets' / f'{k}_base.xlsx').exists()]
+                    if not any((PROJECT / 'src' / 'report' / 'assets' / f'{b}_base.xlsx').exists()
+                               for b in bases_of(k))]
     for k in xlsx_missing:
         c.err(f'通报 {k}: 缺少样式母版 src/report/assets/{k}_base.xlsx')
     for k in report.BUILDERS:

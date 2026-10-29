@@ -11,7 +11,7 @@
 | 导入 | `viz.import_team` → `IMPORTERS['team']`；`DATE_ARG_LINES` 含 `team` |
 | 视图 | `api.build_team` → `BUILDERS['team']`、`LINE_OF['team']='team'`；`team_kpi()` 供首页 |
 | 页面 | `pages/team.js`，路由 `#/m/jg-deposit-team`（`?b=yw` 切远维） |
-| 通报 | 两条：`report.build_ck`/`ck_xlsx`、`build_yw`/`yw_xlsx`；`CAT_OF` 都是 `jg` |
+| 通报 | **一条**：`report.build_team`（`CAT_OF['team']='jg'`），导出走 `ck_xlsx` / `yw_xlsx` 两个 key；`BASES_OF['team']=('ck','yw')` |
 | 母版 | `src/report/assets/ck_base.xlsx` / `yw_base.xlsx`，由 `scripts/build_team_bases.py` 从官方成表生成 |
 | 口令可见 | 个金口令、管理员 |
 
@@ -59,6 +59,18 @@
 
 「贷记卡纯消费增量」这一列官方压根没引用。**用户 2026-10-29 确认按表头取数（与财客对齐）**，
 所以导出与官方原件在这 5 列上不同 —— 对账脚本用 `SKIP_CELLS['yw']` 跳过这几格。
+
+## 通报（一条 + 两个下载按钮）
+
+用户 2026-10-29 明确要求：**不拆成两条通报**。所以：
+
+- `report.build_team()` 把两块合成一条，`text` 是**整篇**（开场白 + （一）财客 + （二）远维），
+  一次「复制文案」就是完整通报
+- 返回 `downloads: [{key:'ck', name:'下载 财客 Excel（10.21）'}, {key:'yw', …}]`，
+  前端 `report.js::paintDownloads()` 按这个**动态渲染按钮**（以前是两个写死的 id）
+- 表格四张：`财客·支行 / 财客·客户经理 / 远维·支行 / 远维·客户经理`，标题都带块名和日期
+- 只导了一块时：只出那一块，并在页面顶部提示"仅导入了一块：还没有「远维」的数据"
+- `report.build_ck` / `build_yw` 仍然保留（单独取一块数据时用），但**不注册进 `BUILDERS`**
 
 ## 文案
 

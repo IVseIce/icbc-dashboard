@@ -4,7 +4,7 @@
    数据来自 api.build_team，金额单位是**原始万元**（财客成表把理财换成亿元、远维不换，
    页面上统一按「亿元 / 万元 / 户」各自标注，不再二次换算成别的口径）。 */
 import { fmt, countUp, empty, icon, table, bigTable, toast } from '../ui.js';
-import { mount, C, barRank, splitRank } from '../charts.js';
+import { mount, disposeAll, C, barRank, splitRank } from '../charts.js';
 
 const RED = '#e11d48', GREEN = '#0f9f6e';
 const BLOCK_LABEL = { ck: '财客', yw: '远维' };
@@ -53,23 +53,16 @@ export default {
     // 当前看哪一块：地址栏 ?b=yw 优先；否则默认第一个
     const q = new URL(location.href).searchParams.get('b');
     const active = blocks.includes(q) ? q : blocks[0];
-    const paint = (block) => renderBlock(view, data, ctx, block, blocks);
-    view.innerHTML = '';
-    paint(active);
 
-    view.querySelectorAll('.tm-tab').forEach((btn) => {
-      btn.onclick = () => {
-        if (btn.dataset.block === active) return;
-        const u = new URL(location.href);
-        u.searchParams.set('b', btn.dataset.block);
-        history.replaceState(null, '', u.pathname + u.search + u.hash);
-        paint(btn.dataset.block);
-      };
-    });
+    // 切块 = 整页重画，所以页签不能只绑一次：
+    // renderBlock 每次都会重建 DOM，绑定必须放在它里面（踩过：第二次点没反应）
+    const paint = (block) => renderBlock(view, data, ctx, block, blocks, paint);
+    paint(active);
   },
 };
 
-function renderBlock(view, data, ctx, block, blocks) {
+function renderBlock(view, data, ctx, block, blocks, paint) {
+  disposeAll();                       // 先销毁上一块的图表实例，别让它们挂在已移除的节点上
   const d = data.team;
   const b = d[block];
   const meta = { ck: { who: '财客', cust: '50万元以上客户', ins: '期缴保险' },
@@ -232,6 +225,18 @@ function renderBlock(view, data, ctx, block, blocks) {
     title: `经理队伍 · ${meta.who}客户经理明细`,
     subtitle: `${fmt.date(d.as_of)} · ${mgrRows.length} 人 · 按总得分排序`,
     columns: mgrCols, rows: mgrRows,
+  });
+
+  // 页签：每次重画都要重新绑（DOM 是新的）
+  view.querySelectorAll('.tm-tab').forEach((btn) => {
+    btn.onclick = () => {
+      const next = btn.dataset.block;
+      if (next === block) return;
+      const u = new URL(location.href);
+      u.searchParams.set('b', next);
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+      paint(next);
+    };
   });
 }
 

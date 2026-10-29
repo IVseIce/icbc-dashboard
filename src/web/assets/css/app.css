@@ -851,3 +851,9 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tm-row b{font-variant-numeric:tabular-nums;color:var(--ink-2)}
 .tm-notes{color:var(--ink-3);font-size:12px;line-height:1.9;padding:2px 2px 4px}
+
+/* 通报中心：多个下载按钮在同一模块里并排 */
+.rep-dl{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rep-dl .btn.btn-primary{margin-right:0}
+.rep-miss{margin-bottom:12px;padding:10px 16px;border-radius:12px;background:var(--amber-soft);
+  border:1px solid #f4dfb6;color:#8a5a06;font-size:12.5px;line-height:1.7}

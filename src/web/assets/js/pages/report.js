@@ -20,8 +20,7 @@ const LINES = [
   { id: 'jiepan', name: '到期承接情况通报', cat: 'jg' },
   { id: 'yika', name: '“一卡一户”日通报', cat: 'jg' },
   { id: 'pbs', name: '私人银行核心指标', cat: 'pbs' },
-  { id: 'ck', name: '财客经理经营业绩', cat: 'jg' },
-  { id: 'yw', name: '远维经理经营业绩', cat: 'jg' },
+  { id: 'team', name: '客户经理经营业绩', cat: 'jg' },
 ];
 
 export default {
@@ -67,8 +66,7 @@ export default {
         <div class="rep-tabs" id="tabs"></div>
         <div class="rep-actions">
           <button class="btn btn-primary" id="copyText">${icon('file', 14)} 复制文案</button>
-          <button class="btn" id="dlExcel">${icon('down', 14)} 下载 Excel</button>
-          <button class="btn" id="dlDev" style="display:none">${icon('down', 14)} 下载发展情况表</button>
+          <span id="dlSlot" class="rep-dl"></span>
           <button class="btn" id="copyImg">${icon('spark', 14)} 复制图片</button>
           <button class="btn" id="saveImg">${icon('down', 14)} 导出图片</button>
         </div>
@@ -130,7 +128,11 @@ export default {
       const asof = r.as_of ? `数据截至 ${fmt.date(r.as_of)}${date ? ` · 所选 ≤${fmt.date(date)}` : ''}` : '';
       setAsof(asof || '—');
       if (!date && r.as_of) setDatePickers(r.as_of);
+      const missing = (r.missing || []).length
+        ? `<div class="card rep-miss">仅导入了一块：还没有「${r.missing.join('、')}」的数据；
+             导了之后这一页会自动补上</div>` : '';
       body.innerHTML = `
+        ${missing}
         <div class="card rep-text-card">
           <div class="card-head"><h3>通报文案</h3>
             <div class="right"><span class="chip">可直接粘贴到企微 / 邮件</span></div></div>
@@ -138,26 +140,36 @@ export default {
         </div>
         ${r.tables.map((t, i) => tableCard(t, i)).join('')}`;
 
-      // 私银有两份成表：第一个按钮下核心指标，第二个下网点发展情况。
-      // （曾试过打包成一个 zip 由一个按钮下载，出过问题，先退回两个按钮。）
-      const dlDev = view.querySelector('#dlDev');
-      if (dlDev) {
-        dlDev.style.display = kind === 'pbs' ? '' : 'none';
-        dlDev.onclick = () => downloadExcel('pbs_dev');
-      }
+      // 下载按钮按后端给的 downloads 渲染（默认就是当前这条的一份）。
+      // 有多份成表的通报（私银、经理队伍）就在同一个模块里并排放几个按钮，
+      // 不拆成两条通报 —— 用户要的是"一个模块、几个下载"。
+      paintDownloads(r.downloads);
       view.querySelector('#copyText').onclick = async () => {
         try { await navigator.clipboard.writeText(r.text); toast('文案已复制'); }
         catch { fallbackCopy(r.text); }
       };
       view.querySelector('#saveImg').onclick = () => exportImage('download');
       view.querySelector('#copyImg').onclick = () => exportImage('copy');
-      view.querySelector('#dlExcel').onclick = () => downloadExcel();
     }
 
-    async function downloadExcel(which) {
+    /** 下载按钮组：`downloads` 为空时退化成"下载 Excel"一个按钮 */
+    function paintDownloads(list) {
+      const slot = view.querySelector('#dlSlot');
+      if (!slot) return;
+      const items = (list && list.length) ? list : [{ key: kind, name: '下载 Excel' }];
+      slot.innerHTML = items.map((d, i) => {
+        const primary = items.length === 1 || i === 0;
+        return `<button class="btn${primary ? ' btn-primary' : ''}" data-dl="${d.key}">
+          ${icon('down', 14)} ${d.name}</button>`;
+      }).join('');
+      slot.querySelectorAll('[data-dl]').forEach((b) => {
+        b.onclick = () => downloadExcel(b.dataset.dl, b);
+      });
+    }
+
+    async function downloadExcel(which, btn) {
       const target = which || kind;
-      const btn = which ? view.querySelector('#dlDev') : view.querySelector('#dlExcel');
-      btn.disabled = true;
+      if (btn) btn.disabled = true;
       try {
         const res = await authFetch(`/api/report/${target}.xlsx${q(target)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -173,7 +185,7 @@ export default {
       } catch (err) {
         if (!err.auth) toast(`下载失败：${err.message}`, 'err');
       } finally {
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
       }
     }
 

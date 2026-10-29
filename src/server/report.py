@@ -808,7 +808,7 @@ def _team_mgr_table(block: str, m: dict) -> dict:
     return {'name': '客户经理', 'columns': cols, 'rows': rows, 'totals': None}
 
 
-def _team_text(block: str, m: dict) -> str:
+def _team_text(block: str, m: dict, lead: bool = True) -> str:
     """按定稿文案的句式生成，数字全部来自快照。
 
     句式、标点、"前2位/末位"这些说法都照定稿抄；只有数字与支行名是算出来的。
@@ -868,13 +868,24 @@ def _team_text(block: str, m: dict) -> str:
         '备注：具体产品销量、管户覆盖、人员配备以及个人客户经理明细业绩等详见子表。',
     ]
 
-    if block == 'ck':
-        lead = [
+    if block == 'ck' and lead:
+        head_lines = [
             '各支行：', '',
             f'现将{year}年{mo}月{dy}日财富、远维客户经理经营业绩通报如下：', '', '',
         ]
-        return '\n'.join(lead) + '\n'.join(body)
+        return '\n'.join(head_lines) + '\n'.join(body)
     return '\n'.join(body)
+
+
+def _team_lead(ck_m: dict | None, yw_m: dict | None) -> list[str]:
+    """合并通报的开场白：日期取两块里较早的那个（两块同日时就是它）。"""
+    dates = [x['as_of'] for x in (ck_m, yw_m) if x and x.get('as_of')]
+    if not dates:
+        return []
+    first = min(dates)
+    mo, dy = int(first[5:7]), int(first[8:10])
+    return ['各支行：', '',
+            f'现将{first[:4]}年{mo}月{dy}日财富、远维客户经理经营业绩通报如下：', '', '']
 
 
 def build_team_report(block: str, on: str | None = None) -> dict:
@@ -898,6 +909,69 @@ def build_ck(on: str | None = None) -> dict:
 
 def build_yw(on: str | None = None) -> dict:
     return build_team_report('yw', on)
+
+
+def build_team(on: str | None = None) -> dict:
+    """财客 + 远维两块合成**一条**通报（用户要求：不拆成两条）。
+
+    - 文案：开场白一次 + （一）财客 + （二）远维，整段可一键复制
+    - 表格：两块各自的「支行」与「客户经理」表，标题带块名，用户不会看混
+    - 下载：`downloads` 给前端渲染**两个按钮**，各自带自己的数据日期
+    - 只导了其中一块时，只出那一块，另一块在 `missing` 里说明
+    """
+    blocks = {}
+    for b in ('ck', 'yw'):
+        m = team_matrix(b, on)
+        if m.get('ok'):
+            blocks[b] = m
+
+    if not blocks:
+        d = api.build_team(on)
+        return {'ok': False, 'error': '该日期没有经理队伍数据', 'nearest': d.get('nearest')}
+
+    parts = []
+    tables = []
+    for b in ('ck', 'yw'):
+        m = blocks.get(b)
+        if not m:
+            continue
+        meta = m['meta']
+        mo, dy = int(m['as_of'][5:7]), int(m['as_of'][8:10])
+        parts.append(_team_text(b, m, lead=False).strip())
+        bt = _team_rows_table(b, m)
+        bt['name'] = f'{meta["short"]} · 支行（{mo}月{dy}日）'
+        mt = _team_mgr_table(b, m)
+        mt['name'] = f'{meta["short"]} · 客户经理（{mo}月{dy}日）'
+        tables += [bt, mt]
+
+    ck_m, yw_m = blocks.get('ck'), blocks.get('yw')
+    lead = _team_lead(ck_m, yw_m)
+    text = '\n'.join(lead) + '\n\n'.join(parts)
+    if lead:
+        text = '\n'.join(lead) + '\n\n'.join(parts)
+
+    downloads = []
+    for b in ('ck', 'yw'):
+        m = blocks.get(b)
+        if not m:
+            continue
+        mo, dy = int(m['as_of'][5:7]), int(m['as_of'][8:10])
+        downloads.append({'key': b, 'name': f'下载 {m["meta"]["short"]} Excel（{mo}.{dy}）'})
+
+    dates = {b: blocks[b]['as_of'] for b in blocks}
+    as_of = max(dates.values()) if dates else None
+    missing = [('财客' if b == 'ck' else '远维') for b in ('ck', 'yw') if b not in blocks]
+
+    return {
+        'ok': True, 'kind': 'team', 'cat': 'jg',
+        'title': f'{as_of[:4]}年财富、远维客户经理经营业绩通报（{int(as_of[5:7])}月{int(as_of[8:10])}日）',
+        'as_of': as_of,
+        'dates': dates,
+        'tables': tables,
+        'text': text,
+        'downloads': downloads,
+        'missing': missing,
+    }
 
 
 def _team_xlsx(block: str, on: str | None = None) -> tuple[bytes, str]:
@@ -1379,6 +1453,9 @@ def build_pbs(on: str | None = None) -> dict:
         ],
         'text': text,
         'kpi': k,
+        # 两个成表 → 同一条通报里两个下载按钮（前端按这个渲染，不写死）
+        'downloads': [{'key': 'pbs', 'name': '下载 Excel'},
+                      {'key': 'pbs_dev', 'name': '下载发展情况表'}],
     }
 
 
@@ -1615,13 +1692,16 @@ def pbs_dev_xlsx(on: str | None = None) -> tuple[bytes, str]:
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
             'deposit': build_deposit, 'community': build_community,
             'downgrade': build_downgrade, 'yika': build_yika, 'pbs': build_pbs,
-            'jiepan': build_jiepan, 'ck': build_ck, 'yw': build_yw}
+            'jiepan': build_jiepan, 'team': build_team}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
+
+# 一条通报对应多份成表时，母版从哪几个 key 找（check_modules 与前端下载按钮都看它）
+BASES_OF = {'pbs': ('pbs', 'pbs_dev'), 'team': ('ck', 'yw')}
 
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
 CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
           'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs', 'pbs_dev': 'pbs', 'jiepan': 'jg',
-          'ck': 'jg', 'yw': 'jg'}
+          'ck': 'jg', 'yw': 'jg', 'team': 'jg'}
 
 
 def build(kind: str, on: str | None = None,
