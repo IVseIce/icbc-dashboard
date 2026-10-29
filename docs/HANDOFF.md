@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-10-28（**版本 0.1.7**｜定期承接模块：客编明细 + 任意区间 + 双 sheet 成表）
+> 最后更新：2026-10-29（**版本 0.1.8**｜定期承接可导入前手工改明细；修 xlsx 图片与分块上传）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -14,6 +14,7 @@
 > → 0.1.6.2（**导出改为「官方成表原件当模板、只填数据格」**，格式与人工完全一致）
 > → 0.1.6.3（红绿字色改黑、发展情况当前存量加红/黄、并列按名次、下载按钮回退为两个）
 > → 0.1.7（**定期承接**：客编明细按到期日筛行聚合、任意区间、网点+支行双 sheet 成表）
+> → 0.1.8（定期承接「手动编辑明细」；xlsx 图片在无 Pillow 运行时不再丢；支持 chunked 上传）
 
 ---
 
@@ -107,6 +108,7 @@ icbc-dashboard/
 ├─ VERSION                   版本号；CHANGELOG 在 src/web/assets/js/changelog.js
 ├─ .gitignore                data/ 已忽略
 ├─ src/
+│  ├─ xlsx_keep.py           保存工作簿时保住母版图片（无 Pillow 也行，见 8.12）
 │  ├─ store.py               SQLite 存储层：schema/迁移/快照读写/台账/备份
 │  ├─ compat.py              Python 3.8 垫片（补 zoneinfo，目标机回退路径用）
 │  ├─ version.py             读 VERSION（打包时写入）
@@ -629,6 +631,29 @@ icbc-dashboard/
     另外官方 Sheet7 的 C 列（综合评价）在重排后又引用固定行号（`=I16`…），整体错位，
     我们用 `RANK` 语义重算，与官方的**并列第 1**一致。
 
+
+### 8.12 两个"本机正常、到内网就坏"的坑（0.1.8）
+
+79. **openpyxl 读写 xlsx 里的图片依赖 Pillow，而内网运行时没有 Pillow**。
+    `vendor/pylib` 只放纯 Python 包（openpyxl / xlrd / PyYAML，与架构无关），
+    所以 `load_workbook()` 读出来 `ws._images` 是 **0**，`save()` 之后
+    `xl/media/*`、`xl/drawings/*` **全没了** —— 私银「发展情况表」的表头横幅就是这么丢的。
+    本机虚拟环境装了 Pillow，**永远复现不出来**；`dist/` 里的母版本身是有图的（能验证）。
+    修法：`src/xlsx_keep.py` 的 `save_like(tpl, wb)` —— 先正常保存，再把母版有、产物没有的
+    图片部件原样补回，并补齐 `[Content_Types].xml`、`<drawing r:id>`、sheet rels 三处引用。
+    **只在产物没有 media/drawing 时才动手**，所以本机（有 Pillow）走原路径、不会重复注入。
+    ⚠️ 补 `<drawing>` 时必须**就地声明 `xmlns:r`**（母版是这么写的）；只写 `r:id` 会让
+    严格的解析器报 `ParseError: unbound prefix`，而 openpyxl 自己重读就会炸。
+    ⚠️ 以后任何"母版里带图片/图表"的导出，都要走 `save_like(母版路径, wb)`，别直接 `wb.save()`。
+
+80. **Chrome 传大文件会用 `Transfer-Encoding: chunked`，服务端原来只认 `Content-Length`**。
+    原来 `do_POST` 直接 `self.rfile.read(Content-Length or 0)`：分块上传时读到 **0 字节**，
+    于是"没有收到文件"或提前回包，连接被判为损坏，前端只看到
+    `TypeError: Failed to fetch`（Chrome 报 `ERR_ALPN_NEGOTIATION_FAILED`），
+    **服务端日志里连一行都没有**。已改成 `_read_body()` 两种传输方式都认。
+    排查提示：如果"导入偶发网络错误、服务端无日志"，先看浏览器 Network 里这条请求有没有
+    `Content-Length`；没有就是分块上传。
+
 ---
 
 ## 9. 当前状态 / 卡在哪
@@ -743,6 +768,8 @@ icbc-dashboard/
 | 定期承接的口径 | `src/ingest/jiepan.py`（`COLS` 列名映射、`TOP_N`=8、`EXCLUDE_KEY`、`_rank_desc/_rank_asc`） |
 | 定期承接的网点清单 | `src/report/assets/jiepan_nets.json`（支行 → 网点，改完重启） |
 | 定期承接的成表版式 | 换 `src/report/assets/jiepan_base.xlsx`（**成表清空数据**，别取消 A/C 列隐藏） |
+| 定期承接的手工改数 | `src/ingest/jiepan.py` 的 `EDIT_FIELDS`（开放哪几列）；前端在 `pages/import.js` |
+| 带图片的 Excel 导出 | 一律走 `xlsx_keep.save_like(母版路径, wb)`（见 8.12 第 79 条） |
 | 私银的网点清单 / 支行归属 | `src/report/assets/pb_nets.json`；支行别名在 `src/ingest/pbs.py::BRANCH_ALIAS` |
 | 私银成表母版 | 就是官方原件转的 xlsx（`pbs_base.xlsx` / `pbs_dev_base.xlsx`），**别重新排**，见 8.10 |
 | 私银红绿规则 | `report.py::_pbs_fill_dev` 的 `paint()`（按名次，C 列只红+黄、E 列红+绿）；核心指标表用母版条件格式 |
@@ -758,7 +785,7 @@ icbc-dashboard/
 
 ## 11. 交接检查清单
 
-1. `git log --oneline -5` 能看到最近一次提交；`cat VERSION` 应为 `0.1.7` 或更高
+1. `git log --oneline -5` 能看到最近一次提交；`cat VERSION` 应为 `0.1.8` 或更高
 2. 起服务 → `curl /api/health` 返回 `ok:true`，且 `version` 与 `VERSION` 一致
    （版本号有缓存：改完 `VERSION` 要**重启进程**才生效）
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
@@ -783,8 +810,12 @@ icbc-dashboard/
     改区间到 10.01–10.25 后应为 -19488.54 万（原始表口径）；
     改到 9.01 之前应提示"超出这份数据的取数范围"。
     `#/report` 里「到期承接情况通报」文案三段与导出 Excel 双 sheet 都要有
-12. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
+12. 导入页选「定期承接」→ 出现「④ 手动编辑明细（可选）」；输客编能查到行、能改四列，
+    改完提交时 `notes` 里应出现「导入前手工修改 N 行」；
+13. `#/report` 里「私人银行核心指标」旁边点「下载发展情况表」→ 用解压工具看 xlsx 里
+    应有 `xl/media/image1.jpeg`（**内网机同理，这是 0.1.8 修的那个坑**）；
+14. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
    浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
-13. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+15. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

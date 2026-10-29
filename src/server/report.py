@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import api  # noqa: E402
 import viz  # noqa: E402
+import xlsx_keep  # noqa: E402
 
 BRANCH_ORDER = ['颍州', '颍泉', '颍东', '界首', '临泉', '阜南', '颍上', '太和']
 
@@ -502,9 +503,8 @@ def downgrade_xlsx(on: str | None = None) -> tuple[bytes, str]:
                                 rec['asset'], rec['dep'], rec['score']], start=1):
             ws2.cell(row=r, column=ci, value=v)
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f'降级挽回营销先锋（{d["period"]["label"]}）.xlsx'
+    data = xlsx_keep.save_like(DOWNGRADE_BASE, wb)
+    return data, f'降级挽回营销先锋（{d["period"]["label"]}）.xlsx'
 
 
 
@@ -654,9 +654,8 @@ def jiepan_xlsx(on: str | None = None, start: str | None = None, end: str | None
         ws7.cell(row=r, column=9, value=rec['name'])
         ws7.cell(row=r, column=11, value=rec['rate'])
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f'到期承接情况通报（{span.replace("月", ".").replace("日", "")}）.xlsx'
+    data = xlsx_keep.save_like(JIEPAN_BASE, wb)
+    return data, f'到期承接情况通报（{span.replace("月", ".").replace("日", "")}）.xlsx'
 
 
 # ---------------------------------------------------------------- 一卡一户
@@ -881,9 +880,8 @@ def yika_xlsx(on: str | None = None) -> tuple[bytes, str]:
             yl.cell(r, c0 + 2, int(parts[1]))
             yl.cell(r, c0 + 3, int(parts[2]))
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f'一卡一户日通报（{d["label"]}）.xlsx'
+    data = xlsx_keep.save_like(YIKA_BASE, wb)
+    return data, f'一卡一户日通报（{d["label"]}）.xlsx'
 
 
 def _grand_of(line: str, day: str) -> list | None:
@@ -1182,11 +1180,10 @@ def pbs_xlsx(on: str | None = None) -> tuple[bytes, str]:
 
     wb = openpyxl.load_workbook(PBS_BASE)
     _pbs_fill_report(wb, d, src)
-    buf = io.BytesIO()
-    wb.save(buf)
+    data = xlsx_keep.save_like(PBS_BASE, wb)
     iso = per.get('as_of') or ''
     stamp = f'{int(iso[5:7])}.{int(iso[8:10])}' if iso else '当期'
-    return buf.getvalue(), f'阜阳分行私人银行核心指标通报（{stamp}）.xlsx'
+    return data, f'阜阳分行私人银行核心指标通报（{stamp}）.xlsx'
 
 
 def _pbs_fill_dev(wb, d, src):
@@ -1308,11 +1305,10 @@ def pbs_dev_xlsx(on: str | None = None) -> tuple[bytes, str]:
 
     wb = openpyxl.load_workbook(PBS_DEV_BASE)
     _pbs_fill_dev(wb, d, src)
-    buf = io.BytesIO()
-    wb.save(buf)
+    data = xlsx_keep.save_like(PBS_DEV_BASE, wb)
     iso = per.get('as_of') or ''
     stamp = f'{int(iso[5:7])}.{int(iso[8:10])}' if iso else '当期'
-    return buf.getvalue(), f'阜阳分行网点私人银行客户发展情况表（{stamp}）.xlsx'
+    return data, f'阜阳分行网点私人银行客户发展情况表（{stamp}）.xlsx'
 
 
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
@@ -1389,10 +1385,9 @@ def online_xlsx(on: str | None = None) -> tuple[bytes, str]:
         cell.value = v
         cell.number_format = FMT[key]
 
-    buf = io.BytesIO()
-    wb.save(buf)
+    data = xlsx_keep.save_like(TEMPLATE, wb)
     name = f"网点线上服务能力提升通报（{d['as_of'][5:].replace('-', '.')}）.xlsx"
-    return buf.getvalue(), name
+    return data, name
 
 
 
@@ -1453,9 +1448,8 @@ def salary_xlsx(on: str | None = None) -> tuple[bytes, str]:
             t = d['tables'][key]['totals']
             for c, k in ((2, 'year'), (3, 'month'), (4, 'ent_year'), (5, 'ent_month')):
                 ws.cell(row=12, column=c).value = t.get(k) or 0
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f"薪管家通报{d['as_of'][5:7]}{d['as_of'][8:10]}.xlsx"
+    data = xlsx_keep.save_like(SALARY_BASE, wb)
+    return data, f"薪管家通报{d['as_of'][5:7]}{d['as_of'][8:10]}.xlsx"
 
 
 def wallet_xlsx(on: str | None = None) -> tuple[bytes, str]:
@@ -1484,9 +1478,8 @@ def wallet_xlsx(on: str | None = None) -> tuple[bytes, str]:
         for c, k in ((3, 'lv1'), (4, 'lv2'), (5, 'lv3'), (6, 'lv4'),
                      (7, 'total'), (8, 'month'), (9, 'day')):
             ws.cell(row=r, column=c).value = rec.get(k) or 0
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f"数字人民币个人钱包发展通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
+    data = xlsx_keep.save_like(WALLET_BASE, wb)
+    return data, f"数字人民币个人钱包发展通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
 
 
@@ -1517,9 +1510,8 @@ def deposit_xlsx(on: str | None = None) -> tuple[bytes, str]:
         cell = ws.cell(row=11, column=c)
         cell.value = t.get(k)
         cell.number_format = fmt
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f"定期存款增长（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
+    data = xlsx_keep.save_like(DEPOSIT_BASE, wb)
+    return data, f"定期存款增长（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
 
 def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
@@ -1551,9 +1543,8 @@ def community_xlsx(on: str | None = None) -> tuple[bytes, str]:
             cell = ws.cell(row=total_row, column=c)
             cell.value = t.get(k)
             cell.number_format = fmt
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue(), f"企微社群数据统计通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
+    data = xlsx_keep.save_like(COMMUNITY_BASE, wb)
+    return data, f"企微社群数据统计通报（{d['as_of'][5:7]}.{d['as_of'][8:10]}）.xlsx"
 
 def pbs_bundle(on: str | None = None) -> tuple[bytes, str]:
     """私银的两份成表**打包成一个 zip**，一个按钮下载。

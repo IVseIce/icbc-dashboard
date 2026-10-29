@@ -17,6 +17,9 @@ export default {
     let sales = null;            // {支行: {键: 值}}：当前编辑中的值
     let salesSaved = null;       // 已保存的值（用于判断"有没有改"）
     let salesDirty = false;
+    // 定期承接「手动编辑」：按客编查行、改四列，提交时随 overrides 一起回传
+    let jpEdits = new Map();     // key=`客编|机构|到期日` → {custno, net, due, due_amt, bal_d, ast_d}
+    let jpSearching = false;
 
     const canSee = (p) => auth.can(p.id);
     const who = auth.admin ? '管理员 · 全部板块' : `${auth.label} · 含重点项目`;
@@ -71,6 +74,25 @@ export default {
             <div class="right"><span class="chip">仅显示有权限的条线</span></div></div>
           <div class="timeline" id="impTimeline"></div>
         </div>
+      </div>
+
+      <div class="card" id="jpEditCard" style="margin-top:14px;display:none">
+        <div class="card-head"><h3>④ 手动编辑明细（可选）</h3>
+          <div class="right">
+            <span class="chip" id="jpEditCount" style="display:none"></span>
+            <span class="chip amber" id="jpEditHint">不填也行，直接提交即可</span>
+          </div></div>
+        <p style="margin:0 0 12px;color:var(--ink-3);font-size:12px">
+          个别客户要先人工处理（比如到期后资产整体流失的，不算网点未承接），可以在这里按
+          <b>客户编号</b> 找到那一行，把 <b>到期金额 / 定期余额变化 / 时点资产变化 / 最近到期日期</b>
+          改成想要的值，再提交。<b>只改这一份数据，不动源文件</b>；不改就照原样导入。
+        </p>
+        <div class="jp-find">
+          <input type="text" id="jpCustno" placeholder="输入客户编号，例如 131100038448885" autocomplete="off">
+          <button class="btn btn-primary" id="jpFind">查找</button>
+          <button class="btn btn-sm" id="jpClearEdits" style="margin-left:auto">清空已改</button>
+        </div>
+        <div id="jpEditBox" style="margin-top:12px"></div>
       </div>
 
       <div class="card" id="salesCard" style="margin-top:14px;display:none">
@@ -154,6 +176,7 @@ export default {
       mod = m;
       modGrid.querySelectorAll('.mod-pick').forEach((x) => x.classList.toggle('on', x.dataset.id === m.id));
       showSales(m.as_line === 'pbs');
+      showJpEdit(m.as_line === 'jp');
       sync();
     }
 
@@ -243,6 +266,125 @@ export default {
       toast('已还原为上次保存的值');
     };
 
+    // ---------- ④ 定期承接：手动编辑明细（可选）
+    const jpCard = view.querySelector('#jpEditCard');
+    const jpBox = view.querySelector('#jpEditBox');
+    const jpCount = view.querySelector('#jpEditCount');
+
+    const JP_FIELDS = [
+      ['due', '最近到期日期', 'date'],
+      ['due_amt', '近30天到期金额（元）', 'number'],
+      ['bal_d', '定期余额变化（元）', 'number'],
+      ['ast_d', '时点资产变化（元）', 'number'],
+    ];
+    const jpKey = (o) => `${o.custno}|${o.net}|${o.due}`;
+
+    function showJpEdit(on) {
+      jpCard.style.display = on ? '' : 'none';
+      if (on) paintJpEdits();
+    }
+
+    function paintJpEdits() {
+      const n = jpEdits.size;
+      jpCount.style.display = n ? '' : 'none';
+      jpCount.textContent = `已手动改 ${n} 行`;
+      sync();
+    }
+
+    function renderJpRows(rows) {
+      // rows: 刚查出来的原始行；编辑框里显示"已改过就用改后的值"
+      jpBox.innerHTML = rows.map((r) => {
+        const cur = jpEdits.get(jpKey(r)) || {};
+        const v = (k) => (cur[k] !== undefined ? cur[k] : r[k]);
+        return `<div class="jp-edit-row" data-k="${jpKey(r)}">
+          <div class="jp-edit-head">
+            <b>${r.custno}</b>
+            <span>${r.branch || '—'} / ${String(r.net || '').replace('阜阳', '')}</span>
+            <span class="jp-edit-id" style="color:var(--ink-4);font-size:11px">
+              30天前定期 ${fmt.n(r.bal30, 2)} → 当前 ${fmt.n(r.bal, 2)}</span>
+          </div>
+          <div class="jp-edit-grid">
+            ${JP_FIELDS.map(([k, label, type]) => `
+              <label>${label}
+                <input type="${type}" ${type === 'number' ? 'step="0.01"' : ''}
+                       data-f="${k}" value="${v(k)}">
+              </label>`).join('')}
+          </div>
+          <div class="jp-edit-foot">
+            <span class="jp-edit-warn" data-warn></span>
+            <button class="btn btn-sm" data-act="reset">还原这一行</button>
+          </div>
+        </div>`;
+      }).join('');
+
+      jpBox.querySelectorAll('.jp-edit-row').forEach((box) => {
+        const key = box.dataset.k;
+        const orig = rows.find((r) => jpKey(r) === key);
+        const mark = () => {
+          const vals = {};
+          box.querySelectorAll('input[data-f]').forEach((el) => {
+            const k = el.dataset.f;
+            vals[k] = el.type === 'number' ? Number(el.value) : el.value;
+          });
+          const changed = JP_FIELDS.some(([k]) => String(vals[k]) !== String(orig[k]));
+          const rec = { custno: orig.custno, net: orig.net, ...vals };
+          // net/due 用于定位，改过到期日时记住"原来是哪天"
+          rec._origDue = orig.due;
+          if (changed) jpEdits.set(key, rec); else jpEdits.delete(key);
+          box.classList.toggle('edited', changed);
+          const warn = box.querySelector('[data-warn]');
+          // 变化 ≠ 当前 − 30天前 时提示：这正是"人工把变化改成 0"留下的特征
+          const gap = Number(vals.due_amt) - Number(vals.bal_d);
+          warn.textContent = changed ? '已修改，提交时生效' : '';
+          paintJpEdits();
+        };
+        box.querySelectorAll('input[data-f]').forEach((el) => { el.oninput = mark; el.onchange = mark; });
+        box.querySelector('[data-act="reset"]').onclick = () => {
+          jpEdits.delete(key);
+          renderJpRows(rows);
+        };
+        mark();       // 打开时先同步一次（可能是之前改过的）
+      });
+    }
+
+    async function jpFind() {
+      const custno = view.querySelector('#jpCustno').value.trim();
+      if (!custno) return toast('请先输入客户编号', 'err');
+      if (!files.length) return toast('请先把明细表放进来', 'err');
+      if (jpSearching) return;
+      jpSearching = true;
+      const btn = view.querySelector('#jpFind');
+      btn.disabled = true;
+      jpBox.innerHTML = '<div class="result"><h4>正在查…</h4></div>';
+      try {
+        const fd = new FormData();
+        fd.append('custno', custno);
+        files.forEach((f) => fd.append('files', f, f.name));
+        const res = await authFetch('/api/jiepan/find', { method: 'POST', body: fd });
+        const r = await res.json();
+        if (!r.ok) {
+          jpBox.innerHTML = `<div class="result bad"><h4>没找到</h4><p>${r.error || ''}</p></div>`;
+          return;
+        }
+        renderJpRows(r.rows);
+      } catch (err) {
+        if (err.auth) return;
+        jpBox.innerHTML = `<div class="result bad"><h4>查询失败</h4><p>${err.message}</p></div>`;
+      } finally {
+        jpSearching = false;
+        btn.disabled = false;
+      }
+    }
+    view.querySelector('#jpFind').onclick = jpFind;
+    view.querySelector('#jpCustno').onkeydown = (e) => { if (e.key === 'Enter') jpFind(); };
+    view.querySelector('#jpClearEdits').onclick = () => {
+      if (!jpEdits.size) return toast('还没有改过');
+      jpEdits.clear();
+      jpBox.innerHTML = '';
+      paintJpEdits();
+      toast('已清空手动修改');
+    };
+
     // ---------- ③ 文件
     const input = view.querySelector('#fileInput');
     const drop = view.querySelector('#drop');
@@ -309,6 +451,14 @@ export default {
       const dt = view.querySelector('#impDate').value;
       if (dt) fd.append('date', dt);
       files.forEach((f) => fd.append('files', f, f.name));
+      // 定期承接：把页面里手改过的行一起带上（服务端按 客编+机构+到期日 覆盖）
+      if (mod.as_line === 'jp' && jpEdits.size) {
+        const ov = [...jpEdits.values()].map((o) => ({
+          custno: o.custno, net: o.net, due: o.due,
+          due_amt: o.due_amt, bal_d: o.bal_d, ast_d: o.ast_d,
+        }));
+        fd.append('overrides', JSON.stringify(ov));
+      }
       try {
         const res = await authFetch('/api/import', { method: 'POST', body: fd });
         const r = await res.json();
@@ -320,7 +470,11 @@ export default {
             <div style="margin-top:10px"><a class="btn btn-primary" href="#/m/${mod.id}">查看模块 ${icon('arrow', 14)}</a></div>
           </div>`;
           toast('导入成功');
-          files.length = 0; sync();
+          files.length = 0;
+          jpEdits.clear();
+          jpBox.innerHTML = '';
+          if (mod?.as_line === 'jp') paintJpEdits();
+          sync();
           if (ctx.reloadData) await ctx.reloadData();
           paint();
         } else {

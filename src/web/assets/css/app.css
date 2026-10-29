@@ -816,3 +816,21 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .jp-row .jp-nm{font-size:12.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .jp-row .jp-br{font-size:10.5px;color:var(--ink-4);flex:none}
 .jp-row b{font-size:12.5px;font-variant-numeric:tabular-nums}
+
+/* ============================== 定期承接：导入前手动编辑明细 ============================== */
+.jp-find{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.jp-find input[type=text]{flex:1;min-width:220px;border:1px solid var(--line);border-radius:9px;
+  padding:7px 11px;font-size:13px;font-family:inherit;color:var(--ink);background:#fbfcfe}
+.jp-find input[type=text]:focus{outline:none;border-color:var(--blue);background:#fff}
+.jp-edit-row{border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-bottom:10px;background:#fbfcfe}
+.jp-edit-row.edited{border-color:#e8b60c;background:#fffdf3}
+.jp-edit-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.jp-edit-head b{font-size:13px;font-variant-numeric:tabular-nums}
+.jp-edit-head span{font-size:12px;color:var(--ink-2)}
+.jp-edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px}
+.jp-edit-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--ink-3)}
+.jp-edit-grid input{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;
+  font-family:inherit;color:var(--ink);background:#fff;font-variant-numeric:tabular-nums}
+.jp-edit-grid input:focus{outline:none;border-color:var(--blue)}
+.jp-edit-foot{display:flex;align-items:center;gap:10px;margin-top:9px}
+.jp-edit-warn{font-size:11px;color:#b07d00;flex:1}

@@ -168,7 +168,7 @@ def net_short(net: str, branch: str) -> str:
 
 
 # ---------------------------------------------------------------- 解析
-def parse(rows: list[list], as_of: str | None = None, exclude=None) -> dict:
+def parse(rows: list[list], as_of: str | None = None, exclude=None, overrides=None) -> dict:
     """把一个明细二维表解析成快照 payload。
 
     rows     : 明细表二维数组（含表头）
@@ -178,10 +178,20 @@ def parse(rows: list[list], as_of: str | None = None, exclude=None) -> dict:
               业务上「大额整体流失户」是有人在源表里把该行的
               「定期余额变化」和「时点资产变化」两列改成 0（到期金额仍保留在分母里）。
               默认不排除；将来要自动剔除时把客编传进来即可。
+    overrides: 导入前在页面上手工改过的行，形如
+              `[{'custno':…, 'net':…, 'due':'YYYY-MM-DD', 'due_amt':…, 'bal_d':…, 'ast_d':…}]`。
+              按 (客编, 机构, 到期日) 定位；只覆盖表单里出现过的字段。
     """
     hrow, idx = _find_header(rows)
     body = rows[hrow + 1:]
     ex = {str(x).strip() for x in (exclude or ())}
+    # 手工改过的行：(客编, 机构, 到期日) → {字段: 值}
+    ov = {}
+    for o in (overrides or ()):
+        k = (str(o.get('custno') or '').strip(), str(o.get('net') or '').strip(),
+             str(o.get('due') or '')[:10])
+        if k[0]:
+            ov[k] = o
 
     recs = []
     for r in body:
@@ -196,19 +206,28 @@ def parse(rows: list[list], as_of: str | None = None, exclude=None) -> dict:
         custno = _s(r[idx['custno']]) if 'custno' in idx and idx['custno'] < len(r) else ''
         zeroed = bool(custno and custno in ex)
         br = _s(r[idx['branch']]) if 'branch' in idx and idx['branch'] < len(r) else ''
+        edit = ov.get((custno, net, due.isoformat())) or {}
+        def pick(field, default):
+            v = edit.get(field)
+            if v is None or v == '':
+                return default
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return default
         rec = {
             'branch': br, 'net': net, 'custno': custno, 'due': due,
             'due_cnt': _num(r[idx['due_cnt']]) if 'due_cnt' in idx else 0,
-            'due_amt': _num(r[idx['due_amt']]) if 'due_amt' in idx else 0,
+            'due_amt': pick('due_amt', _num(r[idx['due_amt']]) if 'due_amt' in idx else 0),
             'done_cnt': _num(r[idx['done_cnt']]) if 'done_cnt' in idx else 0,
             'bal30': _num(r[idx['bal30']]) if 'bal30' in idx else 0,
             'bal': _num(r[idx['bal']]) if 'bal' in idx else 0,
-            'bal_d': 0.0 if zeroed else _num(r[idx['bal_d']]),
+            'bal_d': 0.0 if zeroed else pick('bal_d', _num(r[idx['bal_d']])),
             'dep30': _num(r[idx['dep30']]) if 'dep30' in idx else 0,
             'dep_d': _num(r[idx['dep_d']]) if 'dep_d' in idx else 0,
             'ast30': _num(r[idx['ast30']]) if 'ast30' in idx else 0,
             'ast': _num(r[idx['ast']]) if 'ast' in idx else 0,
-            'ast_d': 0.0 if zeroed else (_num(r[idx['ast_d']]) if 'ast_d' in idx else 0),
+            'ast_d': 0.0 if zeroed else pick('ast_d', _num(r[idx['ast_d']]) if 'ast_d' in idx else 0),
         }
         recs.append(rec)
 
@@ -402,8 +421,62 @@ def aggregate(snap: dict, start: str | None = None, end: str | None = None) -> d
     }
 
 
+# ---------------------------------------------------------------- 按客编查行（页面手动编辑用）
+EDIT_FIELDS = ('due', 'due_amt', 'bal_d', 'ast_d')     # 只开放通报真正用到的四列
+
+
+def find_rows(rows: list[list], custno: str) -> dict:
+    """在明细表里按客户编号找行，返回给页面编辑用。
+
+    只返回通报涉及到的字段：最近到期日期、近30天到期金额、定期余额变化、时点资产变化，
+    外加只读的支行/网点名。找不到返回 ok=False。
+    """
+    want = str(custno or '').strip()
+    if not want:
+        return {'ok': False, 'error': '请输入客户编号'}
+    hrow, idx = _find_header(rows)
+    if 'custno' not in idx:
+        return {'ok': False, 'error': '这份明细表里没有「客户编号」列，无法按客编查找'}
+    ci = idx['custno']
+
+    def cell(r, key, default=None):
+        i = idx.get(key)
+        return r[i] if (i is not None and i < len(r)) else default
+
+    out = []
+    for r in rows[hrow + 1:]:
+        if not any(c not in (None, '') for c in r):
+            continue
+        v = r[ci] if ci < len(r) else None
+        s = _s(v)
+        if s != want:
+            continue
+        d = _date(cell(r, 'due'))
+        if d is None:
+            continue
+        out.append({
+            'custno': s,
+            'branch': _s(cell(r, 'branch')),
+            'net': _s(cell(r, 'net')),
+            'due': d.isoformat(),
+            'due_amt': round(_num(cell(r, 'due_amt')), 2),
+            'due_cnt': round(_num(cell(r, 'due_cnt')), 2),
+            'done_cnt': round(_num(cell(r, 'done_cnt')), 2),
+            'bal30': round(_num(cell(r, 'bal30')), 2),
+            'bal': round(_num(cell(r, 'bal')), 2),
+            'bal_d': round(_num(cell(r, 'bal_d')), 2),
+            'ast30': round(_num(cell(r, 'ast30')), 2),
+            'ast': round(_num(cell(r, 'ast')), 2),
+            'ast_d': round(_num(cell(r, 'ast_d')), 2),
+        })
+    if not out:
+        return {'ok': False, 'error': f'明细里没有客户编号 {want}（也可能该客户不在这一期的到期名单里）'}
+    return {'ok': True, 'custno': want, 'rows': out, 'editable': list(EDIT_FIELDS)}
+
+
 # ---------------------------------------------------------------- 入口
-def parse_files(files, as_of: str | None = None, exclude=None) -> tuple[str, dict]:
+def parse_files(files, as_of: str | None = None, exclude=None,
+                overrides=None) -> tuple[str, dict]:
     """导入入口：收一张明细表。"""
     from ingest import readers
 
@@ -426,7 +499,7 @@ def parse_files(files, as_of: str | None = None, exclude=None) -> tuple[str, dic
         raise ValueError('没有找到明细表（需含「机构名称」「最近到期日期」「定期余额变化」列）')
 
     name, sheet, rows = found
-    snap = parse(rows, as_of=as_of, exclude=exclude)
+    snap = parse(rows, as_of=as_of, exclude=exclude, overrides=overrides)
     snap['_files'] = used
     snap['_notes'] = [
         f'取数范围 {snap["coverage"][0]} ~ {snap["coverage"][1]}（{snap["days"]} 天），'
@@ -435,6 +508,9 @@ def parse_files(files, as_of: str | None = None, exclude=None) -> tuple[str, dic
     ]
     if snap['excluded']:
         snap['_notes'].append(f'按需排除 {len(snap["excluded"])} 个客户')
+    if overrides:
+        snap['_notes'].append(f'导入前手工修改 {len(overrides)} 行')
+        snap['edited'] = len(overrides)
     return snap['as_of'], snap
 
 

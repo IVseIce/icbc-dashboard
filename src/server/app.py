@@ -190,10 +190,47 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': False, 'error': traceback.format_exc()[-600:]}, 500)
 
     # ---------------------------------------------------------------- POST
+    def _read_body(self) -> bytes:
+        """读请求体，**两种传输方式都要认**。
+
+        Chrome 传大文件（FormData 里带 File）时会用 `Transfer-Encoding: chunked`，
+        此时没有 `Content-Length`。原来只按 Content-Length 读，就会读到 0 字节 →
+        还没等客户端把文件传完就回包 → 连接被判定为损坏，前端只看到
+        `TypeError: Failed to fetch`（Chrome 报 ERR_ALPN_NEGOTIATION_FAILED），
+        服务端日志里连一行都没有。跟"导入大文件偶尔失败""换台机器就好"这类现象是同一个根因。
+        """
+        te = (self.headers.get('Transfer-Encoding') or '').lower()
+        if 'chunked' in te:
+            out = bytearray()
+            while True:
+                line = self.rfile.readline(65537)
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    size = int(line.split(b';')[0], 16)
+                except ValueError:
+                    break
+                if size == 0:
+                    while True:                       # trailer
+                        t = self.rfile.readline(65537)
+                        if t in (b'\r\n', b'\n', b''):
+                            break
+                    break
+                chunk = self.rfile.read(size)
+                out += chunk
+                self.rfile.read(2)                    # 每块结尾的 CRLF
+                if len(chunk) < size:
+                    break
+            return bytes(out)
+        n = int(self.headers.get('Content-Length') or 0)
+        return self.rfile.read(n) if n else b''
+
     def do_POST(self):
         path = urlparse(self.path).path
-        n = int(self.headers.get('Content-Length') or 0)
-        body = self.rfile.read(n) if n else b''
+        body = self._read_body()
         if path == '/api/auth/login':
             return self._login(body)
         if path == '/api/auth/password':
@@ -209,7 +246,49 @@ class Handler(BaseHTTPRequestHandler):
             if not self._need_auth():
                 return
             return self._import(body)
+        if path == '/api/jiepan/find':
+            if not self._need_auth():
+                return
+            return self._jiepan_find(body)
         return self.send_error(404)
+
+    def _jiepan_find(self, body: bytes):
+        """定期承接「手动编辑」：在待导入的明细里按客户编号找行。
+
+        只用来查行、不落库；页面拿到后让用户改四列，提交时随 overrides 一起回传。
+        """
+        try:
+            fields, files = parse_multipart(self.headers.get('Content-Type', ''), body)
+            custno = (fields.get('custno') or '').strip()
+            if not files:
+                return self._json({'ok': False, 'error': '没有收到文件'}, 400)
+            from ingest import jiepan, readers
+
+            found = None
+            bad = []
+            for name, blob in files:
+                try:
+                    sheets = readers.sheets(blob, name)
+                except Exception as exc:            # 图片/损坏文件之类，别抛 500
+                    bad.append(f'{name}（{type(exc).__name__}）')
+                    continue
+                for sheet, rows in sheets:
+                    try:
+                        jiepan._find_header(rows)
+                    except ValueError:
+                        continue
+                    found = rows
+                    break
+                if found is not None:
+                    break
+            if found is None and bad:
+                return self._json({'ok': False,
+                                   'error': '这些文件读不出表格：' + '、'.join(bad)}, 400)
+            if found is None:
+                return self._json({'ok': False, 'error': '没有在文件里找到定期承接明细表'}, 400)
+            return self._json(jiepan.find_rows(found, custno))
+        except Exception:
+            return self._json({'ok': False, 'error': traceback.format_exc()[-600:]}, 500)
 
     def _payload(self, body: bytes) -> dict:
         try:
@@ -257,7 +336,13 @@ class Handler(BaseHTTPRequestHandler):
             dd = (fields.get('date') or '').strip() or None
             if not files:
                 return self._json({'ok': False, 'error': '没有收到文件'}, 400)
-            r = viz.do_import(line, files, data_date=dd)
+            ov = None
+            if (fields.get('overrides') or '').strip():
+                try:
+                    ov = json.loads(fields['overrides'])
+                except ValueError:
+                    return self._json({'ok': False, 'error': '手动修改的数据格式不对（overrides 不是 JSON）'}, 400)
+            r = viz.do_import(line, files, data_date=dd, overrides=ov)
             if r.get('ok'):
                 r['all'] = api.build_all()
             return self._json(r, 200 if r.get('ok') else 400)

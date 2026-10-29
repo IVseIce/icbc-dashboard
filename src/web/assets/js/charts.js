@@ -110,6 +110,14 @@ export function barRank(rows, { color = C.blue, unit = '', decimals = 0, max = n
   const mxPos = max ?? Math.max(0, ...num);
   const mnNeg = Math.min(0, ...num);
 
+  // 负值一侧要给"数字标签"留出位置，否则负值很小时（例如 +15288 / −497），
+  // 负条只有几像素长，标签会被挤到坐标轴上、盖住支行名（私银资产较年初踩过）。
+  // 规则：负侧至少留 35% 的负值幅度，且不小于正值幅度的 10%；两者取大。
+  // 负值本来就很大的图（正负同量级）算出来仍等于原来的 *1.35，视觉不变。
+  const negPad = mnNeg
+    ? Math.max(Math.abs(mnNeg) * 0.35, (mxPos || 0) * 0.10)
+    : 0;
+
   return base({
     grid: { left: 10, right: 52, top: 8, bottom: 6, containLabel: true },
     tooltip: {
@@ -121,7 +129,7 @@ export function barRank(rows, { color = C.blue, unit = '', decimals = 0, max = n
       },
     },
     xAxis: {
-      ...yAxis({ max: (mxPos || 1) * 1.04, min: mnNeg ? mnNeg * 1.35 : 0, show: false }),
+      ...yAxis({ max: (mxPos || 1) * 1.04, min: mnNeg ? mnNeg - negPad : 0, show: false }),
     },
     yAxis: {
       ...xAxis(names), inverse: true, axisLine: { show: false },

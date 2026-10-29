@@ -693,11 +693,17 @@ def _cum_by_date(line: str) -> dict:
     return {s['as_of']: (s.get('cum') or {}) for s in load_snapshots(line)}
 
 
-def import_jiepan(files, line, root, data_date=None):
-    """定期承接：客编明细 → 网点/支行两层快照（取数日与覆盖范围都从表里来）。"""
-    from ingest import jiepan
-    return jiepan.parse_files(files, as_of=data_date)
+def import_jiepan(files, line, root, data_date=None, overrides=None):
+    """定期承接：客编明细 → 网点/支行两层快照（取数日与覆盖范围都从表里来）。
 
+    overrides：导入前在页面上按客编手工改过的行（见 jiepan.find_rows / EDIT_FIELDS）。
+    """
+    from ingest import jiepan
+    return jiepan.parse_files(files, as_of=data_date, overrides=overrides)
+
+
+# 这些导入器的签名带 data_date=(, overrides=)
+DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp')
 
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
@@ -706,7 +712,7 @@ IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,
-              root: Path | None = None) -> dict:
+              root: Path | None = None, overrides=None) -> dict:
     if line not in IMPORTERS:
         return {'ok': False, 'error': f'未知大类：{line}'}
     originals = list(files)                      # 归档用原始文件名（store.source_file 要对得上）
@@ -724,8 +730,11 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         norm.append((n, b))
     files = norm
     try:
-        if line in ('xgj', 'wk', 'dfmx', 'ykh', 'pbs'):
-            dd, snap = IMPORTERS[line](files, line, root, data_date=data_date)
+        if line in DATE_ARG_LINES:
+            kw = {'data_date': data_date}
+            if line == 'jp':
+                kw['overrides'] = overrides
+            dd, snap = IMPORTERS[line](files, line, root, **kw)
         else:
             dd, snap = IMPORTERS[line](files, line, root)
         snap['line'] = line
@@ -744,9 +753,13 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
             try:
                 conv = [(n, readers.text_to_xlsx(b)) if readers.sniff(b) == 'text' else (n, b)
                         for n, b in files]
-                dd, snap = (IMPORTERS[line](conv, line, root, data_date=data_date)
-                            if line in ('xgj', 'wk', 'dfmx', 'ykh', 'pbs')
-                            else IMPORTERS[line](conv, line, root))
+                if line in DATE_ARG_LINES:
+                    kw = {'data_date': data_date}
+                    if line == 'jp':
+                        kw['overrides'] = overrides
+                    dd, snap = IMPORTERS[line](conv, line, root, **kw)
+                else:
+                    dd, snap = IMPORTERS[line](conv, line, root)
                 snap['line'] = line
                 snap['imported_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 sid = save_snapshot(line, dd, snap, root)
