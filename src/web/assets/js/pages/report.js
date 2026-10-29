@@ -157,11 +157,10 @@ export default {
       const slot = view.querySelector('#dlSlot');
       if (!slot) return;
       const items = (list && list.length) ? list : [{ key: kind, name: '下载 Excel' }];
-      slot.innerHTML = items.map((d, i) => {
-        const primary = items.length === 1 || i === 0;
-        return `<button class="btn${primary ? ' btn-primary' : ''}" data-dl="${d.key}">
-          ${icon('down', 14)} ${d.name}</button>`;
-      }).join('');
+      // 所有下载按钮都做成主按钮（红）：多份成表时它们地位相同，
+      // 只把第一个标红会让人以为第二个是次要的/不可点
+      slot.innerHTML = items.map((d) => `<button class="btn btn-primary" data-dl="${d.key}">
+          ${icon('down', 14)} ${d.name}</button>`).join('');
       slot.querySelectorAll('[data-dl]').forEach((b) => {
         b.onclick = () => downloadExcel(b.dataset.dl, b);
       });

@@ -857,3 +857,7 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .rep-dl .btn.btn-primary{margin-right:0}
 .rep-miss{margin-bottom:12px;padding:10px 16px;border-radius:12px;background:var(--amber-soft);
   border:1px solid #f4dfb6;color:#8a5a06;font-size:12.5px;line-height:1.7}
+
+/* 通报中心：多个下载按钮并排时，主按钮之间的间距（默认 .btn 只有 7px gap，红色块会贴在一起） */
+.rep-dl .btn.btn-primary + .btn.btn-primary{margin-left:0}
+.rep-dl .btn{padding:8px 13px}
