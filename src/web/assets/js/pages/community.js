@@ -9,7 +9,7 @@ export default {
   icon: 'community',
   render(view, data) {
     const d = data.community;
-    if (!d?.ok) { view.innerHTML = `<div class="card">${empty('企微社群暂无数据', '导入本周 + 上周的成员群聊数据统计')}</div>`; return; }
+    if (!d?.ok) { view.innerHTML = `<div class="card">${empty('企微社群暂无数据', '先导入本周与上周的成员群聊数据统计（以后每周只导本周一份即可）')}</div>`; return; }
     const k = d.kpi;
     const brs = d.branches || [];
     view.innerHTML = `

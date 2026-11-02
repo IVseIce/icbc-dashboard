@@ -49,8 +49,11 @@ export default {
         <div class="card">
           <div class="card-head"><h3>③ 放入源表</h3>
             <div class="right">
-              <label class="chip" style="cursor:pointer">数据日期
+              <label class="chip" style="cursor:pointer" id="impDateWrap"
+                     title="本期是算到哪一天。留空 = 用文件名里的日期（多数模块认文件名）">
+                本期
                 <input type="date" id="impDate" style="border:0;background:transparent;font-family:inherit;font-size:11px">
+                <button type="button" class="imp-date-x" id="impDateClear" title="清除，改用文件名里的日期">✕</button>
               </label>
             </div></div>
           <div class="dropzone" id="drop">
@@ -172,12 +175,34 @@ export default {
       });
     }
 
+    /** 本期默认 = 昨天（日常报表都是跑 T-1 的数）。
+        用户选别的日期就尊重用户的选择，不再覆盖。 */
+    function defaultDate() {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
     function pickModule(m) {
       mod = m;
       modGrid.querySelectorAll('.mod-pick').forEach((x) => x.classList.toggle('on', x.dataset.id === m.id));
+      const pick = view.querySelector('#impDate');
+      if (pick && !pick.value) pick.value = defaultDate();
       showSales(m.as_line === 'pbs');
       showJpEdit(m.as_line === 'jp');
       sync();
+    }
+
+    const clearBtn = view.querySelector('#impDateClear');
+    if (clearBtn) {
+      clearBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const pick = view.querySelector('#impDate');
+        if (pick) pick.value = '';
+        toast('已清除：改用文件名里的日期');
+      };
     }
 
     // ---------- ④ 私银产品销售（只有 pbs 模块才出现）

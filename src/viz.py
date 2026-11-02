@@ -42,7 +42,8 @@ LINES = {
     'xgj': {'label': '工银薪管家', 'skill': 'icbc-xgj', 'hint': '四张增量表：支行/网点 × 年度/月度'},
     'dqzz': {'label': '定期存款', 'skill': 'icbc-dqzz', 'hint': '分品种、期限时点报表（本月 + 上月）'},
     'xsfw': {'label': '网点线上服务', 'skill': 'icbc-xsfw', 'hint': '动户率×2 + 企微明细×3 + 营销授权'},
-    'qwsq': {'label': '企微社群', 'skill': 'icbc-qwsq', 'hint': '成员群聊数据统计（本周 + 上周）'},
+    'qwsq': {'label': '企微社群', 'skill': 'icbc-qwsq',
+             'hint': '成员群聊数据统计（只传本周即可，上周会自动复用库里上一次）'},
     'dfmx': {'label': '代发明细', 'skill': '', 'hint': '月度多 sheet 的代发明细工作簿'},
     'wk': {'label': '五卡唤醒', 'skill': '', 'hint': '五卡汇总表（支行 × 5 类卡）'},
     'jjwh': {'label': '降级挽回', 'skill': '', 'hint': '客编资产明细（客编映射已内置）'},
@@ -321,28 +322,43 @@ def _qw_date_from_name(name: str):
     return None
 
 
-def import_qwsq(files, line, root):
-    """需要两份：本周 + 上周。按文件名/内容里的日期排序。"""
+def _qw_parse_day(name: str, blob: bytes, root: Path | None) -> tuple[date | None, Path]:
+    """把一份成员群聊表落到临时目录，返回（文件名里的日期, 路径）。"""
+    mod_root = paths(root)['imports'] / '_tmp_qwsq'
+    mod_root.mkdir(parents=True, exist_ok=True)
+    f = mod_root / re.sub(r'[\\/:*?"<>|]', '_', name)
+    f.write_bytes(blob)
+    d = _qw_date_from_name(name) or datetime.fromtimestamp(f.stat().st_mtime).date()
+    return d, f
+
+
+def _qw_store_daily(items: list[tuple[date, Path]], root: Path | None) -> list[str]:
+    """把每一份成员群聊表按「自己文件里的日期」单独落一条 `qwsq_day` 快照。
+
+    这是复用上周数据的关键：以前必须"本周 + 上周"两份一起传，上周那份只活在内存里；
+    现在每份都按日入库，下周只传新的那一份就行，上周的自动从库里取。
+    存的是**原始计数**（各网点 g/c/msg/x），不是算好的增量 —— 增量要跟"哪一周"比才成立，
+    拼装放到 `_qw_assemble()` 里做。
+    """
     mod = skill('icbc-qwsq')
-    tmp = paths(root)['imports'] / '_tmp_qwsq'
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    tmp.mkdir(parents=True, exist_ok=True)
-    dated = []
-    for name, blob in files:
-        f = tmp / re.sub(r'[\\/:*?"<>|]', '_', name)
-        f.write_bytes(blob)
-        d = _qw_date_from_name(name) or datetime.fromtimestamp(f.stat().st_mtime).date()
-        dated.append((d, f))
-    dated.sort(key=lambda x: x[0])
-    if len(dated) < 2:
-        raise ValueError('企微社群需要「本周 + 上周」两份成员群聊数据统计')
-    cur_d, cur_f = dated[-1]
-    # 「上周」= 最接近（本周 - 7 天）的那份备份，而不是简单取上一份
-    target = cur_d - timedelta(days=7)
-    prev_d, prev_f = min(dated[:-1], key=lambda x: abs((x[0] - target).days))
-    cur, _ = mod.aggregate(cur_f)
-    prev, _ = mod.aggregate(prev_f)
+    saved = []
+    for d, f in items:
+        agg, _st = mod.aggregate(f)
+        ds = d.isoformat()
+        save_snapshot('qwsq_day', ds, {'line': 'qwsq_day', 'as_of': ds,
+                                       'agg': agg, 'src_name': f.name}, root)
+        saved.append(ds)
+    return saved
+
+
+def _qw_daily_map(root: Path | None) -> dict[str, dict]:
+    """库里所有按日快照：{日期: {网点: 计数}}。"""
+    return {s['as_of']: (s.get('agg') or {}) for s in load_snapshots('qwsq_day', root)}
+
+
+def _qw_assemble(cur_d: date, prev_d: date, cur: dict, prev: dict) -> dict:
+    """用两天的原始计数拼出一期快照（增量 = 本周 − 上周）。"""
+    mod = skill('icbc-qwsq')
     branches = []
     cur_br, prev_br = mod.branch_agg(cur), mod.branch_agg(prev)
     for br, v in cur_br.items():
@@ -361,17 +377,73 @@ def import_qwsq(files, line, root):
     t = mod.totals(cur)
     tp = mod.totals(prev)
     dd = cur_d.isoformat()
-    return dd, {
+    return {
         'as_of': dd, 'as_of_cn': f'{cur_d.month}月{cur_d.day}日',
         'branches': sorted(branches, key=lambda b: -b['cust']), 'nets': nets,
         'total': {'name': '合计', 'groups': t['g'], 'groups_d': t['g'] - tp['g'],
                   'cust': t['c'], 'cust_d': t['c'] - tp['c'], 'inter': t['x'],
                   'inter_d': t['x'] - tp['x'], 'rate': t['rate'],
                   'rate_d': t['rate'] - tp['rate']},
-        '_files': [{'name': n, 'role': ('本周 ' if n == cur_f.name else '上周 ') + str(cur_d if n == cur_f.name else prev_d)}
-                   for n, _ in files],
-        '_notes': [f'本周 {cur_d} / 上周 {prev_d}'],
+        'prev_date': prev_d.isoformat(),
     }
+
+
+def import_qwsq(files, line, root, data_date=None):
+    """企微社群：本期（本周）+ 上周。
+
+    复用规则（0.1.8.6 起）：
+      1. 传进来的每份表都按**它自己文件名里的日期**落一条 `qwsq_day` 快照
+         （同一天重复导 = 覆盖，不会重复累加）。
+      2. 本期 = `data_date`（页面选的日期），没选就取传进来最新那份的日期。
+      3. 上周 = 库/本次里最接近「本期 − 7 天」的那一天。**所以只传本周一份就行**，
+         上周上次导过的会自动复用；只有第一次导、或要换基准时才需要两份。
+    """
+    tmp = paths(root)['imports'] / '_tmp_qwsq'
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    dated = []
+    for name, blob in files:
+        d, f = _qw_parse_day(name, blob, root)
+        if d is None:
+            raise ValueError(f'{name}：文件名里认不出日期，请改名成「成员群聊数据统计YYYYMMDD.xlsx」')
+        dated.append((d, f))
+    dated.sort(key=lambda x: x[0])
+
+    # ① 全部按日入库（同一份表传两次只留一条）
+    _qw_store_daily(dated, root)
+    allmap = _qw_daily_map(root)
+
+    # ② 定「本期」
+    if data_date:
+        cur_d = date.fromisoformat(data_date)
+        if cur_d.isoformat() not in allmap:
+            raise ValueError(f'库里没有 {cur_d} 这一天的企微数据；'
+                             f'可用的日期有：{"、".join(sorted(allmap)) or "（还没有）"}')
+    else:
+        cur_d = dated[-1][0]
+
+    # ③ 定「上周」= 最接近 本期−7 天，且不能是本期自己
+    target = cur_d - timedelta(days=7)
+    cands = [x for x in allmap if x < cur_d.isoformat()]
+    if not cands:
+        raise ValueError(f'{cur_d} 是库里最早的一天，没有可用来做对比的上一期。'
+                         '请把上周那份成员群聊表一起传进来。')
+    prev_s = min(cands, key=lambda x: abs((date.fromisoformat(x) - target).days))
+    prev_d = date.fromisoformat(prev_s)
+
+    cur, prev = allmap[cur_d.isoformat()], allmap[prev_s]
+    snap = _qw_assemble(cur_d, prev_d, cur, prev)
+    sent = {d for d, _ in dated}
+    snap['_files'] = [{'name': n, 'role': (f'本周 {d}' if d == cur_d else f'上周 {d}')}
+                      for d, (n, _b) in zip([d for d, _ in dated], files)]
+    reused = prev_d not in sent
+    note = f'本周 {cur_d} · 上周 {prev_d}'
+    if reused:
+        note += f'（上周数据沿用库里 {prev_d} 那次导入，未重复上传）'
+    snap['_notes'] = [note]
+    return cur_d.isoformat(), snap
 
 
 def import_payroll(files, line, root, data_date=None):

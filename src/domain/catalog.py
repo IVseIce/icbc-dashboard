@@ -90,7 +90,7 @@ PROFESSIONALS = [
             {
                 'id': 'wj-wecom', 'name': '企微社群', 'status': 'active', 'modules': [
                     {'id': 'wj-wecom-social', 'name': '企微社群', 'page': 'community', 'kind': 'metric',
-                     'source': '成员群聊数据统计（本周+上周）', 'level': '支行 + 网点', 'freq': '周', 'as_line': 'qwsq',
+                     'source': '成员群聊数据统计（本周，上周自动复用）', 'level': '支行 + 网点', 'freq': '周', 'as_line': 'qwsq',
                      'desc': '群数、客户数、交互、熟识率'},
                 ],
             },
@@ -144,7 +144,7 @@ PROFESSIONALS = [
                      'desc': '六大场景落地/推进（当前为文字进度）'},
                     {'id': 'pj-wecom', 'name': '企微社群运营', 'page': 'community', 'kind': 'metric',
                      'as_line': 'qwsq', 'level': '支行 + 网点', 'freq': '周',
-                     'source': '成员群聊数据统计（本周+上周）', 'desc': '群数、客户数、交互、熟识率'},
+                     'source': '成员群聊数据统计（本周，上周自动复用）', 'desc': '群数、客户数、交互、熟识率'},
                     {'id': 'pj-fivecards', 'name': '五卡唤醒', 'page': 'fivecards', 'kind': 'metric',
                      'as_line': 'wk', 'level': '支行', 'freq': '不定期',
                      'source': '五卡汇总表', 'desc': '5 类卡存量/长尾/未交易（与增客共用）'},
