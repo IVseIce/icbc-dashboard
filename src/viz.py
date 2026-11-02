@@ -56,6 +56,12 @@ LINES = {
            'hint': '客编明细（含 归属支行/机构名称/最近到期日期/定期余额变化），取数日往前一个月'},
     'team': {'label': '经理队伍', 'skill': '',
              'hint': '财客/远维客户经理明细（可只传一个；日期认文件名，认不出会提示手填）'},
+    'jbl_lc': {'label': '基保理 · 理财', 'skill': '',
+               'hint': '理财产品实时通报（只需一张工作簿：支行通报 + 网点通报，其余子表自动忽略）'},
+    'jbl_fund': {'label': '基保理 · 基金', 'skill': '',
+                 'hint': '基金通报（同样只读支行通报 + 网点通报两张子表）'},
+    'jbl_bx': {'label': '基保理 · 保险', 'skill': '',
+               'hint': '保险通报（同样只读支行通报 + 网点通报两张子表）'},
 }
 
 _mods: dict[str, object] = {}
@@ -806,14 +812,32 @@ def import_team(files, line, root, data_date=None):
     return dd, team.merge(existing, snap)
 
 
+def import_jbl(files, line, root, data_date=None):
+    """基保理：一张成表里「支行通报 + 网点通报」。
+
+    三条线（理财/基金/保险）各存各的，靠 `line` 推出期望的产品线；
+    同一天分两次导（先支行后网点）会合并（见 ingest.jbl.merge）。
+    """
+    from ingest import jbl
+    want = {v: k for k, v in jbl.KIND_LINE.items()}.get(line)
+    dd, snap = jbl.parse_files(files, as_of=data_date, want_kind=want)
+    existing = None
+    for old in store.load_snapshots(line):
+        if (old.get('as_of') or '') == dd:
+            existing = old
+            break
+    return dd, jbl.merge(existing, snap)
+
+
 # 这些导入器的签名带 data_date=(, overrides=)
-DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp', 'team')
+DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp', 'team', 'jbl_lc', 'jbl_fund', 'jbl_bx')
 
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
              'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
              'ykh': import_yika, 'pbs': import_pbs, 'jp': import_jiepan,
-             'team': import_team}
+             'team': import_team,
+             'jbl_lc': import_jbl, 'jbl_fund': import_jbl, 'jbl_bx': import_jbl}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,

@@ -903,3 +903,9 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   border-radius:10px;padding:9px 12px;margin:12px 0 0}
 .adm-cf-acts{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
 @media (max-width:900px){.adm-hint{display:none}}
+
+/* 基保理：三个产品线页签，未导入的置灰并标「未导入」 */
+.tm-tab.off{color:var(--ink-4);cursor:default}
+.tm-tab.off:hover{color:var(--ink-4)}
+.tm-tab .tm-tab-tag{font-style:normal;font-size:9.5px;margin-left:5px;color:var(--ink-4);
+  background:var(--line-2);border-radius:5px;padding:0 4px}

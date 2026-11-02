@@ -50,7 +50,7 @@ export default {
           <div class="card-head"><h3>③ 放入源表</h3>
             <div class="right">
               <label class="chip" style="cursor:pointer" id="impDateWrap"
-                     title="本期是算到哪一天。留空 = 用文件名里的日期（多数模块认文件名）">
+                     title="本期是算到哪一天。留空 = 用源表里的日期（基保理认标题里的日期，其他多数模块认文件名）">
                 本期
                 <input type="date" id="impDate" style="border:0;background:transparent;font-family:inherit;font-size:11px">
                 <button type="button" class="imp-date-x" id="impDateClear" title="清除，改用文件名里的日期">✕</button>
@@ -175,6 +175,10 @@ export default {
       });
     }
 
+    /** 源表自己带日期的条线：基保理（标题「11.1第41期…」）、
+        这类**不预填**本期，留空才会用表里的日期，避免把 T-1 盖上去。 */
+    const DATE_IN_FILE = new Set(['jbl_lc', 'jbl_fund', 'jbl_bx']);
+
     /** 本期默认 = 昨天（日常报表都是跑 T-1 的数）。
         用户选别的日期就尊重用户的选择，不再覆盖。 */
     function defaultDate() {
@@ -188,7 +192,10 @@ export default {
       mod = m;
       modGrid.querySelectorAll('.mod-pick').forEach((x) => x.classList.toggle('on', x.dataset.id === m.id));
       const pick = view.querySelector('#impDate');
-      if (pick && !pick.value) pick.value = defaultDate();
+      // 基保理这类"表里自带日期"的，留空 → 后端用标题里的日期；
+      // 预填 T-1 反而会盖掉表里的真实日期（11.1 的表被填成 T-1 就错了）
+      if (pick && !pick.value && !DATE_IN_FILE.has(m.as_line)) pick.value = defaultDate();
+      if (pick && DATE_IN_FILE.has(m.as_line)) pick.value = '';
       showSales(m.as_line === 'pbs');
       showJpEdit(m.as_line === 'jp');
       sync();

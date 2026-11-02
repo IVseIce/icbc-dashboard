@@ -61,8 +61,10 @@ PROFESSIONALS = [
             {
                 'id': 'jg-income', 'name': '增收', 'status': 'framework', 'desc': '中收来源',
                 'modules': [
-                    {'id': 'jg-income-jbl', 'name': '基保理', 'kind': 'placeholder', 'group': '增收',
-                     'desc': '基金/保险/理财销量与保有（待接入）'},
+                    {'id': 'jg-income-jbl', 'name': '基保理', 'page': 'jbl', 'kind': 'metric',
+                     'source': '理财产品实时通报（支行通报 + 网点通报）', 'level': '支行 + 网点',
+                     'freq': '期', 'as_line': 'jbl_lc', 'group': '增收',
+                     'desc': '理财/基金/保险：本期销量、达成率、支行与网点排行'},
                     {'id': 'jg-income-pay', 'name': '三方支付', 'kind': 'placeholder', 'group': '增收',
                      'desc': '绑卡数、交易额、活跃户（待接入）'},
                 ],

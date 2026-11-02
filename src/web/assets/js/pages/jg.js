@@ -108,6 +108,15 @@ function statsFor(id, data) {
     push(fmt.n(t.stock), '存量');
     push(fmt.pct(t.long_rate, 1), '长尾率');
     push(fmt.n(t.long), '长尾户');
+  } else if (id === 'jg-income-jbl' && d.jbl?.ok) {
+    // build_jbl 把三条产品线各放一个子树，卡片先显示理财
+    const first = (d.jbl.kinds || []).find((x) => d.jbl[x]?.ok);
+    const lc = first ? (d.jbl[first].kpi || {}) : null;
+    if (lc) {
+      push(fmt.n(lc.current, 0) + '<small>万</small>', lc.period != null ? `第${lc.period}期销量` : '本期销量');
+      push(fmt.pct(lc.rate, 1), '达成率');
+      push(fmt.n(lc.hit) + '<small>家</small>', '有销量支行');
+    }
   } else if (id === 'pj-wecom' && d.community?.kpi) {
     const k = d.community.kpi;
     push(fmt.n(k.groups), '群');

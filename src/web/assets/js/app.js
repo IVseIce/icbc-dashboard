@@ -19,6 +19,7 @@ import report from './pages/report.js';
 import jgPage from './pages/jg.js';
 import toolPage from './pages/tool.js';
 import downgrade from './pages/downgrade.js';
+import jbl from './pages/jbl.js';
 import team from './pages/team.js';
 import jiepan from './pages/jiepan.js';
 import pbs from './pages/pbs.js';
@@ -28,7 +29,7 @@ import guide, { guideHref, changelogPage } from './pages/guide.js';
 import adminPage from './pages/admin.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards,
-  downgrade, jiepan, pbs, yika, team, tool: toolPage };
+  downgrade, jiepan, pbs, yika, team, jbl, tool: toolPage };
 
 /** 模块角标：数据页看是否接入，工具页是"开发中" */
 function modBadge(m) {

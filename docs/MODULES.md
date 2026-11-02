@@ -7,7 +7,7 @@
 
 | 板块 | id | 模块 | 已接入 | 说明 |
 |---|---|---|---|---|
-| 个人金融 | `jg` | 12 | 8 | 增存 · 增客 · 增收 |
+| 个人金融 | `jg` | 12 | 9 | 增存 · 增客 · 增收 |
 | 网络金融 | `wj` | 3 | 3 | 线上服务 · 数币 · 企微 |
 | 个人贷款 | `loan` | 1 | 0 | 框架预留，待接入 |
 | 银行卡 | `card` | 1 | 0 | 框架预留，待接入 |
@@ -29,7 +29,7 @@
 | 个金 | 增客 | 薪管家 | `jg-customer-xgj` | metric | salary | xgj | [docs/modules/jg-customer-xgj.md](../modules/jg-customer-xgj.md) |
 | 个金 | 增客 | 一卡一户 | `jg-customer-yika` | metric | yika | ykh | [docs/modules/jg-customer-yika.md](../modules/jg-customer-yika.md) |
 | 个金 | 增客 | 五卡唤醒 | `jg-customer-card` | metric | fivecards | wk | — |
-| 个金 | 增收 | 基保理 | `jg-income-jbl` | placeholder | — | — | — |
+| 个金 | 增收 | 基保理 | `jg-income-jbl` | metric | jbl | jbl_lc | [docs/modules/jg-income-jbl.md](../modules/jg-income-jbl.md) |
 | 个金 | 增收 | 三方支付 | `jg-income-pay` | placeholder | — | — | — |
 | 网金 | 线上服务 | 线上服务 | `wj-online-svc` | metric | online | xsfw | — |
 | 网金 | 数币钱包 | 数币钱包 | `wj-wallet` | metric | wallet | sbqb | — |
@@ -61,3 +61,6 @@
 | `pbs` | 3 | 2026-10-24 |
 | `jp` | 1 | 2026-10-25 |
 | `team` | 1 | 2026-10-21 |
+| `jbl_lc` | 1 | 2026-11-01 |
+| `jbl_fund` | 0 | — |
+| `jbl_bx` | 0 | — |

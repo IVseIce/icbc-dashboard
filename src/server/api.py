@@ -708,14 +708,157 @@ def build_team(on: str | None = None) -> dict:
     return out
 
 
+
+JBL_LINES = {'lc': 'jbl_lc', 'fund': 'jbl_fund', 'bx': 'jbl_bx'}
+# 基保理三条产品线都归到同一个视图 key `jbl`（页面用 `?k=` 切换）。
+# catalog 里模块只挂 `jbl_lc`，另两条线靠这张表让前端能认出「数据截至」。
+JBL_LINE_KEYS = {'jbl_lc': 'jbl', 'jbl_fund': 'jbl', 'jbl_bx': 'jbl'}
+JBL_LABEL = {'lc': '理财', 'fund': '基金', 'bx': '保险'}
+
+
+def _jbl_one(key: str, on: str | None) -> dict | None:
+    """单条产品线（理财/基金/保险）的一期。三条线各存各的快照。"""
+    line = JBL_LINES[key]
+    s = _latest(line, on)
+    if not s:
+        return None
+
+    period = s.get('period')
+    periods = s.get('periods') or []
+    branches = s.get('branches') or []
+    nets = s.get('nets') or []
+
+    brs = []
+    for i, b in enumerate(branches):
+        rec = dict(b)
+        rec['rank'] = i + 1
+        m = {str(k): v for k, v in (b.get('metric') or {}).items()}
+        # 本期也塞进 metric：前端可以统一「按期号取列」，不用为当期单开一列
+        if period is not None and b.get('current') is not None:
+            m[str(period)] = b['current']
+        rec['metric'] = m
+        brs.append(rec)
+
+    nets_out = []
+    for i, n in enumerate(nets):
+        rec = dict(n)
+        rec['rank'] = i + 1
+        rec['short'] = str(n.get('name') or '').replace('阜阳', '')
+        m = {str(k): v for k, v in (n.get('metric') or {}).items()}
+        if period is not None and n.get('current') is not None:
+            m[str(period)] = n['current']
+        rec['metric'] = m
+        nets_out.append(rec)
+
+    # 本期销量：优先源表「合计」行（成表口径），缺了才自己加
+    cur = (s.get('period_totals') or {}).get(str(period)) if period is not None else None
+    if cur is None:
+        cur = sum((b.get('current') or 0) for b in branches)
+    total_col = s.get('branch_total_row')
+    if total_col is None:
+        total_col = sum((b.get('total') or 0) for b in branches)
+    target = sum((b.get('target') or 0) for b in branches)
+    fund = sum((b.get('fund') or 0) for b in branches)
+
+    # 趋势：把所有快照的「按期合计」合并。相邻两次导入的期数会重叠
+    # （这次 39/40/41，下次 41/42/43），同一期以**更晚导入**的为准 ——
+    # _upto 已按 as_of 升序，直接覆盖写即可。
+    tmap = {}
+    for x in _upto(line, on):
+        for k, v in (x.get('period_totals') or {}).items():
+            try:
+                pi = int(k)
+            except (TypeError, ValueError):
+                continue
+            if v is None:
+                continue
+            tmap[pi] = {'period': pi, 'value': _r(v, 4), 'as_of': x.get('as_of')}
+    trend = [tmap[k] for k in sorted(tmap)]
+
+    # 支行历史：支行 → 各期销量（画"各支行按期"对比用）
+    bh = {}
+    for x in _upto(line, on):
+        for b in x.get('branches') or []:
+            m = bh.setdefault(b['name'], {})
+            for k, v in (b.get('metric') or {}).items():
+                if v is not None:
+                    m[str(k)] = v
+            if x.get('period') is not None and b.get('current') is not None:
+                m[str(x['period'])] = b['current']
+
+    ranked = sorted(brs, key=lambda b: -(b.get('current') or 0))
+    hit = [b for b in brs if (b.get('current') or 0) > 0]
+    return {
+        'key': key, 'label': JBL_LABEL[key], 'line': line,
+        'ok': True, 'as_of': s.get('as_of'), 'as_of_cn': s.get('as_of_cn'),
+        'title': s.get('title'),
+        'period': period, 'periods': periods,
+        'kpi': {
+            'current': _r(cur, 2), 'target': _r(target, 2),
+            'rate': _r((cur / target) if target else None, 6),
+            'total': _r(total_col, 2), 'fund': _r(fund, 2),
+            'period': period, 'branches': len(brs), 'nets': len(nets_out),
+            'hit': len(hit),
+            'best': ranked[0] if ranked else None,
+            'worst': ranked[-1] if ranked else None,
+        },
+        'branches': brs,
+        'nets': nets_out,
+        'trend': trend,
+        'branch_hist': [{'name': k, 'metric': v} for k, v in bh.items()],
+        'has': {'branches': bool(brs), 'nets': bool(nets_out)},
+        'notes': s.get('_notes') or [],
+    }
+
+
+def build_jbl(on: str | None = None) -> dict:
+    """基保理：理财 / 基金 / 保险 三条产品线，各自「支行 + 网点」两层。
+
+    数据口径（用户拍板）：**源表就是成表，原样取，不重算、不校验修正**。
+    三条线互不覆盖：`jbl_lc` / `jbl_fund` / `jbl_bx`，可以只导其中一条。
+    """
+    body = {}
+    for key in JBL_LINES:
+        try:
+            body[key] = _jbl_one(key, on)
+        except Exception as exc:                # 单条线出错不该拖垮整页
+            body[key] = {'ok': False, 'key': key, 'label': JBL_LABEL[key],
+                         'error': f'{type(exc).__name__}: {exc}'}
+    got = [k for k in JBL_LINES if body.get(k) and body[k].get('ok')]
+    if not got:
+        d = _no_data('jbl_lc', on)
+        d['kinds'] = []                        # 必须是数组：前端直接 filter
+        d['labels'] = {k: JBL_LABEL[k] for k in JBL_LINES}
+        return d
+    first = body[got[0]]
+    return {'ok': True, 'as_of': first.get('as_of'), 'as_of_cn': first.get('as_of_cn'),
+            'kinds': got, 'labels': {k: JBL_LABEL[k] for k in JBL_LINES},
+            'lc': body.get('lc'), 'fund': body.get('fund'), 'bx': body.get('bx')}
+
+
+def jbl_kpi(d: dict) -> dict:
+    """首页 / 个金总览卡用：各产品线的本期销量与达成率。"""
+    if not d.get('ok'):
+        return {}
+    out = {}
+    for k in (d.get('kinds') or []):
+        b = d.get(k) or {}
+        kk = b.get('kpi') or {}
+        out[k] = {'current': kk.get('current'), 'rate': kk.get('rate'),
+                  'period': kk.get('period'), 'hit': kk.get('hit'),
+                  'as_of': b.get('as_of')}
+    return out
+
+
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
             'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika,
-            'pbs': build_pbs, 'jiepan': build_jiepan, 'team': build_team}
+            'pbs': build_pbs, 'jiepan': build_jiepan, 'team': build_team,
+            'jbl': build_jbl}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
            'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
            'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs', 'jiepan': 'jp',
-           'team': 'team'}
+           'team': 'team', 'jbl': 'jbl_lc'}
 
 
 def team_kpi(d: dict) -> dict:
@@ -742,6 +885,7 @@ def build_overview(on: str | None = None) -> dict:
     y = build_yika(on)
     jp = build_jiepan(on)
     tm = build_team(on)
+    jb = build_jbl(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -766,6 +910,9 @@ def build_overview(on: str | None = None) -> dict:
                    'coverage': jp.get('coverage')},
         'team': {'ok': tm.get('ok'), 'as_of': tm.get('as_of'), 'kpi': team_kpi(tm),
                  'nearest': tm.get('nearest'), 'blocks': tm.get('blocks')},
+        'jbl': {'ok': jb.get('ok'), 'as_of': jb.get('as_of'), 'kpi': jbl_kpi(jb),
+                'nearest': jb.get('nearest'), 'period': jb.get('period'),
+                'kind': jb.get('kind')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,
@@ -873,6 +1020,13 @@ def build_line(line: str, on: str | None = None) -> dict:
     if not fn:
         return {'ok': False, 'error': f'未知条线 {line}'}
     return fn(on)
+
+
+def line_key_map() -> dict:
+    """真实条线 → 视图 key。`line_keys`（前端认「数据截至」用）以它为底。"""
+    out = {line: key for key, line in LINE_OF.items()}
+    out.update(JBL_LINE_KEYS)
+    return out
 
 
 def available_dates() -> dict:

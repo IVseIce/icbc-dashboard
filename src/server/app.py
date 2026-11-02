@@ -122,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
                 cat['latest'] = all_dates[-1] if all_dates else None
                 cat['earliest'] = all_dates[0] if all_dates else None
                 # 条线 → 视图模型 key（页面按模块显示"数据截至"，前端不必硬编码）
-                cat['line_keys'] = {line: key for key, line in api.LINE_OF.items()}
+                cat['line_keys'] = api.line_key_map()
                 cat['roles'] = auth.ROLES
                 cat['version'] = app_version()
                 cat['build'] = build_info()
