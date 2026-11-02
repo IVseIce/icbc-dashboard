@@ -160,6 +160,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(out)
             if path.startswith('/api/line/'):
                 return self._json(api.build_line(path.rsplit('/', 1)[-1], on))
+            if path == '/api/admin/data':
+                sess = self._need_auth()
+                if not sess:
+                    return
+                if not sess.get('admin'):
+                    return self._json({'ok': False, 'error': '只有管理员能管理数据'}, 403)
+                return self._json(api.admin_lines())
             if path == '/api/state':
                 sess = self._need_auth()
                 if not sess:
@@ -250,7 +257,35 @@ class Handler(BaseHTTPRequestHandler):
             if not self._need_auth():
                 return
             return self._jiepan_find(body)
+        if path in ('/api/admin/delete', '/api/admin/restore'):
+            sess = self._need_auth()
+            if not sess:
+                return
+            if not sess.get('admin'):
+                return self._json({'ok': False, 'error': '只有管理员能管理数据'}, 403)
+            return self._admin_edit(path, body)
         return self.send_error(404)
+
+    def _admin_edit(self, path: str, body: bytes):
+        """软删除 / 恢复某一期。POST JSON：{line, as_of}"""
+        try:
+            try:
+                payload = json.loads(body.decode('utf-8') or '{}')
+            except ValueError:
+                return self._json({'ok': False, 'error': '请求体不是 JSON'}, 400)
+            line = (payload.get('line') or '').strip()
+            as_of = (payload.get('as_of') or '').strip()
+            if not line or not as_of:
+                return self._json({'ok': False, 'error': '要指定 line 和 as_of'}, 400)
+            if path.endswith('/delete'):
+                r = api.admin_delete(line, as_of)
+            else:
+                r = api.admin_restore(line, as_of)
+            if r.get('ok'):
+                r['all'] = api.build_all()      # 让前端一次刷新到位
+            return self._json(r, 200 if r.get('ok') else 400)
+        except Exception:
+            return self._json({'ok': False, 'error': traceback.format_exc()[-600:]}, 500)
 
     def _jiepan_find(self, body: bytes):
         """定期承接「手动编辑」：在待导入的明细里按客户编号找行。

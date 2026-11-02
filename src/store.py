@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent / 'data'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 CACHE_TTL = 3.0
 
 _root: Path = DEFAULT_ROOT
@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS snapshot (
   payload      TEXT    NOT NULL,              -- 规范化快照（JSON）
   payload_hash TEXT    NOT NULL,
   source       TEXT,                          -- 来源说明（legacy-json / 上传）
+  import_id    INTEGER,                       -- 哪一次导入写进来的（import_log.id）
+  deleted_at   TEXT,                          -- 软删除时间；NULL = 正常可见
   created_at   TEXT    NOT NULL,
   updated_at   TEXT    NOT NULL,
   UNIQUE(line, as_of)
@@ -84,6 +86,7 @@ CREATE TABLE IF NOT EXISTS import_log (
   snapshot_id INTEGER REFERENCES snapshot(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_import_log_ts ON import_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_import ON snapshot(import_id);
 
 CREATE TABLE IF NOT EXISTS setting (
   key        TEXT PRIMARY KEY,
@@ -152,10 +155,21 @@ def init(conn: sqlite3.Connection | None = None) -> int:
     if v == 0:
         conn.executescript(SCHEMA_SQL)
     else:
-        # v < SCHEMA_VERSION：按版本递进升级（加 v2 时在这里补 _upgrade_2(conn)）
-        pass
+        # v < SCHEMA_VERSION：按版本递进升级
+        if v < 2:
+            _upgrade_2(conn)
     conn.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
     return SCHEMA_VERSION
+
+
+def _upgrade_2(conn: sqlite3.Connection) -> None:
+    """v1 → v2：快照加 import_id / deleted_at 两列（软删除 + 按导入批次追溯）。"""
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(snapshot)')}
+    if 'import_id' not in cols:
+        conn.execute('ALTER TABLE snapshot ADD COLUMN import_id INTEGER')
+    if 'deleted_at' not in cols:
+        conn.execute('ALTER TABLE snapshot ADD COLUMN deleted_at TEXT')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_snapshot_import ON snapshot(import_id)')
 
 
 @contextmanager
@@ -273,11 +287,12 @@ def load_snapshots(line: str, since: str | None = None, until: str | None = None
         if hit is not None:
             return hit
         rows = connect().execute(
-            'SELECT payload FROM snapshot WHERE line=? ORDER BY as_of', (line,)).fetchall()
+            'SELECT payload FROM snapshot WHERE line=? AND deleted_at IS NULL'
+            ' ORDER BY as_of', (line,)).fetchall()
         snaps = _rows_to_snaps(rows)
         _cache_put(line, snaps)
         return snaps
-    sql = 'SELECT payload FROM snapshot WHERE line=?'
+    sql = 'SELECT payload FROM snapshot WHERE line=? AND deleted_at IS NULL'
     params: list = [line]
     if since:
         sql += ' AND as_of>=?'
@@ -291,7 +306,7 @@ def load_snapshots(line: str, since: str | None = None, until: str | None = None
 
 def latest(line: str, on: str | None = None, *, partial_ok: bool = False) -> dict | None:
     """「不晚于 on」的最新一期；默认跳过 partial（历史回填的近似值）。"""
-    sql = 'SELECT payload FROM snapshot WHERE line=?'
+    sql = 'SELECT payload FROM snapshot WHERE line=? AND deleted_at IS NULL'
     params: list = [line]
     if not partial_ok:
         sql += ' AND partial=0'
@@ -305,23 +320,80 @@ def latest(line: str, on: str | None = None, *, partial_ok: bool = False) -> dic
 
 def dates(line: str) -> list[str]:
     return [r[0] for r in connect().execute(
-        'SELECT as_of FROM snapshot WHERE line=? ORDER BY as_of', (line,))]
+        'SELECT as_of FROM snapshot WHERE line=? AND deleted_at IS NULL ORDER BY as_of', (line,))]
 
 
 def all_dates() -> list[str]:
-    return [r[0] for r in connect().execute('SELECT DISTINCT as_of FROM snapshot ORDER BY as_of')]
+    return [r[0] for r in connect().execute(
+        'SELECT DISTINCT as_of FROM snapshot WHERE deleted_at IS NULL ORDER BY as_of')]
 
 
 def delete_snapshot(line: str, as_of: str) -> bool:
+    """【硬删】直接从库里抹掉（不推荐，界面上用的是 soft_delete）。
+
+    留在这里给"彻底清理"和脚本用；正常删除请走 `soft_delete()`。
+    """
     cur = connect().execute('DELETE FROM snapshot WHERE line=? AND as_of=?', (line, as_of))
     _bump()
     return bool(cur.rowcount)
 
 
+# ---------------------------------------------------------------- 软删除（数据管理页用）
+def soft_delete(line: str, as_of: str) -> bool:
+    """把一期的快照标记成已删除（`deleted_at` 有值）。
+
+    所有读取路径都带 `deleted_at IS NULL`，所以页面/通报/日期选择器立刻看不到它，
+    但数据还在库里、备份也在，误删能恢复（`restore_snapshot()`）。
+    """
+    cur = connect().execute(
+        'UPDATE snapshot SET deleted_at=?, updated_at=? WHERE line=? AND as_of=?'
+        ' AND deleted_at IS NULL', (_now(), _now(), line, as_of))
+    _bump()
+    return bool(cur.rowcount)
+
+
+def restore_snapshot(line: str, as_of: str) -> bool:
+    """把软删除的一期恢复回来。"""
+    cur = connect().execute(
+        'UPDATE snapshot SET deleted_at=NULL, updated_at=? WHERE line=? AND as_of=?'
+        ' AND deleted_at IS NOT NULL', (_now(), line, as_of))
+    _bump()
+    return bool(cur.rowcount)
+
+
+def deleted_dates(line: str) -> list[dict]:
+    """某条线被软删的期：`[{as_of, deleted_at, import_id}]`（按日期降序）。"""
+    return [dict(r) for r in connect().execute(
+        'SELECT as_of, deleted_at, import_id FROM snapshot WHERE line=?'
+        ' AND deleted_at IS NOT NULL ORDER BY as_of DESC', (line,))]
+
+
+def snapshot_rows(line: str, as_of: str) -> dict | None:
+    """一期快照的元信息（不含 payload），给删除确认框用。"""
+    r = connect().execute(
+        'SELECT id, line, as_of, rows, partial, import_id, deleted_at, created_at, updated_at'
+        ' FROM snapshot WHERE line=? AND as_of=?', (line, as_of)).fetchone()
+    return dict(r) if r else None
+
+
+def set_import_id(line: str, as_of: str, import_id: int | None) -> None:
+    """把一期快照挂到某次导入上（`do_import` 写完快照后回填）。"""
+    connect().execute('UPDATE snapshot SET import_id=? WHERE line=? AND as_of=?',
+                      (import_id, line, as_of))
+    _bump()
+
+
+def import_snapshots(import_id: int) -> list[dict]:
+    """某次导入写了哪些快照。"""
+    return [dict(r) for r in connect().execute(
+        'SELECT id, line, as_of, deleted_at FROM snapshot WHERE import_id=?'
+        ' ORDER BY line, as_of', (import_id,))]
+
+
 def line_stats() -> list[dict]:
     rows = connect().execute(
         'SELECT line, MAX(as_of) AS as_of, COUNT(*) AS count, MAX(updated_at) AS updated_at'
-        ' FROM snapshot GROUP BY line').fetchall()
+        ' FROM snapshot WHERE deleted_at IS NULL GROUP BY line').fetchall()
     return [dict(r) for r in rows]
 
 
@@ -333,11 +405,12 @@ def stats() -> dict:
         'schema': conn.execute('PRAGMA user_version').fetchone()[0],
         'sqlite': sqlite3.sqlite_version,
         'size_mb': round(db_path().stat().st_size / 1048576, 2) if db_path().exists() else 0,
-        'snapshots': one('SELECT COUNT(*) FROM snapshot'),
-        'lines': one('SELECT COUNT(DISTINCT line) FROM snapshot'),
+        'snapshots': one('SELECT COUNT(*) FROM snapshot WHERE deleted_at IS NULL'),
+        'deleted': one('SELECT COUNT(*) FROM snapshot WHERE deleted_at IS NOT NULL'),
+        'lines': one('SELECT COUNT(DISTINCT line) FROM snapshot WHERE deleted_at IS NULL'),
         'source_files': one('SELECT COUNT(*) FROM source_file'),
         'imports': one('SELECT COUNT(*) FROM import_log'),
-        'latest': one('SELECT MAX(as_of) FROM snapshot'),
+        'latest': one('SELECT MAX(as_of) FROM snapshot WHERE deleted_at IS NULL'),
         'lines_detail': line_stats(),
     }
 

@@ -42,12 +42,20 @@ def table_exists(con: sqlite3.Connection, name: str) -> bool:
 
 
 def merge_snapshots(src: sqlite3.Connection, dst: sqlite3.Connection, overwrite: set[str], dry: bool) -> dict:
-    """按 (line, as_of) 补齐/覆盖快照。"""
-    added = updated = kept = 0
+    """按 (line, as_of) 补齐/覆盖快照。
+
+    软删除的一期**也算"已有"**：否则在数据管理里删掉的期，会被下一次 --with-data 又搬回来。
+    源库里被标删的，也不往生产库搬。
+    """
+    added = updated = kept = skipped_deleted = 0
     rows = src.execute('SELECT line, as_of, month, partial, rows, payload, payload_hash, source,'
-                       ' created_at, updated_at FROM snapshot ORDER BY line, as_of').fetchall()
+                       ' created_at, updated_at, deleted_at FROM snapshot ORDER BY line, as_of').fetchall()
+    # 注意这里**不过滤** deleted_at：目标库里被软删的期也要算"已存在"
     have = {(r['line'], r['as_of']) for r in dst.execute('SELECT line, as_of FROM snapshot')}
     for r in rows:
+        if r['deleted_at']:                 # 源库里是已删除状态：不搬
+            skipped_deleted += 1
+            continue
         key = (r['line'], r['as_of'])
         if key not in have:
             added += 1
@@ -67,7 +75,8 @@ def merge_snapshots(src: sqlite3.Connection, dst: sqlite3.Connection, overwrite:
                      r['source'], r['updated_at'], r['line'], r['as_of']))
         else:
             kept += 1
-    return {'snapshot_added': added, 'snapshot_overwritten': updated, 'snapshot_kept': kept}
+    return {'snapshot_added': added, 'snapshot_overwritten': updated, 'snapshot_kept': kept,
+            'snapshot_skipped_deleted': skipped_deleted}
 
 
 def merge_import_log(src: sqlite3.Connection, dst: sqlite3.Connection, dry: bool) -> dict:
@@ -191,7 +200,9 @@ def main() -> int:
     tag = '（预演，未写库）' if a.dry_run else ''
     print('seed 合并' + tag)
     print(f'  快照    新增 {stats["snapshot_added"]} 期，'
-          f'覆盖 {stats["snapshot_overwritten"]} 期，保留生产 {stats["snapshot_kept"]} 期')
+          f'覆盖 {stats["snapshot_overwritten"]} 期，保留生产 {stats["snapshot_kept"]} 期'
+          + (f'，跳过已删除 {stats["snapshot_skipped_deleted"]} 期'
+             if stats.get('snapshot_skipped_deleted') else ''))
     print(f'  导入台账 新增 {stats["import_log_added"]} 条')
     print(f'  设置    新增 {stats["setting_added"]} 项，保留生产 {stats["setting_kept"]} 项')
     print(f'  原件    复制 {stats["files_copied"]} 个')

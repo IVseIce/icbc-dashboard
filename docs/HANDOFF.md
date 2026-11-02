@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-11-02（**版本 0.1.8.6**｜企微社群改为按日入库、上周自动复用；导入页「本期」日期）
+> 最后更新：2026-11-02（**版本 0.1.9**｜数据管理页：软删除 + 恢复 + 删除前自动备份）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -22,6 +22,7 @@
 > → 0.1.8.4（修 online 通报 Excel 标红标绿：母版残留旧色 + 并列取值规则）
 > → 0.1.8.5（企微社群「支行本部 → 本行营业室」方案B；对账用例固定上周基准）
 > → 0.1.8.6（企微社群按日入库 + 上周自动复用；导入页「本期」默认 T-1）
+> → 0.1.9（**数据管理页**：按模块×期软删除、可恢复、删前自动备份；schema v2）
 
 ---
 
@@ -192,13 +193,13 @@ icbc-dashboard/
 
 ## 4. 数据模型（SQLite）
 
-### 4.1 库结构（`src/store.py`，schema v1）
+### 4.1 库结构（`src/store.py`，schema **v2**）
 
 `data/icbc.db`，四张表：
 
 | 表 | 作用 | 关键字段 |
 |---|---|---|
-| `snapshot` | **事实层**：一条线一天一行 | `line`+`as_of` 唯一；`month`、`partial`、`rows`、`payload`(JSON)、`payload_hash`、`source`、`created_at`/`updated_at` |
+| `snapshot` | **事实层**：一条线一天一行 | `line`+`as_of` 唯一；`month`、`partial`、`rows`、`payload`(JSON)、`payload_hash`、`source`、**`import_id`**（哪次导入写的）、**`deleted_at`**（软删除）、`created_at`/`updated_at` |
 | `source_file` | 上传原件台账 | `snapshot_id`、`name`、`sha256`、`bytes`、`path`、`archive` |
 | `import_log` | 导入台账（替代 `ledger.jsonl`） | `ts`、`line`、`data_date`、`ok`、`error`、`files`(JSON)、`snapshot_id` |
 | `setting` | 键值设置 | `key`、`value`(JSON)、`updated_at`（例如 `legacy_json_imported`） |
@@ -215,6 +216,20 @@ icbc-dashboard/
 - 读多写少：WAL + 线程本地连接 + 3 秒 TTL 缓存（`store.load_snapshots` 返回的是缓存里的同一批 dict，**只读**）
 - 换数据目录：`viz.use_root(dir)`（会同步 `store`；`--root` 现在真的生效了）
 - schema 升级：改 `store.SCHEMA_VERSION` 并在 `init()` 里补升级分支；旧库会自动 `CREATE IF NOT EXISTS` 补表
+
+### 4.1b 软删除（`deleted_at`）—— 0.1.9 起
+
+数据管理页删数据是**软删**：把 `snapshot.deleted_at` 写上时间，行还在库里。
+
+- **所有读取路径必须带 `deleted_at IS NULL`**：`load_snapshots` / `latest` / `dates` /
+  `all_dates` / `line_stats` / `stats` 都已加。新增查询时别忘了这一条，否则删掉的数据会"复活"。
+- **`merge_seed.py` 反过来**：判断"目标库有没有这一期"时**不能**过滤 `deleted_at`，
+  否则 `--with-data` 会把用户在页面上删掉的期又搬回来（已修，见 8.11）。
+  源库里 `deleted_at` 非空的**不搬**。
+- **`import_id`**：`do_import` 用 thread-local 收集"这次写了哪些快照"，写完回填到 `snapshot.import_id`。
+  一卡一户/代发会一次写多条，靠这个才能整批追溯。
+- 内部线（`qwsq_day` / `ykh_sb` / `ykh_yl`）也能删，但界面上单列且带红字警告：
+  它们是"原料"，删了后续拼装会缺对比基准。
 
 ### 4.2 条线与日期基线
 
@@ -345,6 +360,7 @@ icbc-dashboard/
 #/guide            使用指南（不过口令，所有人可看）
 #/guide/<section>  指南里的某一节；section 通常=模块 id（模块页右上角"使用指南"跳这里）
 #/changelog        更新日志（与指南并行的独立页，左上角两个页签互切）
+#/admin/data       数据管理（管理员专属，入口在右上角身份菜单）
 ```
 
 ---
@@ -364,6 +380,9 @@ icbc-dashboard/
 | GET | `/api/report/<kind>.xlsx` | ✅ | 通报 Excel（按样式母版填） |
 | GET | `/api/state` | ✅ | 各线时点、期数、最近导入台账（含 `db` 统计） |
 | POST | `/api/import` | ✅ | multipart：`line`、`date?`、`files[]` |
+| GET | `/api/admin/data` | 管理员 | 数据管理页清单：各条线期数/日期/已删 |
+| POST | `/api/admin/delete` | 管理员 | `{line, as_of}` → 软删除（删前自动备份） |
+| POST | `/api/admin/restore` | 管理员 | `{line, as_of}` → 恢复一期 |
 
 口令不对或过期时，这几个接口回 `401 {"ok":false,"auth":true}`；前端据此弹口令框。
 
@@ -784,6 +803,24 @@ icbc-dashboard/
 
 ---
 
+### 8.14 数据管理 / 软删除（0.1.9）
+
+94. **加一个"过滤已删除"很容易漏**：`deleted_at` 上线后，任何直接
+    `SELECT ... FROM snapshot` 的新代码都必须自己带 `WHERE deleted_at IS NULL`
+    （`store` 里已有的几个函数已经带了）。漏了的表现：页面上删掉的数据又出现，
+    或者日期选择器里冒出已被删的日期。
+95. **合并/打包脚本要反着处理**。`merge_seed.py` 判断"生产库有没有这一期"时
+    **不能用**过滤后的集合 —— 否则 `--with-data` 会把用户刚删掉的期搬回来。
+    正确做法：`have` 不过滤；源库里 `deleted_at` 非空的跳过不搬。
+96. **删除前必须备份**：`api.admin_delete()` 先 `store.backup_to()` 到
+    `data/backups/before-delete-<line>-<as_of>-<时间>.db`，备份失败就中止删除。
+    软删本身可恢复，但备份是"连软删都被误操作"时的最后一道保险。
+97. **schema 升级**：v1 → v2 走 `store._upgrade_2()`（ALTER TABLE 加两列），
+    老库打开会自动升。加 v3 时照这个模式在 `init()` 里补分支，别改 `SCHEMA_SQL` 就完事
+    （已建好的表不会因为改了 `CREATE TABLE IF NOT EXISTS` 而新增列）。
+
+---
+
 ## 9. 当前状态 / 卡在哪
 
 ### 已完成
@@ -808,6 +845,7 @@ icbc-dashboard/
 - **使用指南**（0.1.4）：右上角「导入数据」左边一个低调入口 + 每页可直达对应章节
   （`#/guide/<模块id>`）；正文 19 节分五组，左侧目录常驻、底部「回到最上边」；指南**不过口令**
 - **更新日志**独立成页（`#/changelog`），与指南用页面左上角页签互切（0.1.4.1）
+- **数据管理**（0.1.9）：管理员在网页上删/恢复数据。按「模块 × 期」列，软删除 + 删除前热备份；内部线（`qwsq_day`/`ykh_sb`/`ykh_yl`）单列并带警告。schema 升到 v2（`import_id`/`deleted_at`）
 - **顶栏精简**（0.1.4）：原来「刷新」+「回到最新」两个按钮功能重叠，合并为一个
   （清筛选 + 重新取数）；动效改成切 class，不再碰 `e.currentTarget`
 - **侧栏防误拖**（0.1.4）：`draggable=false` + 拦 `dragstart` + 位移>6px 不认点击
@@ -894,7 +932,8 @@ icbc-dashboard/
 | 依赖版本 | `requirements.txt` + `vendor/pylib/`（纯 Python，改版本要两个一起改） |
 | 发布打包 | `python scripts/package_release.py`（版本号=日期+git sha） |
 | 口令 / 身份组 | `src/server/auth.py` 的 `ROLES`/`DEFAULTS`；前端表现看 `auth.js`、`app.js` 的 `paintTop()/startGate()` |
-| 表结构 / 加指标表 | `src/store.py`（`SCHEMA_SQL` + `SCHEMA_VERSION` + `init()` 升级分支） |
+| 表结构 / 加指标表 | `src/store.py`（`SCHEMA_SQL` + `SCHEMA_VERSION` + `init()` 升级分支；老库加列要用 `ALTER TABLE`，见 `_upgrade_2`） |
+| 数据管理页（删数据） | `src/web/assets/js/pages/admin.js` + `api.admin_lines/admin_delete/admin_restore`；入口在 `app.js` 的 `adminMenu()` |
 | 查库/排障 | `python scripts/migrate_to_sqlite.py --db-info`，或 `sqlite3 data/icbc.db "select line,max(as_of),count(*) from snapshot group by line"` |
 | 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 | 降级挽回的口径 | `src/ingest/downgrade.py` 顶部常量（`REPORT_SHIFT` / `SPAN_DAYS` / `UNIT` / `EXCLUDE_SUFFIX`） |
@@ -932,7 +971,7 @@ icbc-dashboard/
 2. 起服务 → `curl /api/health` 返回 `ok:true`，且 `version` 与 `VERSION` 一致
    （版本号有缓存：改完 `VERSION` 要**重启进程**才生效）
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
-   `python scripts/migrate_to_sqlite.py --db-info` → 13 条数据线、最新 2026-10-25、schema v1
+   `python scripts/migrate_to_sqlite.py --db-info` → 13 条数据线、最新 2026-11-02、schema v2
 4. 打开 `#/`、`#/p/jg`、`#/m/jg-deposit-time`、`#/m/jg-deposit-jiangji` 各看一眼
    （顶栏"数据截至"应分别是 10/22、10/22、10/15、9/13）
 5. `#/report` 应弹口令框；输 `gejin2026` 只看到「定期存款增长 / 薪管家 / 降级挽回营销先锋」三项；
@@ -963,6 +1002,7 @@ icbc-dashboard/
     （「下载 财客 Excel（10.21）」「下载 远维 Excel（10.21）」），两份 Excel 都能下
 15. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
    浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
-16. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
+16. 管理员登录 → 右上角身份菜单应有「数据管理」；进去能看到各模块期数，删一期后页面回退到上一期、能在「已删」里恢复
+17. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。

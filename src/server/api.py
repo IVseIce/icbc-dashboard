@@ -772,6 +772,91 @@ def build_overview(on: str | None = None) -> dict:
             'priority': ['deposit', 'online', 'wallet', 'salary', 'community']}
 
 
+# ---------------------------------------------------------------- 数据管理（管理员）
+# 界面上只列"用户看得懂"的条线；qwsq_day / ykh_sb / ykh_yl 是内部线，
+# 单独列在"原始数据"下面（删了会影响后续拼装，要警告）。
+INTERNAL_LINES = {
+    'qwsq_day': '企微社群 · 按日原始数据',
+    'ykh_sb': '一卡一户 · 社保卡按日原始',
+    'ykh_yl': '一卡一户 · 养老金按日原始',
+}
+
+
+def _delete_warning(line: str, as_of: str) -> dict | None:
+    """删掉这一期会不会影响别的期？返回警告（没有就 None）。"""
+    if line == 'qwsq_day':
+        later = [d for d in store.dates('qwsq') if d > as_of]
+        if later:
+            return {'level': 'warn',
+                    'text': f'{len(later)} 个企微当期（{later[0]} 起）把它当"上周"用；'
+                            '删掉后已生成的期不会变，但重新导入时会找不到对比基准。'}
+    if line in ('ykh_sb', 'ykh_yl'):
+        return {'level': 'warn',
+                'text': '一卡一户当期靠"当日/前一日/上周末"三个时点拼出来，'
+                        '删掉这个日期后重新导入可能因缺时点失败。'}
+    if line == 'pbs':
+        return {'level': 'info',
+                'text': '私人银行的基线（上年末/上季度末）也以快照保存；'
+                        '删当期不影响基线，删基线会让"比上年"变空。'}
+    return None
+
+
+def admin_lines() -> dict:
+    """数据管理页的「模块 → 期数 → 日期」清单（只读）。"""
+    stats = {r['line']: r for r in store.line_stats()}
+    rows = []
+    for line, meta in viz.LINES.items():
+        s = stats.get(line) or {}
+        rows.append({'line': line, 'label': meta['label'], 'hint': meta['hint'],
+                     'internal': False, 'count': int(s.get('count') or 0),
+                     'latest': s.get('as_of'), 'dates': store.dates(line),
+                     'deleted': store.deleted_dates(line)})
+    for line, label in INTERNAL_LINES.items():
+        if line not in stats and not store.deleted_dates(line):
+            continue
+        s = stats.get(line) or {}
+        rows.append({'line': line, 'label': label,
+                     'hint': '内部线：界面上看不到，删了会影响后续拼装',
+                     'internal': True, 'count': int(s.get('count') or 0),
+                     'latest': s.get('as_of'), 'dates': store.dates(line),
+                     'deleted': store.deleted_dates(line)})
+    rows.sort(key=lambda r: (r['internal'], -r['count'], r['line']))
+    return {'ok': True, 'lines': rows, 'db': store.stats()}
+
+
+def admin_delete(line: str, as_of: str) -> dict:
+    """软删除某条线的某一期：先热备份，再标记 deleted_at。"""
+    if line not in viz.LINES and line not in INTERNAL_LINES:
+        return {'ok': False, 'error': f'未知条线：{line}'}
+    row = store.snapshot_rows(line, as_of)
+    if not row:
+        return {'ok': False, 'error': f'库里没有 {line} {as_of} 这一期'}
+    if row.get('deleted_at'):
+        return {'ok': False, 'error': '这一期已经是删除状态'}
+
+    # 删之前热备份（软删除本身可恢复，备份是最后一道保险）
+    bak_dir = store.root() / 'backups'
+    bak_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    bak = bak_dir / f'before-delete-{line}-{as_of}-{stamp}.db'
+    try:
+        store.backup_to(bak)
+    except Exception as exc:
+        return {'ok': False, 'error': f'删除前备份失败，已中止：{exc}'}
+
+    warn = _delete_warning(line, as_of)
+    if not store.soft_delete(line, as_of):
+        return {'ok': False, 'error': '删除失败（可能已被别处改过）'}
+    return {'ok': True, 'line': line, 'as_of': as_of, 'backup': str(bak),
+            'warning': warn, 'label': (viz.LINES.get(line) or {}).get('label', line)}
+
+
+def admin_restore(line: str, as_of: str) -> dict:
+    if not store.restore_snapshot(line, as_of):
+        return {'ok': False, 'error': '这一期不是在删除状态'}
+    return {'ok': True, 'line': line, 'as_of': as_of}
+
+
 def build_all(on: str | None = None) -> dict:
     out = {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
            'as_of': on, 'overview': build_overview(on)}

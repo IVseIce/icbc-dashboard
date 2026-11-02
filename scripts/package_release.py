@@ -132,9 +132,11 @@ def build_seed(stage: Path, data_dir: Path, with_imports: bool = True) -> dict:
                         f"WHERE instr({col}, 'imports/') > 0 AND {col} NOT LIKE 'imports/%'")
     con.commit()
     stats = {
-        'snapshots': con.execute('SELECT COUNT(*) FROM snapshot').fetchone()[0],
+        'snapshots': con.execute(
+            'SELECT COUNT(*) FROM snapshot WHERE deleted_at IS NULL').fetchone()[0],
         'imports': con.execute('SELECT COUNT(*) FROM import_log').fetchone()[0],
-        'latest': con.execute('SELECT MAX(as_of) FROM snapshot').fetchone()[0],
+        'latest': con.execute(
+            'SELECT MAX(as_of) FROM snapshot WHERE deleted_at IS NULL').fetchone()[0],
     }
     con.close()
     size = sum(p.stat().st_size for p in seed.rglob('*') if p.is_file())

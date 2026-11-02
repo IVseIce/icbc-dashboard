@@ -22,6 +22,7 @@ import importlib.util
 import json
 import re
 import shutil
+import threading
 import sys
 import traceback
 from datetime import date, datetime, timedelta
@@ -100,9 +101,22 @@ def ledger(line: str, rec: dict, root: Path | None = None) -> int:
     return store.log_import({'ts': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'line': line, **rec})
 
 
+# 一次导入可能写多条快照（一卡一户 = ykh_sb×N + ykh_yl×N + ykh；代发 = dfmx×N）；
+# 这里记下"当前这次导入写了哪些"，好让它们都挂到同一条 import_log 上（软删除要按批次找）。
+_writing = threading.local()
+
+
+def _track_write(line: str, as_of: str) -> None:
+    box = getattr(_writing, 'items', None)
+    if box is not None:
+        box.append((line, as_of))
+
+
 def save_snapshot(line: str, data_date: str, snap: dict, root: Path | None = None) -> int:
     """写入/覆盖一期快照，返回 snapshot.id。"""
-    return store.save_snapshot(line, data_date, snap)
+    sid = store.save_snapshot(line, data_date, snap)
+    _track_write(line, data_date)
+    return sid
 
 
 def load_snapshots(line: str, root: Path | None = None) -> list[dict]:
@@ -821,6 +835,7 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         norm.append((n, b))
     files = norm
     try:
+        _writing.items = written = []          # 收集本次写下的快照
         if line in DATE_ARG_LINES:
             kw = {'data_date': data_date}
             if line == 'jp':
@@ -833,15 +848,20 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
         sid = save_snapshot(line, dd, snap, root)
         store.add_source_files(line, sid, originals, arch)
         data = assemble(root)
-        ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
-                      'archive': str(arch), 'snapshot_id': sid}, root)
+        iid = ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
+                            'archive': str(arch), 'snapshot_id': sid}, root)
+        # 把本次导入写下的所有快照都挂到这条台账上（一卡一户/代发会写好几条）
+        for ln, d in written:
+            store.set_import_id(ln, d, iid)
         return {'ok': True, 'line': line, 'label': LINES[line]['label'], 'data_date': dd,
                 'files': snap.get('_files', []), 'notes': fmt_notes + list(snap.get('_notes') or []),
-                'archive': str(arch), 'summary': data['meta']}
+                'archive': str(arch), 'summary': data['meta'], 'import_id': iid,
+                'snapshots': [{'line': ln, 'as_of': d} for ln, d in written]}
     except Exception as exc:
         # 兜底：文本内容转成真正的 xlsx 再试一次（给只认 xlsx 的解析器）
         if text_blobs:
             try:
+                _writing.items = written = []      # 第一次失败时的半截记录丢掉，重新收集
                 conv = [(n, readers.text_to_xlsx(b)) if readers.sniff(b) == 'text' else (n, b)
                         for n, b in files]
                 if line in DATE_ARG_LINES:
@@ -856,9 +876,11 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                 sid = save_snapshot(line, dd, snap, root)
                 store.add_source_files(line, sid, originals, arch)
                 data = assemble(root)
-                ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
-                              'archive': str(arch), 'note': '按文本转 xlsx 兜底',
-                              'snapshot_id': sid}, root)
+                iid = ledger(line, {'data_date': dd, 'files': [n for n, _ in files], 'ok': True,
+                                    'archive': str(arch), 'note': '按文本转 xlsx 兜底',
+                                    'snapshot_id': sid}, root)
+                for ln, d in written:
+                    store.set_import_id(ln, d, iid)
                 fmt_notes.append('按文本内容转成 xlsx 后识别成功')
                 return {'ok': True, 'line': line, 'label': LINES[line]['label'], 'data_date': dd,
                         'files': snap.get('_files', []), 'notes': fmt_notes + (snap.get('_notes') or []),
@@ -869,6 +891,8 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                       'archive': str(arch)}, root)
         return {'ok': False, 'line': line, 'error': str(exc),
                 'trace': traceback.format_exc()[-800:], 'archive': str(arch)}
+    finally:
+        _writing.items = None                  # 别把收集箱留在 thread-local 里串到下一次
 
 
 # ---------------------------------------------------------------- 组装

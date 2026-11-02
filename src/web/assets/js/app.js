@@ -25,6 +25,7 @@ import pbs from './pages/pbs.js';
 import yika from './pages/yika.js';
 import { modulePlaceholder, browse } from './pages/placeholder.js';
 import guide, { guideHref, changelogPage } from './pages/guide.js';
+import adminPage from './pages/admin.js';
 
 const RENDERERS = { deposit, online, wallet, salary, community, payroll, fivecards,
   downgrade, jiepan, pbs, yika, team, tool: toolPage };
@@ -139,6 +140,7 @@ function asofFor(r, iso) {
   }
   if (r.name === 'upload') return '各模块独立时点';
   if (r.name === 'guide' || r.name === 'changelog') return '帮助 · 与数据时点无关';
+  if (r.name === 'admin') return '管理功能 · 与数据时点无关';
   if (r.name === 'report') return null;      // 通报页自己按取到的通报写（含"暂无"）
   return iso ? `数据截至 ${fmt.date(iso)}` : '—';
 }
@@ -148,6 +150,7 @@ const ICON_IMPORT = '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M1
 const ICON_LOCK = (s = 13) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="4.5" y="10" width="15" height="10.5" rx="3"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg>`;
 const ICON_CHEV = '<svg viewBox="0 0 24 24" width="11" height="11"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_REFRESH = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>';
+const ICON_TRASH = (s = 13) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 12.2a1.8 1.8 0 0 0 1.8 1.8h5.8a1.8 1.8 0 0 0 1.8-1.8L17.5 7"/></svg>`;
 const ICON_GUIDE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5V5.5Z"/><path d="M8 7.5h7M8 11h5"/></svg>';
 
 /** 指南入口：放在"导入数据"左边，小一号、低饱和，不抢注意力 */
@@ -214,6 +217,8 @@ function adminMenu(anchor) {
   menu.innerHTML = `
     <button data-act="pw"><span class="im-ic">${ICON_LOCK(14)}</span>
       <span class="im-tx"><b>管理密码</b><small>重置六个身份组的口令</small></span></button>
+    <button data-act="data"><span class="im-ic">${ICON_TRASH(14)}</span>
+      <span class="im-tx"><b>数据管理</b><small>删除导错的数据、查看已删</small></span></button>
     <button data-act="again"><span class="im-ic">${ICON_REFRESH}</span>
       <span class="im-tx"><b>重新验证</b><small>换一个身份组进入</small></span></button>`;
   anchor.parentElement.appendChild(menu);
@@ -221,6 +226,10 @@ function adminMenu(anchor) {
   setTimeout(() => {
     document.addEventListener('click', (e) => { if (!menu.contains(e.target)) close(); }, { once: true });
   }, 0);
+  menu.querySelector('[data-act="data"]').onclick = () => {
+    close();
+    location.hash = '#/admin/data';
+  };
   menu.querySelector('[data-act="pw"]').onclick = () => {
     close();
     openPasswordManager(state.catalog?.roles);
@@ -379,6 +388,7 @@ function parseRoute() {
     return { name: 'guide', section: seg[1] || null };
   }
   if (seg[0] === 'changelog') return { name: 'changelog' };
+  if (seg[0] === 'admin') return { name: 'admin', section: seg[1] || null };
   return { name: 'home' };
 }
 
@@ -518,6 +528,10 @@ function render() {
       title = '更新日志';
       crumb = '<b>更新日志</b>';
       changelogPage.render(host, { catalog: state.catalog });
+    } else if (r.name === 'admin') {
+      title = '数据管理';
+      crumb = '<b>数据管理</b>';
+      adminPage.render(host, state.data, ctx);
     } else {
       home.render(host, ctx);
     }
