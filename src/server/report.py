@@ -59,7 +59,9 @@ def build_online(on: str | None = None) -> dict:
     order = {b: i for i, b in enumerate(BRANCH_ORDER)}
     rows = sorted(nets, key=lambda n: (order.get(n['branch'], 99), -(n.get('day_rate') or 0)))
     tot = (snap or {}).get('tot') or d.get('kpi') or {}
-    annotate(rows)
+    # 并列时按模板行序定先后（官方就是这么排的），否则同分的人谁被标会和官方不一致
+    tmpl_row = {nm: i for i, nm in enumerate(_template_names(TEMPLATE, None, 4, 44), start=4)}
+    annotate(rows, tiebreak=tmpl_row)
     table = {
         'name': '网点明细',
         'columns': [{'key': k, 'title': t, 'type': ty, 'width': w} for t, k, ty, w in COLS],
@@ -85,18 +87,40 @@ RATE_KEYS = ('day_rate', 'month_rate', 'real_rate', 'sign_rate', 'kh_rate')
 COUNT_KEYS = ('cust', 'add_today', 'add_month', 'auth_cust', 'auth_signed', 'kh', 'kh_signed')
 
 
-def annotate(rows: list[dict], n: int = 5) -> None:
-    """每列前 n 标红、后 n 标绿（与正式通报的着色规则一致）。"""
+def annotate(rows: list[dict], n: int = 5, tiebreak: dict | None = None) -> None:
+    """每列前 n 标红、后 n 标绿 —— 逐字对齐官方成表的着色算法。
+
+    官方 `icbc-xsfw` 的 `write_report()`（见 `src/parsers/icbc-xsfw/*.py` 的"排名"段）：
+      - 数值个数 >= 10 → 红 5 绿 5；不足 10 个 → **红色优先**（先给 5 个红，剩下的给绿）
+      - 排序是稳定排序，**并列时按模板里的行序**取（官方直接遍历 B4..M44，并列天然
+        按模板行序）
+
+    注意三个历史坑（0.1.8.4 排查）：
+      ① 这里只产出"该标谁"的标记，**清色由写 xlsx 时统一做**（`_paint_marks`），
+         不能指望"没标记 = 原样"，否则母版里残存的颜色会漏出来。
+      ② 数值不足 10 个时**不能整列跳过**，官方是红色优先给 5 个。
+      ③ **并列必须按模板行序**：官方是"遍历模板行 → 稳定排序"，我们是"按支行分组
+         排 rows → 稳定排序"，行序不同，并列时选出来的人就不一样（当日添客那一列有
+         7 家并列 0，官方取模板里靠前的 3 家）。所以要传 tiebreak。
+
+    tiebreak：{网点名: 模板行号}；不传就退化成"按 rows 顺序"。
+    """
     for r in rows:
         r['_hl'] = {}
     for key in RATE_KEYS + COUNT_KEYS:
         vals = [(i, r.get(key)) for i, r in enumerate(rows) if isinstance(r.get(key), (int, float))]
-        if len(vals) <= n * 2:
+        if len(vals) < 2:
             continue
-        vals.sort(key=lambda x: x[1])
-        for i, _v in vals[-n:]:
+        tb = tiebreak or {}
+        vals.sort(key=lambda x: (x[1], tb.get(rows[x[0]].get('name'), 10 ** 6), x[0]))
+        if len(vals) >= n * 2:
+            hi = lo = n
+        else:
+            hi = min(n, len(vals))
+            lo = max(0, len(vals) - hi)
+        for i, _v in vals[len(vals) - hi:]:
             rows[i]['_hl'][key] = 'red'
-        for i, _v in vals[:n]:
+        for i, _v in vals[:lo]:
             rows[i]['_hl'][key] = 'green'
 
 
@@ -1722,6 +1746,63 @@ RED = 'FFFF0000'
 GREEN = 'FF008000'
 
 
+def _marks_of(rows: list[dict], keys: list[str]) -> dict:
+    """{行名: {key: 'red'|'green'}}，供 _paint_marks 使用。"""
+    out = {}
+    for r in rows:
+        hl = r.get('_hl') or {}
+        if hl:
+            out[str(r.get('name') or '').strip()] = {k: hl[k] for k in keys if k in hl}
+    return out
+
+
+def _paint_marks(ws, r0: int, r1: int, c0: int, c1: int, marks: dict,
+                 key_of_col: dict | None = None, name_of_row: dict | None = None) -> None:
+    """把数据区（r0..r1 × c0..c1）的字体颜色**先全部清干净**，再按 marks 上色。
+
+    为什么必须"先清"：样式母版是从某一期正式成表"清空数据"得到的，清的时候
+    只清了值、**没清字体颜色**，于是母版里每个数据列都留着 5 个红字 + 5 个绿字
+    （固定在某些行号上，是那一期的名次）。如果只对"这次要标的格"覆盖写颜色，
+    没被标的格里那些旧红/旧绿就原样留在最终文件里 → 表现为"标了不止五个"，
+    而且旧的是加粗的、新标的是不加粗的 → 看起来"两种红"。
+    （0.1.8.4 排查结论；官方 `icbc-xsfw` 每次写都是整格重设 Font，所以官方表没有这问题。）
+
+    key_of_col：列号 → key；name_of_row：行号 → 名称。都不给时按 marks 的结构反推。
+    """
+    import openpyxl
+    from openpyxl.styles import Font
+    from copy import copy
+
+    def key_for(ci: int) -> str | None:
+        return key_of_col.get(ci) if key_of_col else None
+
+    def name_for(ri: int) -> str:
+        if name_of_row:
+            return name_of_row.get(ri, '')
+        return str(ws.cell(row=ri, column=1).value or '').strip()
+
+    for ri in range(r0, r1 + 1):
+        nm = name_for(ri)
+        row_marks = marks.get(nm) or {}
+        for ci in range(c0, c1 + 1):
+            key = key_for(ci)
+            cell = ws.cell(row=ri, column=ci)
+            f = cell.font
+            hl = row_marks.get(key) if key else None
+            want = openpyxl.styles.Color(rgb=RED if hl == 'red' else GREEN) if hl else None
+            # 已经是"想要的状态"就不动（保存更快，也避免无谓改动母版格式）
+            cur = f.color.rgb if (f.color and f.color.type == 'rgb') else None
+            cur_bold = bool(f.b)
+            want_rgb = (RED if hl == 'red' else GREEN) if hl else None
+            if cur == want_rgb and cur_bold == bool(hl):
+                continue
+            nf = copy(f)
+            nf.color = want
+            # 官方成表里标色的格子都是加粗的（见 icbc-xsfw 的 Font(bold=True)）
+            nf.b = bool(hl)
+            cell.font = nf
+
+
 def online_xlsx(on: str | None = None) -> tuple[bytes, str]:
     import openpyxl
     from copy import copy
@@ -1753,11 +1834,9 @@ def online_xlsx(on: str | None = None) -> tuple[bytes, str]:
                 continue
             cell.value = v
             cell.number_format = FMT[key]
-            hl = (rec.get('_hl') or {}).get(key)
-            if hl and cell.font:
-                f = copy(cell.font)
-                f.color = openpyxl.styles.Color(rgb=RED if hl == 'red' else GREEN)
-                cell.font = f
+
+    _paint_marks(ws, 4, 43, 2, len(keys) + 1, _marks_of(rows, keys),
+                 key_of_col={ci: k for ci, k in enumerate(keys, start=2)})
 
     for ci, key in enumerate(keys, start=2):
         v = total.get(key)

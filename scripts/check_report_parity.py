@@ -22,6 +22,11 @@ sys.path.insert(0, str(ROOT / 'src' / 'server'))
 import report  # noqa: E402
 
 A = Path('/mnt/d/资料/ICBC/automations')
+# STYLE_CASES：这些通报的 Excel 是"按名次标红绿"的，必须连字体颜色/加粗一起对，
+# 光比值抓不到"标错人"。格式：kind -> (数据区起止行, 列范围, sheet 名)
+STYLE_CASES = {
+    'online': {'sheet': 'Sheet1', 'first': 4, 'last': 44, 'cols': range(1, 15)},
+}
 CASES = [
     ('online', '2026-10-17', A / '20261020_网点线上服务能力提升通报/out/阜阳分行“网点线上服务能力”提升通报（10.19）.xlsx', False),
     ('salary', '2026-10-21', A / '20261022_薪管家/out/薪管家通报1021.xlsx', False),
@@ -110,6 +115,28 @@ def recalc(path: Path) -> Path:
     return cand[0] if cand else path
 
 
+def _style_sig(cell):
+    """(字体颜色, 是否加粗) —— 用来比"标红标绿"是否正确。"""
+    f = cell.font
+    rgb = f.color.rgb if (f.color and f.color.type == 'rgb') else None
+    return (rgb, bool(f.b))
+
+
+def diff_styles(ref_ws, our_ws, last_row: int, cols: range) -> list:
+    """逐格比字体颜色与加粗（值相同但标错人，只有这一项能抓到）。
+
+    历史教训（0.1.8.4）：对账脚本原来只比**值**，所以 online 的 Excel 一直
+    "标了不止 5 个红/绿、还混着加粗与不加粗"都没被发现 —— 值全对，颜色全错。
+    """
+    diffs = []
+    for r in range(1, min(last_row, ref_ws.max_row, our_ws.max_row) + 1):
+        for c in cols:
+            a, b = _style_sig(ref_ws.cell(row=r, column=c)), _style_sig(our_ws.cell(row=r, column=c))
+            if a != b:
+                diffs.append((r, c, f'{a[1] and "粗" or "细"}/{a[0]}', f'{b[1] and "粗" or "细"}/{b[0]}'))
+    return diffs
+
+
 def diff_sheets(a, b):
     wa, wb = a if hasattr(a, 'cell') else a, b
     diffs = []
@@ -184,6 +211,12 @@ def main() -> int:
                     if det_from and sn != '支行通报数据' and x[0] >= det_from:
                         continue
                     d.append(x)
+            st = STYLE_CASES.get(kind)
+            if st and sn == st.get('sheet', sn):
+                sd = diff_styles(ref_wb[sn], our_wb[sn], st['last'], st['cols'])
+                if sd:
+                    total += len(sd)
+                    detail += [(sn, '字体', x[0], x[1], x[2], x[3]) for x in sd[:3]]
             total += len(d)
             detail += [(sn,) + x for x in d[:3]]
         flag = 'OK' if total == 0 else f'{total} 处差异'
