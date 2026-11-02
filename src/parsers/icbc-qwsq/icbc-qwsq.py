@@ -98,15 +98,64 @@ DEPT_ALIAS = {
     '颍上北关支行': '阜阳颍上北关支行', '颍上十字街支行': '阜阳颍上十字街支行',
     '颍上支行营业室': '阜阳颍上支行营业室', '颍上管仲支行': '阜阳颍上管仲支行',
 }
-# 非网点部门：分行本部各部室、各支行机构本部/行长室/综合部，以及部门为空（离职账号）
+# 非网点部门：分行本部各部室、以及部门为空（离职账号）
+# 注意：这张表里虽然还有「机构本部/行长室/综合业务部/综合管理部」这些词，但**支行**的那几类
+#       在 aggregate() 里会被 hq_target() 先一步认走（方案B → 该支行营业室），根本走不到这里；
+#       留在这里是为了兜住**分行级**的「阜阳分行行长室」这类写法（不含「支行」二字）。
 IGNORE_MARKS = ('机构本部', '行长室', '综合业务部', '综合管理部', '金融科技部', '银行卡中心',
                 '结算与现金管理中心', '个人信贷业务部', '个人金融业务部', '分行本部')
+
+# 「支行本部」标记：路径里出现这些段的，按该支行**营业室**归属（方案B，2026-11-02 用户定）。
+# 判定点在「XX支行机构本部」这一级，不看最后一层，也不硬拼网点名：
+#   中国工商银行/安徽省分行/阜阳分行/临泉支行/临泉支行机构本部/阜阳临泉支行综合业务部
+#   → 取「临泉支行机构本部」剥出「临泉」→ 在营业室名单里找「临泉…营业室」→ 阜阳临泉支行营业室
+# 这样部门层级怎么变、末级叫什么，都不影响归属。
+BRANCH_HQ_MARKS = ('支行机构本部', '支行行长室', '支行综合业务部', '支行综合管理部')
+# 支行本部 → 营业室的额外别名（auto 匹配兜不住时用；键为剥出的支行名）
+BRANCH_HQ_ALIAS = {
+    '牡丹': '阜阳牡丹支行',        # 单点支行，没有营业室
+}
 
 # 条件格式：好=红、差=绿（与模板 dxf 一致；E 列落底色+白字，H 列只落字色）
 RED, GREEN, WHITE = 'FF0000', '00B050', 'FFFFFF'
 
 
 # ---------------------------------------------------------------- 工具
+
+def branch_of_hq(dept: str) -> str | None:
+    """从「…/XX支行/XX支行机构本部/…」里剥出支行名（如「临泉」），找不到返回 None。
+
+    只在**路径中间**找 `支行机构本部` 这类段，不看最后一层——
+    末级写「阜阳临泉支行综合业务部」还是别的，都不影响识别。
+    """
+    for part in dept.split('/'):
+        part = part.strip()
+        for mark in BRANCH_HQ_MARKS:
+            if part.endswith(mark) and len(part) > len(mark):
+                return part[:-len(mark)].strip()
+    return None
+
+
+def hq_target(dept: str) -> tuple[str | None, str]:
+    """支行本部 → 模板网点名。返回 (网点名, 说明)。
+
+    不硬拼名字：先取该支行名，再在**已有营业室名单**里做后缀匹配
+    （`临泉` → `阜阳临泉支行营业室`），拼不出来才查 `BRANCH_HQ_ALIAS`。
+    """
+    br = branch_of_hq(dept)
+    if not br:
+        return None, '未识别到支行本部'
+    for net in NP_ALL:
+        if net.endswith('营业室') and br in net:
+            return net, f'支行本部({br})→营业室'
+    if br in BRANCH_HQ_ALIAS:
+        return BRANCH_HQ_ALIAS[br], f'支行本部({br})→别名'
+    # 单点支行（只有一个网点、无营业室）：支行名后跟「支行」直接对
+    for net in NP_ALL:
+        if net == f'阜阳{br}支行':
+            return net, f'支行本部({br})→单点支行'
+    return None, f'支行本部({br}) 无对应营业室'
+
 
 def die(msg: str) -> None:
     print(json.dumps({'ok': False, 'error': msg}, ensure_ascii=False, indent=2))
@@ -172,7 +221,7 @@ def aggregate(path: Path) -> tuple[dict, dict]:
 
     agg: dict[str, dict] = {n: {'g': 0, 'c': 0, 'msg': 0, 'x': 0} for n in NP_ALL}
     stats = {'rows': 0, 'used': 0, 'ignored_head_office': 0, 'ignored_blank_dept': 0,
-             'unknown_dept': {}, 'members': []}
+             'unknown_dept': {}, 'members': [], 'hq_mapped': 0, 'hq_unmapped': []}
 
     def num(v):
         try:
@@ -188,8 +237,25 @@ def aggregate(path: Path) -> tuple[dict, dict]:
         if not dept:
             stats['ignored_blank_dept'] += 1           # 部门为空 = 离职/注销账号
             continue
+        # ① 支行本部（机构本部/行长室/综合业务部/综合管理部）→ 该支行营业室（方案B）
+        hq_net, hq_why = hq_target(dept)
+        if hq_net:
+            a = agg[hq_net]
+            a['g'] += num(row[idx['群总数']])
+            a['c'] += num(row[idx['群成员总数']])
+            a['msg'] += num(row[idx['发过消息的群成员数']])
+            a['x'] += num(row[idx['群聊消息总数']])
+            stats['used'] += 1
+            stats['hq_mapped'] += 1
+            stats['members'].append({'name': str(row[0] or ''), 'dept': dept.split('/')[-1].strip(),
+                                     'net': hq_net, 'why': hq_why})
+            continue
+        # ② 其余非网点部门（分行本部各部室等）整行忽略
         if any(mark in dept for mark in IGNORE_MARKS):
             stats['ignored_head_office'] += 1
+            if hq_why.startswith('支行本部') and '无对应营业室' in hq_why:
+                stats['hq_unmapped'].append(
+                    {'name': str(row[0] or '').strip(), 'dept': dept.split('/')[-1].strip(), 'why': hq_why})
             continue
         leaf = dept.split('/')[-1].strip()
         target = DEPT_ALIAS.get(leaf)

@@ -153,6 +153,29 @@ def diff_sheets(a, b):
     return diffs
 
 
+# 企微社群的「上周」基准：官方 10.19 那期用的是 **20261016** 的快照，
+# 不是 1005-1011（差 11 天）。早先库里存成 1005-1011，绝对值对得上、增量全错，
+# 但当时对账脚本只比绝对值……不，它是逐格比的，所以只要库里增量和官方一致就 OK。
+# 结论：这条对账的成败取决于**导入时选中的上周文件**，所以这里显式重导一次。
+COMMUNITY_SEED = {
+    'as_of': '2026-10-19',
+    'prev': '成员群聊数据统计20261016.xlsx',
+    'cur': '成员群聊数据统计20261019.xlsx',
+    'dir': Path('/mnt/d/资料/ICBC/20260929企微/企微导出表'),
+}
+
+
+def _seed_community() -> None:
+    """按官方口径重导企微社群（本周 1019 + 上周 1016），保证增量列可比。"""
+    d = COMMUNITY_SEED['dir']
+    cur, prev = d / COMMUNITY_SEED['cur'], d / COMMUNITY_SEED['prev']
+    if not (cur.exists() and prev.exists()):
+        return
+    import viz
+    files = [(prev.name, prev.read_bytes()), (cur.name, cur.read_bytes())]
+    viz.do_import('qwsq', files, COMMUNITY_SEED['as_of'])
+
+
 def _seed_jiepan(as_of_date: str) -> None:
     """把 jiepan 的原始源表按「排除名单配置」重新导入一次，
     等价于人工在源表里把那几行的两列变化量改成 0。"""
@@ -173,6 +196,7 @@ def _seed_jiepan(as_of_date: str) -> None:
 
 def main() -> int:
     _seed_jiepan('2026-10-25')
+    _seed_community()
     bad = 0
     for kind, date, ref, need_recalc in CASES:
         if not ref.exists():
