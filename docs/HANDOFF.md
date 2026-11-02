@@ -188,7 +188,7 @@ icbc-dashboard/
 │  ├─ MODULES.md              模块总表（自动生成，别手改）
 │  ├─ modules/<id>.md         每个模块的数据源/口径/坑（新增模块必写）
 │  ├─ skills/dashboard-new-module/  新增模块的标准流程（也是 ~/.dsh/skills 里的同名 skill）
-│  ├─ screenshots/            当前页面截图（home / jg / report-salary / upload）
+│  ├─ screenshots/            当前页面截图（home / jg / jbl / guide / changelog / upload…）
 │  └─ archive/PLAN-20261021.md  初版规划，已过时，勿作依据
 ```
 
@@ -842,6 +842,9 @@ icbc-dashboard/
      三条线的 `as_of` 可以不同，`api.build_jbl` 各自取最新一期。
 105. **日期从表里认，别预填 T-1**：导入页对这三条线**不预填「本期」**（留空），
      后端才用标题里的日期（`11.1第41期…` → 2026-11-01）。预填 T-1 会把真实日期盖掉。
+     认得的写法：`11.1` / `11/1` / `2026.11.1` / `2026-11-01` / `11月1日` / `2026年11月1日` /
+     `20261101`。`date_from_name` 不认斜杠，jbl 里补了一条 `SLASH_DATE_RX`（**只补在标题上**，
+     别塞进全局：文件名里的斜杠是路径分隔符，会误伤）。
 
 ---
 

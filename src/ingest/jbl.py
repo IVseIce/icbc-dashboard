@@ -81,6 +81,26 @@ FIELD_RX = [
 
 TITLE_PERIOD_RX = re.compile(r'第\s*(\d{1,3})\s*期')
 
+# date_from_name（复用私银那套）不认 `11/1` 这种斜杠写法，这里补一条；
+# 只在**标题**上补，不动全局（文件名里斜杠通常是路径分隔符，容易误伤）
+SLASH_DATE_RX = re.compile(r'(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)')
+
+
+def _date_from_title(text: str) -> str | None:
+    """标题里的日期：先走通用解析（11.1 / 2026-11-01 / 11月1日 / 20261101…），
+    再补一条斜杠写法（11/1）。"""
+    got = date_from_name(text)
+    if got:
+        return got
+    m = SLASH_DATE_RX.search(str(text or ''))
+    if m:
+        try:
+            mo, d = int(m.group(1)), int(m.group(2))
+            return dt.date(dt.date.today().year, mo, d).isoformat()
+        except ValueError:
+            return None
+    return None
+
 
 # ---------------------------------------------------------------- 小工具
 def _num(v):
@@ -316,7 +336,7 @@ def parse_files(files, as_of=None, want_kind=None):
         notes.append(f'标题里没写「第几期」，按列里最大期数 +1 推为本期第 {period} 期')
 
     # ---- 日期：手填 > 标题 > 文件名
-    dd = as_of or date_from_name(title) or None
+    dd = as_of or _date_from_title(title) or None
     if not dd:
         for name, _blob in files:
             dd = date_from_name(name)
