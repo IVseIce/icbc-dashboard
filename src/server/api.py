@@ -954,6 +954,9 @@ def admin_lines() -> dict:
     rows = []
     for line, meta in viz.LINES.items():
         s = stats.get(line) or {}
+        # 一条数据都没有、也没删过记录的线（比如基保理还没接的基金/保险）不列
+        if not int(s.get('count') or 0) and not store.deleted_dates(line):
+            continue
         rows.append({'line': line, 'label': meta['label'], 'hint': meta['hint'],
                      'internal': False, 'count': int(s.get('count') or 0),
                      'latest': s.get('as_of'), 'dates': store.dates(line),
