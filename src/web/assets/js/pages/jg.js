@@ -117,6 +117,11 @@ function statsFor(id, data) {
       push(fmt.pct(lc.rate, 1), '达成率');
       push(fmt.n(lc.hit) + '<small>家</small>', '有销量支行');
     }
+  } else if (id === 'jg-customer-all' && d.scene?.kpi) {
+    const k = d.scene.kpi;
+    push(fmt.n(k.landed) + '<small>项</small>', '已落地');
+    push(fmt.n(k.ongoing) + '<small>项</small>', '推进中');
+    push(fmt.n(k.branches) + '<small>家</small>', '覆盖支行');
   } else if (id === 'pj-wecom' && d.community?.kpi) {
     const k = d.community.kpi;
     push(fmt.n(k.groups), '群');
