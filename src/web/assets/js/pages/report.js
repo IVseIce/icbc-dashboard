@@ -130,14 +130,24 @@ export default {
         return;
       }
       if (!r.ok) {
-        // 定期承接的"区间越界"是可恢复的：把区间条一起画出来，用户改一下就能回去
-        if (kind === 'jiepan' && r.coverage) {
-          // 越界是"选错了"而不是"没数据"：区间条必须留着，否则用户没法改回去
+        // 定期承接"出不了通报"有两种：区间越界、所选日期早于最早数据。
+        // 两种都必须把**区间条**画出来，否则用户没有入口改回去（HANDOFF 8.11-76 踩过，
+        // 当时只处理了带 coverage 的那种，"早于最早数据"这条又漏了）。
+        if (kind === 'jiepan') {
+          const cov = (r.coverage && r.coverage.length) ? r.coverage : null;
+          const errMsg = r.error || r.reason || '这个时间段出不了通报';
+          // 只有 nearest 时说明"往前没有数据了"，把最近一期明确说出来，用户照着改
+          const tip = cov
+            ? `可选范围 ${fmt.date(cov[0])}–${fmt.date(cov[1])}`
+            : (r.nearest ? `最近一期是 ${fmt.date(r.nearest)}，把取数日往后调一天就能看` : '');
           body.innerHTML = `<div id="jpRangeSlot"></div>
             <div class="card"><div class="empty"><b>这个时间段出不了通报</b>
-            ${r.error || ''}</div></div>`;
-          paintJpRange(r);
-          setAsof(`${fmt.date(r.coverage[0])}–${fmt.date(r.coverage[1])} · 取数日 ${fmt.date(r.as_of)}`);
+            ${errMsg}${tip ? `<br><span style="color:var(--ink-3)">${tip}</span>` : ''}
+            </div></div>`;
+          // 没有 coverage 时给个"能点"的默认值：用最近一期(nearest)兜底，用户点「上周」就能回去
+          paintJpRange({ ...r, coverage: cov || null,
+                         period: r.period || { start: null, end: null } });
+          if (cov) setAsof(`${fmt.date(cov[0])}–${fmt.date(cov[1])}`);
           return;
         }
         body.innerHTML = `<div class="card"><div class="empty"><b>该日期没有这份通报</b>${r.error || ''}</div></div>`;
@@ -188,6 +198,16 @@ export default {
         ? Math.round((Date.parse(per.end) - Date.parse(per.start)) / 86400000) + 1 : 0;
       const stale = r.out_of_range
         ? `<span class="jp-warn">当前区间不可用，请重新选择</span>` : '';
+      // 三种情况都要说人话：有区间 / 只有"最近一期"(nearest) / 什么都没有。
+      // "所选日期早于最早数据"走的就是第二种（coverage 是 null，只有 nearest）。
+      const avail = r.available || [];
+      const covTxt = (r.coverage && r.coverage.length)
+        ? `可选范围 ${fmt.date(cov[0])}–${fmt.date(cov[1])}（本次数据取自 ${fmt.date(r.as_of)}）`
+        : (r.nearest
+            ? `该日期之前没有数据，最近一期是 ${fmt.date(r.nearest)}`
+            : (avail.length
+                ? `库里现有数据到 ${fmt.date(avail[avail.length - 1])}（共 ${avail.length} 期）`
+                : '库里还没有数据'));
       slot.innerHTML = `
         <div class="jp-range" style="margin-bottom:14px">
           <span class="jp-lab">统计区间</span>
@@ -196,8 +216,7 @@ export default {
           <input type="date" id="repJpEnd" value="${per.end || jp.end || ''}">
           <button class="btn btn-sm btn-primary" id="repJpApply">查看</button>
           <button class="btn btn-sm" id="repJpWeek">上周</button>
-          <span class="jp-hint">可选范围 ${fmt.date(cov[0])}–${fmt.date(cov[1])}
-            （本次数据取自 ${fmt.date(r.as_of)}）${days ? ` · 当前 ${days} 天` : ''}</span>
+          <span class="jp-hint">${covTxt}${days ? ` · 当前 ${days} 天` : ''}</span>
           ${stale}
         </div>`;
       const st = slot.querySelector('#repJpStart');
@@ -217,7 +236,11 @@ export default {
       };
     }
 
-    /** 把区间写回地址栏，刷新/分享链接时还是这一段 */
+    /** 把「当前是哪条通报」和「区间」写回地址栏。
+        为什么必须写 kind：`kind` 是从 `#/report/<kind>` 读出来的，而改日期会走
+        `app.refresh()` → 整个 `render()` 重跑。如果 hash 里没有 kind，重跑时就读到空，
+        回落到 `visible[0]` —— 表现就是"改完日期跳回第一个通报"。
+        用 `replaceState` 不新增历史记录，后退键行为不变。 */
     function syncUrl() {
       const u = new URL(location.href);
       if (kind === 'jiepan' && jp.start && jp.end) {
@@ -225,7 +248,8 @@ export default {
       } else {
         u.searchParams.delete('s'); u.searchParams.delete('e');
       }
-      history.replaceState(null, '', u.pathname + u.search + u.hash);
+      const hash = kind ? `#/report/${kind}` : '#/report';
+      history.replaceState(null, '', u.pathname + u.search + hash);
     }
 
     /** 下载按钮组：`downloads` 为空时退化成"下载 Excel"一个按钮 */
@@ -362,6 +386,7 @@ export default {
     }
 
     paintTabs();
+    syncUrl();               // 首次进来就把 kind 写进 hash，供下次 render 读取
     load();
   },
 };
