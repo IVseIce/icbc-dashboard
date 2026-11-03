@@ -7,13 +7,13 @@
 
 | 板块 | id | 模块 | 已接入 | 说明 |
 |---|---|---|---|---|
-| 个人金融 | `jg` | 12 | 9 | 增存 · 增客 · 增收 |
+| 个人金融 | `jg` | 12 | 10 | 增存 · 增客 · 增收 |
 | 网络金融 | `wj` | 3 | 3 | 线上服务 · 数币 · 企微 |
 | 个人贷款 | `loan` | 1 | 0 | 框架预留，待接入 |
 | 银行卡 | `card` | 1 | 0 | 框架预留，待接入 |
 | 私人银行 | `pbs` | 1 | 1 | 达标客户 · 资产规模 · 产品销售 |
 | 实用工具 | `tool` | 2 | 0 | 常用小工具 |
-| 重点项目 | `project` | 5 | 2 | 方案推进与专项攻坚 |
+| 重点项目 | `project` | 5 | 3 | 方案推进与专项攻坚 |
 
 ## 模块
 
@@ -24,7 +24,7 @@
 | 个金 | 增存 | 行外吸金 | `jg-deposit-waihang` | placeholder | — | — | — |
 | 个金 | 增存 | 降级挽回 | `jg-deposit-jiangji` | metric | downgrade | jjwh | [docs/modules/jg-deposit-jiangji.md](../modules/jg-deposit-jiangji.md) |
 | 个金 | 增存 | 经理队伍 | `jg-deposit-team` | metric | team | team | [docs/modules/jg-deposit-team.md](../modules/jg-deposit-team.md) |
-| 个金 | 增客 | 全量客户 | `jg-customer-all` | placeholder | — | — | — |
+| 个金 | 增客 | 全量客户场景攻坚 | `jg-customer-all` | metric | scene | scene | [docs/modules/jg-customer-all.md](../modules/jg-customer-all.md) |
 | 个金 | 增客 | 代发工资 | `jg-customer-pay` | metric | payroll | dfmx | — |
 | 个金 | 增客 | 薪管家 | `jg-customer-xgj` | metric | salary | xgj | [docs/modules/jg-customer-xgj.md](../modules/jg-customer-xgj.md) |
 | 个金 | 增客 | 一卡一户 | `jg-customer-yika` | metric | yika | ykh | [docs/modules/jg-customer-yika.md](../modules/jg-customer-yika.md) |
@@ -40,7 +40,7 @@
 | 工具 | 实用工具 | 时日差计算 | `tool-date-diff` | tool | tool | — | — |
 | 工具 | 实用工具 | 偏离度计算 | `tool-deviation` | tool | tool | — | — |
 | 重点项目 | 重点项目 | 网点争先 | `pj-contend` | placeholder | — | — | — |
-| 重点项目 | 重点项目 | 全量客户拓展 | `pj-allcustomer` | planned | — | — | — |
+| 重点项目 | 重点项目 | 全量客户场景攻坚 | `pj-allcustomer` | metric | scene | scene | — |
 | 重点项目 | 重点项目 | 企微社群运营 | `pj-wecom` | metric | community | qwsq | — |
 | 重点项目 | 重点项目 | 五卡唤醒 | `pj-fivecards` | metric | fivecards | wk | — |
 | 重点项目 | 重点项目 | 挑战回访100位客户 | `pj-100` | placeholder | — | — | — |
@@ -64,3 +64,4 @@
 | `jbl_lc` | 1 | 2026-11-01 |
 | `jbl_fund` | 0 | — |
 | `jbl_bx` | 0 | — |
+| `scene` | 1 | 2026-11-02 |

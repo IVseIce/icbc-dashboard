@@ -41,8 +41,10 @@ PROFESSIONALS = [
             {
                 'id': 'jg-customer', 'name': '增客', 'status': 'active', 'desc': '拓客、代发与卡片唤醒',
                 'modules': [
-                    {'id': 'jg-customer-all', 'name': '全量客户', 'kind': 'placeholder', 'level': '支行',
-                     'group': '增客', 'desc': '全量客户拓展进度（待接入）'},
+                    {'id': 'jg-customer-all', 'name': '全量客户场景攻坚', 'page': 'scene', 'kind': 'metric',
+                     'level': '支行', 'freq': '周', 'as_line': 'scene', 'group': '增客',
+                     'source': '全量客户场景攻坚成效表',
+                     'desc': '六大场景已落地/推进中项目、本期变化、支行覆盖'}, 
                     {'id': 'jg-customer-pay', 'name': '代发工资', 'page': 'payroll', 'kind': 'metric',
                      'level': '网点', 'source': '代发明细（月度）', 'freq': '月', 'as_line': 'dfmx',
                      'group': '增客', 'desc': '代发企业/客户、金额、新增与流失预警'},
@@ -141,9 +143,10 @@ PROFESSIONALS = [
                 'id': 'pj-main', 'name': '重点项目', 'status': 'active', 'modules': [
                     {'id': 'pj-contend', 'name': '网点争先', 'kind': 'placeholder',
                      'desc': '网点竞赛排名与积分（待接入）'},
-                    {'id': 'pj-allcustomer', 'name': '全量客户拓展', 'kind': 'planned', 'level': '支行',
-                     'source': '全量客户场景攻坚成效图', 'freq': '周',
-                     'desc': '六大场景落地/推进（当前为文字进度）'},
+                    {'id': 'pj-allcustomer', 'name': '全量客户场景攻坚', 'page': 'scene', 'kind': 'metric',
+                     'level': '支行', 'freq': '周', 'as_line': 'scene',
+                     'source': '全量客户场景攻坚成效表',
+                     'desc': '六大场景已落地/推进中项目、本期变化、支行覆盖（与个金共用一份数据）'},
                     {'id': 'pj-wecom', 'name': '企微社群运营', 'page': 'community', 'kind': 'metric',
                      'as_line': 'qwsq', 'level': '支行 + 网点', 'freq': '周',
                      'source': '成员群聊数据统计（本周，上周自动复用）', 'desc': '群数、客户数、交互、熟识率'},

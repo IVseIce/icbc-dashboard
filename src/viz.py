@@ -62,6 +62,8 @@ LINES = {
                  'hint': '基金通报（同样只读支行通报 + 网点通报两张子表）'},
     'jbl_bx': {'label': '基保理 · 保险', 'skill': '',
                'hint': '保险通报（同样只读支行通报 + 网点通报两张子表）'},
+    'scene': {'label': '全量客户场景攻坚', 'skill': '',
+              'hint': '场景攻坚成效表（单 sheet，6 场景 × 已落地/推进中；日期认文件名，认不出提示手填）'},
 }
 
 _mods: dict[str, object] = {}
@@ -812,6 +814,12 @@ def import_team(files, line, root, data_date=None):
     return dd, team.merge(existing, snap)
 
 
+def import_scene(files, line, root, data_date=None):
+    """全量客户场景攻坚：一张成效表，日期认文件名（认不出让用户手填）。"""
+    from ingest import scene
+    return scene.parse_files(files, as_of=data_date)
+
+
 def import_jbl(files, line, root, data_date=None):
     """基保理：一张成表里「支行通报 + 网点通报」。
 
@@ -830,14 +838,15 @@ def import_jbl(files, line, root, data_date=None):
 
 
 # 这些导入器的签名带 data_date=(, overrides=)
-DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp', 'team', 'jbl_lc', 'jbl_fund', 'jbl_bx')
+DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp', 'team', 'jbl_lc', 'jbl_fund', 'jbl_bx', 'scene')
 
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
              'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
              'ykh': import_yika, 'pbs': import_pbs, 'jp': import_jiepan,
              'team': import_team,
-             'jbl_lc': import_jbl, 'jbl_fund': import_jbl, 'jbl_bx': import_jbl}
+             'jbl_lc': import_jbl, 'jbl_fund': import_jbl, 'jbl_bx': import_jbl,
+             'scene': import_scene}
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,

@@ -850,15 +850,105 @@ def jbl_kpi(d: dict) -> dict:
     return out
 
 
+def build_scene(on: str | None = None) -> dict:
+    """全量客户场景攻坚：6 个场景 × 8 家支行，每格「已落地 / 推进中」的项目文字。
+
+    源表本身就是成表的形态（没有数值指标），所以这一层基本是原样透传 +
+    派生几个汇总数字（KPI、每个场景的覆盖支行数）。
+
+    **`changed`（标红→标黄）是本期唯一要强调的东西**：前端据此给条目加黄底。
+    """
+    s = _latest('scene', on)
+    if not s:
+        return _no_data('scene', on)
+
+    branches = s.get('branches') or []
+    scenes = s.get('scenes') or []
+    total = s.get('total') or {}
+
+    # 每个场景：覆盖了哪些支行（有落地的），以及各支行的进度
+    order = s.get('branch_order') or BRANCHES
+    scene_cards = []
+    for sc in scenes:
+        name = sc.get('name')
+        covered = [b['name'] for b in branches
+                   if ((b.get('scenes') or {}).get(name) or {}).get('landed')]
+        pending = [b['name'] for b in branches
+                   if not ((b.get('scenes') or {}).get(name) or {}).get('landed')]
+        scene_cards.append({
+            'name': name,
+            'landed': sc.get('landed') or 0,
+            'ongoing': sc.get('ongoing') or 0,
+            'branches': sc.get('branches') or 0,
+            'changed': sc.get('changed') or 0,
+            'covered': covered,
+            'pending': pending,
+            'rate': _r((len(covered) / len(order)) if order else None, 4),
+        })
+
+    # 支行矩阵：每行一家支行，每列一个场景（已落地/推进中合并成条目列表，便于画表）
+    matrix = []
+    for b in branches:
+        rec = {'name': b['name'], 'scenes': {}, 'landed': 0, 'ongoing': 0, 'changed': 0}
+        for sc in scenes:
+            cell = (b.get('scenes') or {}).get(sc['name']) or {'landed': [], 'ongoing': []}
+            rec['scenes'][sc['name']] = {
+                'landed': cell.get('landed') or [],
+                'ongoing': cell.get('ongoing') or [],
+            }
+            rec['landed'] += len(cell.get('landed') or [])
+            rec['ongoing'] += len(cell.get('ongoing') or [])
+            rec['changed'] += sum(1 for x in (cell.get('landed') or []) + (cell.get('ongoing') or [])
+                                  if x.get('changed'))
+        matrix.append(rec)
+    matrix.sort(key=lambda r: (-(r['landed']), -(r['ongoing'])))
+
+    # 本期有变化的条目（做成一条"本期变化"清单，简报里最好用）
+    highlights = []
+    for b in branches:
+        for sc in scenes:
+            cell = (b.get('scenes') or {}).get(sc['name']) or {}
+            for state, key in (('已落地', 'landed'), ('推进中', 'ongoing')):
+                for it in (cell.get(key) or []):
+                    if it.get('changed'):
+                        highlights.append({'branch': b['name'], 'scene': sc['name'],
+                                           'state': state, 'text': it.get('text')})
+
+    kpi = {
+        'scenes': total.get('scenes') or len(scenes),
+        'landed': total.get('landed') or 0,
+        'ongoing': total.get('ongoing') or 0,
+        'branches': total.get('branches') or 0,
+        'changed': total.get('changed') or 0,
+    }
+    return {
+        'ok': True,
+        'as_of': s.get('as_of'), 'as_of_cn': s.get('as_of_cn'),
+        'kpi': kpi,
+        'scenes': scene_cards,
+        'branches': matrix,
+        'branch_order': order,
+        'highlights': highlights,
+        'notes': s.get('_notes') or [],
+    }
+
+
+def scene_kpi(d: dict) -> dict:
+    """首页 / 总览卡片用：四个数字。"""
+    if not d.get('ok'):
+        return {}
+    return d.get('kpi') or {}
+
+
 BUILDERS = {'deposit': build_deposit, 'online': build_online, 'wallet': build_wallet,
             'salary': build_salary, 'community': build_community, 'payroll': build_payroll,
             'fivecards': build_fivecards, 'downgrade': build_downgrade, 'yika': build_yika,
             'pbs': build_pbs, 'jiepan': build_jiepan, 'team': build_team,
-            'jbl': build_jbl}
+            'jbl': build_jbl, 'scene': build_scene}
 LINE_OF = {'deposit': 'dqzz', 'online': 'xsfw', 'wallet': 'sbqb',
            'salary': 'xgj', 'community': 'qwsq', 'payroll': 'dfmx', 'fivecards': 'wk',
            'downgrade': 'jjwh', 'yika': 'ykh', 'pbs': 'pbs', 'jiepan': 'jp',
-           'team': 'team', 'jbl': 'jbl_lc'}
+           'team': 'team', 'jbl': 'jbl_lc', 'scene': 'scene'}
 
 
 def team_kpi(d: dict) -> dict:
@@ -886,6 +976,7 @@ def build_overview(on: str | None = None) -> dict:
     jp = build_jiepan(on)
     tm = build_team(on)
     jb = build_jbl(on)
+    sc = build_scene(on)
     lines = {
         'deposit': {'ok': d.get('ok'), 'as_of': d.get('as_of'), 'prev_as_of': d.get('prev_as_of'),
                     'kpi': d.get('kpi'), 'spark': (d.get('trend') or [])[-12:]},
@@ -913,6 +1004,8 @@ def build_overview(on: str | None = None) -> dict:
         'jbl': {'ok': jb.get('ok'), 'as_of': jb.get('as_of'), 'kpi': jbl_kpi(jb),
                 'nearest': jb.get('nearest'), 'period': jb.get('period'),
                 'kind': jb.get('kind')},
+        'scene': {'ok': sc.get('ok'), 'as_of': sc.get('as_of'), 'kpi': scene_kpi(sc),
+                  'nearest': sc.get('nearest')},
     }
     return {'ok': True, 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'as_of': on, 'lines': lines,

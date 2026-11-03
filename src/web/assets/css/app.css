@@ -912,3 +912,134 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 
 /* 通报中心里的定期承接区间条：越界时的提示 */
 .jp-range .jp-warn{font-size:11px;color:#c8102e;font-weight:600}
+
+/* ======================================================================
+   全量客户场景攻坚（#/m/jg-customer-all、#/m/pj-allcustomer）
+   这一页的核心是「排版」：KPI + 6 条场景泳道 + 支行矩阵，还要能整块截成图
+   ====================================================================== */
+.sc-chg{background:var(--amber-soft);color:#9a6205;border-color:#f2d9a8}
+
+/* ---- 海报容器：浅底卡片，截图时也是这个底色 ---- */
+.sc-board{background:#f4f6fa;border-radius:18px;padding:20px;margin-top:16px;
+  border:1px solid var(--line)}
+.sc-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;
+  background:linear-gradient(135deg,#8e1030 0%,#c8102e 55%,#a30c24 100%);
+  border-radius:14px;padding:20px 22px;color:#fff;position:relative;overflow:hidden}
+.sc-head:after{content:"";position:absolute;right:-50px;top:-60px;width:210px;height:210px;
+  border-radius:50%;background:radial-gradient(circle,rgba(255,210,140,.35),transparent 70%)}
+.sc-head h2{margin:0 0 5px;font-size:20px;letter-spacing:1px}
+.sc-head p{margin:0;color:rgba(255,255,255,.82);font-size:12px;letter-spacing:.6px}
+.sc-head-kpi{margin-left:auto;display:flex;gap:26px;position:relative;z-index:1}
+.sc-head-kpi div{text-align:center;min-width:52px}
+.sc-head-kpi b{display:block;font-size:25px;line-height:1.1;font-weight:700;
+  color:#ffd98a;font-variant-numeric:tabular-nums}
+.sc-head-kpi span{font-size:10.5px;color:rgba(255,255,255,.8);letter-spacing:.5px}
+
+/* ---- 本期变化提示条 ---- */
+.sc-chgbar{display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 14px;
+  background:#fff7e3;border:1px solid #f3dcae;border-radius:10px;color:#8a5a05;font-size:12px}
+.sc-chgbar i{display:inline-flex;color:#d18b00}
+.sc-chgbar b{color:#b3670b}
+.sc-chgbar em{font-style:normal;background:#ffe9a8;border-radius:4px;padding:0 4px;color:#8a5a05}
+
+/* ---- 场景小图例 ---- */
+.sc-legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.sc-lg{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);
+  border-radius:20px;padding:4px 11px;font-size:11.5px;color:var(--ink-2);cursor:default}
+.sc-lg:before{content:"";width:7px;height:7px;border-radius:2px;background:var(--t)}
+.sc-lg b{color:var(--t);font-size:13px}
+.sc-lg small{color:var(--ink-4)}
+
+/* ---- 一条场景泳道 ---- */
+.sc-lane{background:#fff;border:1px solid var(--line);border-radius:14px;margin-top:12px;
+  overflow:hidden;box-shadow:0 1px 2px rgba(13,27,49,.04)}
+.sc-lane-head{display:flex;align-items:center;gap:10px;padding:10px 16px;
+  background:linear-gradient(90deg,rgba(200,16,46,.06),rgba(200,16,46,0));cursor:pointer;
+  border-bottom:1px solid var(--line-2)}
+.sc-abbr{width:24px;height:24px;border-radius:7px;background:var(--tone);color:#fff;
+  display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
+.sc-lane-head h3{margin:0;font-size:13.5px;letter-spacing:.3px}
+.sc-lane-stat{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.sc-lane-stat span{font-size:10.5px;border-radius:20px;padding:2px 9px;background:var(--line-2);color:var(--ink-3)}
+.sc-lane-stat .ok{background:var(--green-soft);color:#0b7a4f}
+.sc-lane-stat .go{background:var(--amber-soft);color:#9a6205}
+.sc-lane-stat .cv{background:var(--blue-soft);color:#1d4ed8}
+.sc-lane-stat .ch{background:#fff2d9;color:#8a5a05}
+.sc-lane-stat b{font-size:12px}
+
+.sc-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0}
+.sc-col{padding:10px 14px 12px}
+.sc-col + .sc-col{border-left:1px dashed var(--line)}
+.sc-col-head{font-size:11px;font-weight:700;letter-spacing:.5px;margin-bottom:8px;
+  border-radius:6px;display:inline-block;padding:2px 9px}
+.sc-col-head.ok{background:var(--green-soft);color:#0b7a4f}
+.sc-col-head.go{background:var(--amber-soft);color:#9a6205}
+.sc-none{color:var(--ink-4);font-size:12px;padding:2px 0}
+/* 泳道左右两列高度不一致时，短的一列也不留突兀空白 */
+.sc-col{align-self:stretch}
+
+/* ---- 支行分组 + 条目 ---- */
+.sc-group{display:flex;gap:9px;margin-bottom:9px}
+.sc-group:last-child{margin-bottom:0}
+.sc-br{flex:none;min-width:40px;font-size:11.5px;font-weight:700;color:#8a3a10;
+  background:#ffeccb;border-radius:6px;padding:1px 7px;height:19px;line-height:17px;text-align:center}
+.sc-items{flex:1;min-width:0}
+.sc-item{margin:0 0 3px;font-size:12px;line-height:1.65;color:var(--ink-2);
+  word-break:break-word}
+/* 黄底只包住文字，不要拉满整列宽度（拉满在截图里像一条色带） */
+.sc-item.chg{display:inline-block;max-width:100%}
+.sc-items{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.sc-items .sc-item{width:auto}
+.sc-item:last-child{margin-bottom:0}
+/* 本期有变化：源表里是红字，这里按成图习惯用黄底标出 */
+.sc-item.chg{background:#fff3cf;border-radius:5px;padding:1px 7px;color:#7a4b06;
+  box-shadow:inset 0 0 0 1px #f5dea6;box-sizing:border-box;display:inline-block;
+  max-width:100%;width:auto}
+.sc-lane-empty{padding:16px;color:var(--ink-4);font-size:12px;text-align:center}
+
+/* ---- 支行 × 场景 矩阵 ---- */
+.sc-matrix-wrap{background:#fff;border:1px solid var(--line);border-radius:14px;
+  margin-top:12px;padding:14px 16px 16px}
+.sc-matrix-wrap h3{margin:0 0 10px;font-size:13.5px;letter-spacing:.3px}
+.sc-matrix table{width:100%;border-collapse:collapse;font-size:12px}
+.sc-matrix th,.sc-matrix td{border:1px solid var(--line-2);padding:6px 8px;text-align:center}
+.sc-matrix thead th{background:#f7f9fd;font-weight:650;color:var(--ink);font-size:11.5px;
+  border-bottom:2px solid var(--line)}
+.sc-matrix thead th[style]{border-top:2px solid var(--t)}
+.sc-matrix tbody th{text-align:left;background:#fbfcfe;font-weight:600;color:var(--ink-2);
+  white-space:nowrap}
+.sc-matrix td b{color:var(--ink);font-size:13.5px}
+/* 合计列给足宽度，别被 6 个场景列挤成两行 */
+.sc-matrix th:last-child,.sc-matrix td:last-child{width:64px;min-width:64px;white-space:nowrap}
+.sc-matrix tbody td{vertical-align:middle}
+.sc-matrix td small{color:var(--ink-4);margin-left:2px;font-size:10.5px}
+.sc-matrix td .z{color:var(--ink-4)}
+.sc-mx-empty{color:var(--ink-4);background:#fcfdff}
+.sc-mx.chg{background:#fff8e5}
+.sc-mx-tot{background:#f7f9fd;font-weight:650}
+.sc-matrix tfoot td{background:#f7f9fd;font-weight:650;color:var(--ink)}
+.sc-foot{margin-top:12px;text-align:center;font-size:11px;color:var(--ink-4);line-height:1.9}
+.sc-foot em{font-style:normal;background:#ffe9a8;border-radius:3px;padding:0 4px;color:#8a5a05}
+
+/* ---- 截图用：临时容器（放在视口外，别闪屏） ---- */
+.sc-shotbox{position:fixed;left:-10000px;top:0;width:1080px;background:#f4f6fa;z-index:-1}
+.sc-shooting{border-radius:0;border:0}
+
+@media (max-width:900px){
+  .sc-cols{grid-template-columns:minmax(0,1fr)}
+  .sc-col + .sc-col{border-left:0;border-top:1px dashed var(--line)}
+  .sc-head-kpi{margin-left:0;gap:18px}
+  .sc-head-kpi b{font-size:21px}
+}
+
+/* 同一场景里多家支行写了同一句话 → 合成一行，后面跟支行小胶囊 */
+.sc-group-wide{margin-bottom:8px}
+.sc-item-shared{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:3px 8px;background:#f7f9fd;border-radius:7px}
+/* 合并行的黄底要贴合内容，别拉满整行（截图时会被切） */
+.sc-item-shared.chg{background:#fff3cf;box-shadow:inset 0 0 0 1px #f5dea6}
+.sc-item-shared:not(.chg){background:#f7f9fd}
+.sc-chips{display:inline-flex;flex-wrap:wrap;gap:4px}
+.sc-chips i{font-style:normal;font-size:10.5px;background:#ffeccb;color:#8a3a10;
+  border-radius:5px;padding:0 6px;line-height:16px}
+.sc-cnt{font-size:10.5px;color:var(--ink-4)}

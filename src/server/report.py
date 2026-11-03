@@ -1096,6 +1096,158 @@ def _low_threshold(low: list[dict]) -> tuple[list[dict], int]:
     return picked, thr
 
 
+# ================================================================ 全量客户场景攻坚
+# 这条通报**不出 Excel**（用户明确要求：只有图片 + 文案）。
+# 表数据由 `tables` 交给前端渲染成"海报"（见 pages/scene.js 的 exportImage），
+# 前端用同一份 payload 画页面和导出图片，保证页面与图片同源。
+SCENE_TITLES = ['养老代发', '薪管家代发', '智慧校园', '支付即开票', '政务民生', '数币']
+
+# 场景单字/双字简称（海报上的小色块用）
+SCENE_ABBR = {'养老代发': '养', '薪管家代发': '薪', '智慧校园': '校',
+              '支付即开票': '票', '政务民生': '政', '数币': '数'}
+
+
+def build_scene(on: str | None = None) -> dict:
+    """全量客户场景攻坚：KPI + 6 个场景的条目 + 文案。
+
+    **文案按"数据说话"写，不写死任何一期的细节**——数字和项目名都从快照里取，
+    换一期导入后文案自动跟着变（用户明确要求可灵活）。
+    """
+    d = api.build_scene(on)
+    if not d.get('ok'):
+        return {'ok': False, 'error': d.get('reason') or '该日期无全量客户场景数据',
+                'nearest': d.get('nearest')}
+
+    k = d['kpi']
+    scenes = d['scenes']
+    matrix = d['branches']
+    hi = d['highlights']
+    mo, dy = int(d['as_of'][5:7]), int(d['as_of'][8:10])
+    title = f'全量客户场景攻坚成效通报（{mo}月{dy}日）'
+
+    # 每个场景：落地数、覆盖支行、推进中、本期变化
+    by_scene = {s['name']: s for s in scenes}
+    # 每个支行：落地总数（用来找"全覆盖"和"待突破"）
+    cover = {b['name']: b['landed'] for b in matrix}
+    full = [b for b in d['branch_order'] if (by_scene.get('薪管家代发') or {}).get('covered')
+            and b in (by_scene.get('薪管家代发') or {}).get('covered', [])]
+    zero_scenes = [s['name'] for s in scenes if not s['landed'] and not s['ongoing']]
+
+    def _by_branch(scene_name, key):
+        """{支行: [条目文字…]}，按 branch_order 排序。"""
+        out = []
+        for b in matrix:
+            items = ((b.get('scenes') or {}).get(scene_name) or {}).get(key) or []
+            if items:
+                out.append((b['name'], [x['text'] for x in items],
+                            any(x.get('changed') for x in items)))
+        return out
+
+    def _strip_branch(text, branch):
+        """条目开头重复了支行名就去掉（"颍上养老代发…" → "养老代发…"）。"""
+        t = text.strip()
+        if branch and t.startswith(branch):
+            t = t[len(branch):].lstrip('：: 、，,')
+        return t or text
+
+    def _render(groups, max_items=4):
+        """[(支行, [条目…])] → 「颍上：养老代发（社保卡1万户）、退休人员换发…；阜南：…」。"""
+        parts = []
+        for name, items, chg in groups:
+            shown = [_strip_branch(x, name) for x in items[:max_items]]
+            more = '' if len(items) <= max_items else f' 等 {len(items)} 项'
+            star = '★' if chg else ''
+            parts.append(f'{name}：' + '、'.join(shown) + more + star)
+        return '；'.join(parts)
+
+    lines = []
+    lines.append(f'截至 {mo} 月 {dy} 日，各支行围绕 {k["scenes"]} 大场景持续推进，'
+                 f'全行累计落地项目 {k["landed"]} 项、{k["ongoing"]} 个项目纳入推进流程，'
+                 f'{k["branches"]} 家支行全部参与 [强][强]。')
+
+    # 本期有变化：点名到支行，并把项目写出来（这是通报最有用的一段）
+    if hi:
+        chorus = []
+        for name in SCENE_TITLES:
+            items = [h for h in hi if h['scene'] == name]
+            if not items:
+                continue
+            who = '、'.join(dict.fromkeys(h['branch'] for h in items))
+            chorus.append(f'{name} {who} 等 {len(items)} 项')
+        lines.append('本期进度有变化的项目共 ' + str(len(hi)) + ' 项：'
+                     + '；'.join(chorus) + '（详见表中黄色标注）。')
+
+    lines.append('场景获客项目普遍落地周期较长、前期对接磨合成本较高，'
+                 '但各支行同步发力，六大场景均有储备项目持续推进，部分项目已取得阶段性突破。')
+    lines.append('')
+    lines.append('从各场景进展看：')
+    lines.append('')
+
+    emoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣']
+    for i, sc in enumerate(scenes):
+        name = sc['name']
+        landed_g = _by_branch(name, 'landed')
+        ongoing_g = _by_branch(name, 'ongoing')
+        seg = [f'{emoji[i] if i < len(emoji) else f"({i + 1})"} 【{name}】']
+        if landed_g:
+            seg.append(f'已落地 {sc["landed"]} 项（覆盖 {sc["branches"]}/{len(d["branch_order"])} 家支行）——'
+                       + _render(landed_g) + '。')
+        else:
+            seg.append(f'目前尚无项目落地（0/{len(d["branch_order"])} 家支行）')
+        if ongoing_g:
+            seg.append(f'储备/推进中 {sc["ongoing"]} 项——' + _render(ongoing_g) + '。')
+        if sc['pending'] and landed_g:
+            seg.append(f'尚未破题：{"、".join(sc["pending"])}。')
+        lines.append(''.join(seg))
+        lines.append('')
+
+    # 收尾：最窄 / 最广的场景点名（推动用）
+    if len(scenes) > 1:
+        narrow = min(scenes, key=lambda s: s['branches'])
+        widest = max(scenes, key=lambda s: s['branches'])
+        tail = (f'总体看，【{narrow["name"]}】目前仅 {narrow["branches"]} 家支行破题，'
+                f'是六个场景中覆盖面最窄的一项，需加快突破；'
+                f'【{widest["name"]}】已覆盖 {widest["branches"]} 家支行，'
+                f'可在批量获客与场景延伸上继续发力。')
+        if zero_scenes:
+            tail += f'另有 {"、".join(zero_scenes)} 暂无进展，列入重点跟进。'
+        lines.append(tail)
+
+    text = '\n'.join(lines)
+
+    # 表格：一行一个场景，便于前端画海报的"场景卡"
+    sc_cols = [
+        {'key': 'name', 'title': '场景', 'type': 'text'},
+        {'key': 'landed', 'title': '已落地', 'type': 'num'},
+        {'key': 'ongoing', 'title': '推进中', 'type': 'num'},
+        {'key': 'branches', 'title': '覆盖支行', 'type': 'num'},
+        {'key': 'changed', 'title': '本期变化', 'type': 'num'},
+        {'key': 'pending', 'title': '待落地支行', 'type': 'text'},
+    ]
+    sc_rows = [{'name': s['name'], 'landed': s['landed'], 'ongoing': s['ongoing'],
+                'branches': s['branches'], 'changed': s['changed'],
+                'pending': '、'.join(s['pending']) or '—'} for s in scenes]
+
+    br_cols = [{'key': 'name', 'title': '支行', 'type': 'text'},
+               {'key': 'landed', 'title': '已落地', 'type': 'num'},
+               {'key': 'ongoing', 'title': '推进中', 'type': 'num'},
+               {'key': 'changed', 'title': '本期变化', 'type': 'num'}]
+    br_rows = [{'name': b['name'], 'landed': b['landed'],
+                'ongoing': b['ongoing'], 'changed': b['changed']} for b in matrix]
+
+    return {
+        'ok': True, 'kind': 'scene', 'cat': 'jg', 'title': title,
+        'as_of': d['as_of'], 'text': text,
+        'kpi': k, 'scenes': scenes, 'branches': d['branches'],
+        'branch_order': d['branch_order'], 'highlights': hi,
+        'downloads': [],                    # 这条通报不出 Excel
+        'tables': [
+            {'name': '场景汇总', 'columns': sc_cols, 'rows': sc_rows, 'totals': None},
+            {'name': '支行汇总', 'columns': br_cols, 'rows': br_rows, 'totals': None},
+        ],
+    }
+
+
 def build_yika(on: str | None = None) -> dict:
     d = api.build_yika(on)
     if not d.get('ok'):
@@ -1716,8 +1868,12 @@ def pbs_dev_xlsx(on: str | None = None) -> tuple[bytes, str]:
 BUILDERS = {'online': build_online, 'salary': build_salary, 'wallet': build_wallet,
             'deposit': build_deposit, 'community': build_community,
             'downgrade': build_downgrade, 'yika': build_yika, 'pbs': build_pbs,
-            'jiepan': build_jiepan, 'team': build_team}
+            'jiepan': build_jiepan, 'team': build_team, 'scene': build_scene}
 TITLES = {'online': '网点线上服务能力', 'salary': '薪管家聚薪行动', 'wallet': '数字人民币钱包'}
+
+# 只出「图片 + 文案」、不出 Excel 的通报（用户明确要求）。
+# 前端 report.js 的同名集合要与这里一致；check_modules 据此跳过母版检查。
+IMAGE_ONLY = ('scene',)
 
 # 一条通报对应多份成表时，母版从哪几个 key 找（check_modules 与前端下载按钮都看它）
 BASES_OF = {'pbs': ('pbs', 'pbs_dev'), 'team': ('ck', 'yw')}
@@ -1725,7 +1881,7 @@ BASES_OF = {'pbs': ('pbs', 'pbs_dev'), 'team': ('ck', 'yw')}
 # 每份通报归属的大类（口令按大类放行；前端 report.js 的 LINES[].cat 要与这里一致）
 CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'community': 'wj',
           'downgrade': 'jg', 'yika': 'jg', 'pbs': 'pbs', 'pbs_dev': 'pbs', 'jiepan': 'jg',
-          'ck': 'jg', 'yw': 'jg', 'team': 'jg'}
+          'ck': 'jg', 'yw': 'jg', 'team': 'jg', 'scene': 'jg'}
 
 
 def build(kind: str, on: str | None = None,

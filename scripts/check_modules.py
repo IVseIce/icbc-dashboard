@@ -136,9 +136,12 @@ def run() -> tuple[Checker, list[dict]]:
     def bases_of(k: str) -> list[str]:
         return list(report.BASES_OF.get(k) or (k,))
 
+    # 只出图片、不出 Excel 的通报（用户明确要求）不用母版
+    image_only = set(getattr(report, 'IMAGE_ONLY', ()) or ())
     xlsx_missing = [k for k in report.BUILDERS
-                    if not any((PROJECT / 'src' / 'report' / 'assets' / f'{b}_base.xlsx').exists()
-                               for b in bases_of(k))]
+                    if k not in image_only
+                    and not any((PROJECT / 'src' / 'report' / 'assets' / f'{b}_base.xlsx').exists()
+                                for b in bases_of(k))]
     for k in xlsx_missing:
         c.err(f'通报 {k}: 缺少样式母版 src/report/assets/{k}_base.xlsx')
     for k in report.BUILDERS:

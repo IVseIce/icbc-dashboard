@@ -21,7 +21,12 @@ const LINES = [
   { id: 'yika', name: '“一卡一户”日通报', cat: 'jg' },
   { id: 'pbs', name: '私人银行核心指标', cat: 'pbs' },
   { id: 'team', name: '客户经理经营业绩', cat: 'jg' },
+  { id: 'scene', name: '全量客户场景攻坚', cat: 'jg' },
 ];
+
+/* 这条通报**不出 Excel**（用户明确要求：只有图片 + 文案）。
+   所以下载区换成「导出成图」，图片不是表格截图，而是把模块页那张海报原样渲出来。 */
+const IMAGE_ONLY = new Set(['scene']);
 
 export default {
   id: 'report',
@@ -227,6 +232,12 @@ export default {
     function paintDownloads(list) {
       const slot = view.querySelector('#dlSlot');
       if (!slot) return;
+      if (IMAGE_ONLY.has(kind)) {
+        slot.innerHTML = `<button class="btn btn-primary" id="dlPoster">
+          ${icon('down', 14)} 下载成效图</button>`;
+        slot.querySelector('#dlPoster').onclick = () => downloadPoster();
+        return;
+      }
       const items = (list && list.length) ? list : [{ key: kind, name: '下载 Excel' }];
       // 所有下载按钮都做成主按钮（红）：多份成表时它们地位相同，
       // 只把第一个标红会让人以为第二个是次要的/不可点
@@ -235,6 +246,43 @@ export default {
       slot.querySelectorAll('[data-dl]').forEach((b) => {
         b.onclick = () => downloadExcel(b.dataset.dl, b);
       });
+    }
+
+    /** 场景攻坚没有 Excel：把「模块页那张海报」整块截下来。
+        做法是把同一条数据喂给 pages/scene.js 的渲染器，塞进离屏容器再截，
+        这样图和页面永远一致（不另写一套排版）。 */
+    async function downloadPoster() {
+      const btn = view.querySelector('#dlPoster');
+      if (btn) btn.disabled = true;
+      const box = document.createElement('div');
+      box.className = 'sc-shotbox';
+      box.style.width = '1080px';
+      const host = document.createElement('div');
+      box.appendChild(host);
+      document.body.appendChild(box);
+      try {
+        const mod = (await import('./scene.js')).default;
+        mod.render(host, { scene: payload }, {});
+        const board = host.querySelector('#scBoard');
+        if (!board) throw new Error('海报渲染失败');
+        board.classList.add('sc-shooting');
+        await new Promise((r) => requestAnimationFrame(r));
+        const canvas = await window.html2canvas(board, {
+          scale: 2, backgroundColor: '#f4f6fa', useCORS: true, logging: false,
+        });
+        const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${payload.title}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+        toast('成效图已下载');
+      } catch (err) {
+        toast(`导出失败：${err.message}`, 'err');
+      } finally {
+        box.remove();
+        if (btn) btn.disabled = false;
+      }
     }
 
     async function downloadExcel(which, btn) {
@@ -285,6 +333,8 @@ export default {
     }
 
     async function exportImage(mode) {
+      // 有海报的通报直接出海报，不走"表格截图"
+      if (IMAGE_ONLY.has(kind)) return downloadPoster();
       document.querySelectorAll('.sheet').forEach((n) => n.remove());
       const node = document.createElement('div');
       node.className = 'sheet';
