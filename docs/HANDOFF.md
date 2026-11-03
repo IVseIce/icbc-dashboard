@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-11-02（**版本 0.1.10**｜新增「基保理」：理财/基金/保险按期看销量）
+> 最后更新：2026-11-02（**版本 0.1.10.1**｜定期承接的通报也能选统计区间）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -24,6 +24,7 @@
 > → 0.1.8.6（企微社群按日入库 + 上周自动复用；导入页「本期」默认 T-1）
 > → 0.1.9（**数据管理页**：按模块×期软删除、可恢复、删前自动备份；schema v2）
 > → 0.1.10（**基保理**：理财/基金/保险三条线、按期存、只做导入+可视化、无通报）
+> → 0.1.10.1（**定期承接的通报支持选统计区间**：区间条搬进通报中心，Excel/图片跟着走）
 
 ---
 
@@ -365,7 +366,8 @@ icbc-dashboard/
                    yika/pbs/jiepan/ck/yw）
 #/m/jg-income-jbl?k=fund  基保理页；k = lc（理财，默认）/ fund / bx（保险）
 #/m/jg-deposit-jiepan?…   定期承接页；统计区间放地址栏 ?s=2026-10-01&e=2026-10-25
-                   （/api/all 与 /api/report/jiepan 都认 start/end 两个参数）
+#/report/jiepan?…         通报中心的定期承接；同一套 ?s=&e=，区间条就在通报正文上方
+                   （/api/all、/api/report/jiepan 与 .xlsx 都认 start/end 两个参数）
 #/upload           上传（两级选择，默认落到自己大类）
 #/upload/<moduleId> 上传并预选该模块（模块页右上角"导入数据"就跳这里）
 #/guide            使用指南（不过口令，所有人可看）
@@ -717,17 +719,24 @@ icbc-dashboard/
     影响 2002 万，占合计 10%　——**不要试图用金额阈值自动判定**，那只是巧合。
     `jiepan.parse(exclude=[客编...])` 留了接口，默认不排除；用户说以后在导入前处理。
 
-76. **成表母版直接取「清空数据的成表」**（`src/report/assets/jiepan_base.xlsx`），
+76. **通报中心的区间是"前端状态 + 地址栏"，不是只读地址栏**。
+    `report.js` 里 `jp = {start, end}` 是模块内状态，切区间只改它 + `history.replaceState`，
+    然后重新 `load()`；**Excel 下载也会带同一段**（`q('jiepan')`）。
+    换到别的通报时必须把 `s/e` 从地址栏摘掉（`syncUrl()`），否则别的通报会带着无关参数。
+    区间越界时后端返回 `{ok:false, coverage, out_of_range:true}`，**前端要照样画出区间条**
+    （否则用户改不回去）——这里踩过一次：越界分支的 `innerHTML` 忘了留 `#jpRangeSlot`。
+
+77. **成表母版直接取「清空数据的成表」**（`src/report/assets/jiepan_base.xlsx`），
     里面 A 列（支行）和 C 列（元）本来是**隐藏**的，Sheet7 的 J 列（网点负责人）也隐藏。
     用户截图确认"只看 B/D/E/F 四列"，所以导出沿用母版的隐藏状态，不要取消隐藏。
     Sheet6 原来 43-85 行是隐藏的"按承接率降序副本"、Sheet7 13-33 行是排名计算区，
     已在母版里**删掉**（我们直接按名次写数，不需要这些中间行）。
 
-77. **`net_short()` 的简称规则要对得上人话**：`XX支行营业室`→`XX营业室`（不是 `XX`），
+78. **`net_short()` 的简称规则要对得上人话**：`XX支行营业室`→`XX营业室`（不是 `XX`），
     `临泉政务新区`→`临泉政务`，结果不含支行短名时补上（牡丹支行 属 颍泉 → `颍泉牡丹`），
     已含支行名的不重复补（太和大桥支行 → `太和大桥`）。
 
-78. **官方的 G12 那格是错的**：公式范围写成 `E2:E4902`（只覆盖 7816 行里的 4901 行），
+79. **官方的 G12 那格是错的**：公式范围写成 `E2:E4902`（只覆盖 7816 行里的 4901 行），
     所以官方合计资金承接率 0.9135 是"前半段"的值，全量应为 **0.9058**。
     我们按全量算，导出比官方大 0.0076——**这是修 bug，不是不一致**。
     另外官方 Sheet7 的 C 列（综合评价）在重排后又引用固定行号（`=I16`…），整体错位，
@@ -792,7 +801,7 @@ icbc-dashboard/
 
 ### 8.12 两个"本机正常、到内网就坏"的坑（0.1.7.1）
 
-79. **openpyxl 读写 xlsx 里的图片依赖 Pillow，而内网运行时没有 Pillow**。
+106. **openpyxl 读写 xlsx 里的图片依赖 Pillow，而内网运行时没有 Pillow**。
     `vendor/pylib` 只放纯 Python 包（openpyxl / xlrd / PyYAML，与架构无关），
     所以 `load_workbook()` 读出来 `ws._images` 是 **0**，`save()` 之后
     `xl/media/*`、`xl/drawings/*` **全没了** —— 私银「发展情况表」的表头横幅就是这么丢的。
@@ -804,7 +813,7 @@ icbc-dashboard/
     严格的解析器报 `ParseError: unbound prefix`，而 openpyxl 自己重读就会炸。
     ⚠️ 以后任何"母版里带图片/图表"的导出，都要走 `save_like(母版路径, wb)`，别直接 `wb.save()`。
 
-80. **Chrome 传大文件会用 `Transfer-Encoding: chunked`，服务端原来只认 `Content-Length`**。
+107. **Chrome 传大文件会用 `Transfer-Encoding: chunked`，服务端原来只认 `Content-Length`**。
     原来 `do_POST` 直接 `self.rfile.read(Content-Length or 0)`：分块上传时读到 **0 字节**，
     于是"没有收到文件"或提前回包，连接被判为损坏，前端只看到
     `TypeError: Failed to fetch`（Chrome 报 `ERR_ALPN_NEGOTIATION_FAILED`），
@@ -1002,7 +1011,7 @@ icbc-dashboard/
 | 定期承接的网点清单 | `src/report/assets/jiepan_nets.json`（支行 → 网点，改完重启） |
 | 定期承接的成表版式 | 换 `src/report/assets/jiepan_base.xlsx`（**成表清空数据**，别取消 A/C 列隐藏） |
 | 定期承接的手工改数 | `src/ingest/jiepan.py` 的 `EDIT_FIELDS`（开放哪几列）；前端在 `pages/import.js` |
-| 带图片的 Excel 导出 | 一律走 `xlsx_keep.save_like(母版路径, wb)`（见 8.12 第 79 条） |
+| 带图片的 Excel 导出 | 一律走 `xlsx_keep.save_like(母版路径, wb)`（见 8.12 第 106 条） |
 | 私银的网点清单 / 支行归属 | `src/report/assets/pb_nets.json`；支行别名在 `src/ingest/pbs.py::BRANCH_ALIAS` |
 | 私银成表母版 | 就是官方原件转的 xlsx（`pbs_base.xlsx` / `pbs_dev_base.xlsx`），**别重新排**，见 8.10 |
 | 私银红绿规则 | `report.py::_pbs_fill_dev` 的 `paint()`（按名次，C 列只红+黄、E 列红+绿）；核心指标表用母版条件格式 |
@@ -1022,7 +1031,7 @@ icbc-dashboard/
 
 ## 11. 交接检查清单
 
-1. `git log --oneline -5` 能看到最近一次提交；`cat VERSION` 应为 `0.1.10` 或更高
+1. `git log --oneline -5` 能看到最近一次提交；`cat VERSION` 应为 `0.1.10.1` 或更高
 2. 起服务 → `curl /api/health` 返回 `ok:true`，且 `version` 与 `VERSION` 一致
    （版本号有缓存：改完 `VERSION` 要**重启进程**才生效）
 3. `python scripts/check_report_parity.py` → 除 online 标题外全 OK
@@ -1049,6 +1058,11 @@ icbc-dashboard/
     `#/report` 里「到期承接情况通报」文案三段与导出 Excel 双 sheet 都要有
 12. 导入页选「定期承接」→ 出现「④ 手动编辑明细（可选）」；输客编能查到行、能改四列，
     改完提交时 `notes` 里应出现「导入前手工修改 N 行」；
+12b. `#/report/jiepan` → 正文上方有「统计区间」，默认上周（10.19–10.25，-5352 万）；
+    改成 10.01–10.25 点「查看」→ 文案/三张表/顶栏都变（-17486 万），
+    且下载的 Excel 文件名是「到期承接情况通报（10.1—10.25）.xlsx」；
+    改到 9.01 之前 → 保留区间条 + 提示越界；点「上周」回到默认；
+    切到别的通报时地址栏里的 `s/e` 应被摘掉；
 13. `#/report` 里「私人银行核心指标」旁边点「下载发展情况表」→ 用解压工具看 xlsx 里
     应有 `xl/media/image1.jpeg`（**内网机同理，这是 0.1.7.1 修的那个坑**）；
 14. `#/m/jg-deposit-team` 能看到「财客 / 远维」两个页签，**来回点四次都要能切**；

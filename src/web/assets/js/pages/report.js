@@ -28,14 +28,16 @@ export default {
   title: '通报中心',
   render(view, _data, ctx) {
     const date = ctx.date;
-    // 定期承接支持 ?start=&end=（与定期承接页面共用地址栏参数）
+    // 定期承接：统计区间（可切「取数日往前一个月」内任意段）。
+    // 放模块级状态而不是只读地址栏——换区间后要能重新取数、且 Excel 下载要跟着走同一段。
     const sp = new URLSearchParams(location.search);
+    const jp = { start: sp.get('s') || null, end: sp.get('e') || null };
     const q = (k) => {
       const p = new URLSearchParams();
       if (date) p.set('date', date);
       if (k === 'jiepan') {
-        if (sp.get('s')) p.set('start', sp.get('s'));
-        if (sp.get('e')) p.set('end', sp.get('e'));
+        if (jp.start) p.set('start', jp.start);
+        if (jp.end) p.set('end', jp.end);
       }
       const t = p.toString();
       return t ? `?${t}` : '';
@@ -85,6 +87,7 @@ export default {
         if (!first) return;
         kind = first.id;
         paintTabs();
+        syncUrl();
         load();
       };
     });
@@ -99,6 +102,7 @@ export default {
           tabs.querySelectorAll('.rep-tab').forEach((x) => x.classList.remove('on'));
           b.classList.add('on');
           kind = b.dataset.k;
+          syncUrl();          // 离开定期承接就把 s/e 从地址栏摘掉
           load();
         };
       });
@@ -121,11 +125,25 @@ export default {
         return;
       }
       if (!r.ok) {
+        // 定期承接的"区间越界"是可恢复的：把区间条一起画出来，用户改一下就能回去
+        if (kind === 'jiepan' && r.coverage) {
+          // 越界是"选错了"而不是"没数据"：区间条必须留着，否则用户没法改回去
+          body.innerHTML = `<div id="jpRangeSlot"></div>
+            <div class="card"><div class="empty"><b>这个时间段出不了通报</b>
+            ${r.error || ''}</div></div>`;
+          paintJpRange(r);
+          setAsof(`${fmt.date(r.coverage[0])}–${fmt.date(r.coverage[1])} · 取数日 ${fmt.date(r.as_of)}`);
+          return;
+        }
         body.innerHTML = `<div class="card"><div class="empty"><b>该日期没有这份通报</b>${r.error || ''}</div></div>`;
         return;
       }
       payload = r;
-      const asof = r.as_of ? `数据截至 ${fmt.date(r.as_of)}${date ? ` · 所选 ≤${fmt.date(date)}` : ''}` : '';
+      let asof = r.as_of ? `数据截至 ${fmt.date(r.as_of)}${date ? ` · 所选 ≤${fmt.date(date)}` : ''}` : '';
+      // 定期承接是有区间的：顶栏要能看出这份通报统计的是哪一段
+      if (kind === 'jiepan' && r.period?.start) {
+        asof = `${fmt.date(r.period.start)}–${fmt.date(r.period.end)} · 取数日 ${fmt.date(r.as_of)}`;
+      }
       setAsof(asof || '—');
       if (!date && r.as_of) setDatePickers(r.as_of);
       const missing = (r.missing || []).length
@@ -133,6 +151,7 @@ export default {
              导了之后这一页会自动补上</div>` : '';
       body.innerHTML = `
         ${missing}
+        <div id="jpRangeSlot"></div>
         <div class="card rep-text-card">
           <div class="card-head"><h3>通报文案</h3>
             <div class="right"><span class="chip">可直接粘贴到企微 / 邮件</span></div></div>
@@ -140,6 +159,7 @@ export default {
         </div>
         ${r.tables.map((t, i) => tableCard(t, i)).join('')}`;
 
+      if (kind === 'jiepan') paintJpRange(r);
       // 下载按钮按后端给的 downloads 渲染（默认就是当前这条的一份）。
       // 有多份成表的通报（私银、经理队伍）就在同一个模块里并排放几个按钮，
       // 不拆成两条通报 —— 用户要的是"一个模块、几个下载"。
@@ -150,6 +170,57 @@ export default {
       };
       view.querySelector('#saveImg').onclick = () => exportImage('download');
       view.querySelector('#copyImg').onclick = () => exportImage('copy');
+    }
+
+    /** 定期承接：统计区间条（与「定期承接」页同一套交互，默认上周）
+     *  r = build_jiepan 的返回，可能带 coverage（越界时也有）+ period（正常时才有） */
+    function paintJpRange(r) {
+      const slot = view.querySelector('#jpRangeSlot');
+      if (!slot) return;
+      const cov = r.coverage || [r.as_of, r.as_of];
+      const per = r.period || {};
+      const days = per.start && per.end
+        ? Math.round((Date.parse(per.end) - Date.parse(per.start)) / 86400000) + 1 : 0;
+      const stale = r.out_of_range
+        ? `<span class="jp-warn">当前区间不可用，请重新选择</span>` : '';
+      slot.innerHTML = `
+        <div class="jp-range" style="margin-bottom:14px">
+          <span class="jp-lab">统计区间</span>
+          <input type="date" id="repJpStart" value="${per.start || jp.start || ''}">
+          <span class="jp-tilde">至</span>
+          <input type="date" id="repJpEnd" value="${per.end || jp.end || ''}">
+          <button class="btn btn-sm btn-primary" id="repJpApply">查看</button>
+          <button class="btn btn-sm" id="repJpWeek">上周</button>
+          <span class="jp-hint">可选范围 ${fmt.date(cov[0])}–${fmt.date(cov[1])}
+            （本次数据取自 ${fmt.date(r.as_of)}）${days ? ` · 当前 ${days} 天` : ''}</span>
+          ${stale}
+        </div>`;
+      const st = slot.querySelector('#repJpStart');
+      const en = slot.querySelector('#repJpEnd');
+      slot.querySelector('#repJpApply').onclick = () => {
+        if (!st.value || !en.value) return toast('请把起止日期都选上', 'err');
+        if (st.value > en.value) return toast('起始日期不能晚于结束日期', 'err');
+        jp.start = st.value; jp.end = en.value;
+        syncUrl();
+        load();
+      };
+      slot.querySelector('#repJpWeek').onclick = () => {
+        // 清掉区间 = 后端按默认（取数日往前 7 天）
+        jp.start = null; jp.end = null;
+        syncUrl();
+        load();
+      };
+    }
+
+    /** 把区间写回地址栏，刷新/分享链接时还是这一段 */
+    function syncUrl() {
+      const u = new URL(location.href);
+      if (kind === 'jiepan' && jp.start && jp.end) {
+        u.searchParams.set('s', jp.start); u.searchParams.set('e', jp.end);
+      } else {
+        u.searchParams.delete('s'); u.searchParams.delete('e');
+      }
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
     }
 
     /** 下载按钮组：`downloads` 为空时退化成"下载 Excel"一个按钮 */

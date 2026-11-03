@@ -51,6 +51,17 @@
 - 典型用法：到期后资产整体流失、不该算网点未承接的客户 → 把 `定期余额变化` 与
   `时点资产变化` 都改 0（到期金额仍留在分母），与人工成表口径一致
 
+## 通报选区间（0.1.10.1）
+
+通报中心选到本模块时，正文上方会有「统计区间」条：
+
+- 默认上周（`as_of−6 ~ as_of`），可改成 `coverage` 内任意段
+- 后端 `report.build_jiepan(on, start, end)` / `jiepan_xlsx(on, start, end)` 早就支持，
+  HTTP 侧 `/api/report/jiepan` 与 `/api/report/jiepan.xlsx` 都认 `?start=&end=`
+- 前端状态在 `pages/report.js` 的 `jp = {start, end}`，切区间 → `syncUrl()` → `load()`
+- **Excel 下载带同一段**（`q('jiepan')`）；文件名里的期间也跟着变
+- 越界时后端回 `{ok:false, coverage, out_of_range:true}`，前端仍要画区间条
+
 ## 已知坑
 
 1. **不要跨快照合并**：`30天前余额` 的基准日跟着导出日滚动，跨批次数值不可比。
@@ -61,6 +72,7 @@
 6. 大额整体流失户是人工改源表（两列改 0），不是阈值规则；现在可在导入页手工改，
    不必再动源文件（`parse(exclude=…)` 保留同样的"两列置 0"语义，供脚本用）。
 7. 导出走 `xlsx_keep.save_like(JIEPAN_BASE, wb)`，别直接 `wb.save()`（母版里有图片时会被丢，见 HANDOFF 8.12）。
+8. 通报中心换通报时要把 `s/e` 从地址栏摘掉，否则别的通报会带着无关区间参数（HANDOFF 8.11-76）。
 
 ## 改这个模块时先看
 
