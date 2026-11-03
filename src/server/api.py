@@ -474,16 +474,53 @@ def _jiepan_snap(on: str | None = None) -> dict | None:
     return _latest('jp', on)
 
 
-def build_jiepan(on: str | None = None, start: str | None = None, end: str | None = None) -> dict:
+def _jiepan_snap(on: str | None = None, snap: str | None = None) -> dict | None:
+    """定期承接用哪一期快照。
+
+    snap 显式指定 `as_of`（页面上"数据期"下拉框选的那个）优先；
+    否则退回旧行为：取"不晚于 on"的最新一期。
+    显式指定是为了防止**顶栏日期比最新一期早**时静默退回旧快照 ——
+    旧的 coverage 到不了新日期，用户就会看到"这个时间段出不了通报"。
+    """
+    if snap:
+        for x in _snaps('jp'):
+            if (x.get('as_of') or '') == snap:
+                return x
+        return None
+    return _latest('jp', on)
+
+
+def jiepan_periods(on: str | None = None) -> list[dict]:
+    """可选的数据期（给页面上的"数据期"下拉框）。"""
+    out = []
+    for x in _snaps('jp'):
+        if x.get('partial'):
+            continue
+        out.append({
+            'as_of': x.get('as_of'),
+            'as_of_cn': x.get('as_of_cn'),
+            'coverage': x.get('coverage') or [x.get('as_of'), x.get('as_of')],
+            'days': x.get('days'),
+            'rows': len(x.get('rows') or []),
+            'edited': x.get('edited') or 0,
+        })
+    return out
+
+
+def build_jiepan(on: str | None = None, start: str | None = None, end: str | None = None,
+                 snap: str | None = None) -> dict:
     """定期承接：网点 + 支行两层。窗口只能落在单份快照的 coverage 内。
 
     start/end 缺省 = 取数日往前一周（含头尾 7 天）。
+    snap      = 用哪一期（缺省取不晚于 on 的最新一期）
     """
     from ingest import jiepan as jp
 
-    s = _jiepan_snap(on)
+    s = _jiepan_snap(on, snap)
     if not s:
-        return _no_data('jp', on)
+        d = _no_data('jp', on)
+        d['periods'] = jiepan_periods(on)
+        return d
 
     cov = s.get('coverage') or [s.get('as_of'), s.get('as_of')]
     try:
@@ -491,6 +528,7 @@ def build_jiepan(on: str | None = None, start: str | None = None, end: str | Non
     except ValueError as exc:
         return {'ok': False, 'as_of': s.get('as_of'), 'coverage': cov,
                 'period': {'start': start, 'end': end},
+                'periods': jiepan_periods(on),
                 'reason': str(exc), 'out_of_range': True}
 
     nets = [dict(n, short=jp.net_short(n['name'], n['branch'])) for n in agg['nets']]
@@ -516,6 +554,7 @@ def build_jiepan(on: str | None = None, start: str | None = None, end: str | Non
     return {
         'ok': True, 'as_of': s['as_of'], 'as_of_cn': s.get('as_of_cn'),
         'coverage': cov, 'period': agg['period'],
+        'periods': jiepan_periods(on),
         'kpi': {
             'unpicked': t['unpicked'], 'avg_unpicked': t['avg_unpicked'],
             'rate': t['rate'], 'frate': t['frate'],

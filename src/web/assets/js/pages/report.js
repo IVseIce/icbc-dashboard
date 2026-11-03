@@ -36,13 +36,18 @@ export default {
     // 定期承接：统计区间（可切「取数日往前一个月」内任意段）。
     // 放模块级状态而不是只读地址栏——换区间后要能重新取数、且 Excel 下载要跟着走同一段。
     const sp = new URLSearchParams(location.search);
-    const jp = { start: sp.get('s') || null, end: sp.get('e') || null };
+    // snap = 用哪一期（取数日）。**必须有**：顶栏日期一旦比最新一期早，
+    // 后端会退回那天的旧快照，它的 coverage 到不了新日期 → 报"这个时间段出不了通报"。
+    const jp = { start: sp.get('s') || null, end: sp.get('e') || null,
+                 snap: sp.get('snap') || null };
+    let jpPeriods = [];        // 后端返回的可选期，画下拉框用
     const q = (k) => {
       const p = new URLSearchParams();
       if (date) p.set('date', date);
       if (k === 'jiepan') {
         if (jp.start) p.set('start', jp.start);
         if (jp.end) p.set('end', jp.end);
+        if (jp.snap) p.set('snap', jp.snap);
       }
       const t = p.toString();
       return t ? `?${t}` : '';
@@ -160,7 +165,9 @@ export default {
         asof = `${fmt.date(r.period.start)}–${fmt.date(r.period.end)} · 取数日 ${fmt.date(r.as_of)}`;
       }
       setAsof(asof || '—');
-      if (!date && r.as_of) setDatePickers(r.as_of);
+      // 定期承接：日期框永远跟"当前用哪一期"走，否则顶栏和下拉框各说各话
+      if (kind === 'jiepan' && r.as_of) setDatePickers(r.as_of);
+      else if (!date && r.as_of) setDatePickers(r.as_of);
       const missing = (r.missing || []).length
         ? `<div class="card rep-miss">仅导入了一块：还没有「${r.missing.join('、')}」的数据；
              导了之后这一页会自动补上</div>` : '';
@@ -174,6 +181,10 @@ export default {
         </div>
         ${r.tables.map((t, i) => tableCard(t, i)).join('')}`;
 
+      jpPeriods = r.periods || jpPeriods;
+      // 首次进来没有 snap 时，把"后端实际用的那一期"钉下来：
+      // 之后用户改顶栏日期就不会悄悄换成旧快照（内网那个坑）
+      if (!jp.snap && r.as_of) jp.snap = r.as_of;
       if (kind === 'jiepan') paintJpRange(r);
       // 下载按钮按后端给的 downloads 渲染（默认就是当前这条的一份）。
       // 有多份成表的通报（私银、经理队伍）就在同一个模块里并排放几个按钮，
@@ -208,8 +219,23 @@ export default {
             : (avail.length
                 ? `库里现有数据到 ${fmt.date(avail[avail.length - 1])}（共 ${avail.length} 期）`
                 : '库里还没有数据'));
+      // 「数据期」下拉：显式选"用哪一次导入的数据"。
+      // 不选也行（=不晚于顶栏日期的最新一期），但顶栏日期早于最新一期时会静默退回旧快照，
+      // 这是内网上"明明导了新数据却说出不了这个时间段"的根因 —— 所以给个明摆着的选择。
+      const cur = r.as_of || jp.snap || '';
+      const ps = (jpPeriods && jpPeriods.length) ? jpPeriods : (r.periods || []);
+      const opts = ps.map((x) => {
+        const c2 = x.coverage || [];
+        return `<option value="${x.as_of}" ${x.as_of === cur ? 'selected' : ''}>
+          取数日 ${fmt.date(x.as_of)} · 可选 ${fmt.date(c2[0] || x.as_of)}–${fmt.date(c2[1] || x.as_of)}
+        </option>`;
+      }).join('');
+      const periodSel = ps.length > 1
+        ? `<span class="jp-lab">数据期</span><select id="repJpSnap" class="jp-sel">${opts}</select>`
+        : '';
       slot.innerHTML = `
         <div class="jp-range" style="margin-bottom:14px">
+          ${periodSel}
           <span class="jp-lab">统计区间</span>
           <input type="date" id="repJpStart" value="${per.start || jp.start || ''}">
           <span class="jp-tilde">至</span>
@@ -219,6 +245,18 @@ export default {
           <span class="jp-hint">${covTxt}${days ? ` · 当前 ${days} 天` : ''}</span>
           ${stale}
         </div>`;
+      const sel = slot.querySelector('#repJpSnap');
+      if (sel) {
+        sel.onchange = () => {
+          jp.snap = sel.value;
+          // 换期后原区间多半不在新 coverage 里：清掉，让后端按新期默认上周重算
+          jp.start = null; jp.end = null;
+          // 顶栏日期跟着跳到期的那天，否则"选了10/31、日期框还停在10/25"会让人以为没生效
+          setDatePickers(sel.value);
+          syncUrl();
+          load();
+        };
+      }
       const st = slot.querySelector('#repJpStart');
       const en = slot.querySelector('#repJpEnd');
       slot.querySelector('#repJpApply').onclick = () => {
@@ -248,6 +286,8 @@ export default {
       } else {
         u.searchParams.delete('s'); u.searchParams.delete('e');
       }
+      if (kind === 'jiepan' && jp.snap) u.searchParams.set('snap', jp.snap);
+      else u.searchParams.delete('snap');
       const hash = kind ? `#/report/${kind}` : '#/report';
       history.replaceState(null, '', u.pathname + u.search + hash);
     }

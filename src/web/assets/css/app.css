@@ -1034,3 +1034,8 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   .sc-chgbar,.sc-legend,.sc-foot{margin-left:18px;margin-right:18px}
   .sc-lane{margin-left:14px;margin-right:14px}
 }
+
+/* 定期承接「数据期」下拉（通报中心 + 页面通用） */
+.jp-range .jp-sel{border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px;
+  font-family:inherit;color:var(--ink);background:#fbfcfe;max-width:280px}
+.jp-range .jp-sel:focus{outline:none;border-color:var(--blue);background:#fff}

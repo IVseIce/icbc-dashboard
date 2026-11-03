@@ -543,12 +543,14 @@ def _br_short(name: str) -> str:
     return n[:-2] if n.endswith('支行') else n
 
 
-def build_jiepan(on: str | None = None, start: str | None = None, end: str | None = None) -> dict:
+def build_jiepan(on: str | None = None, start: str | None = None, end: str | None = None,
+                 snap: str | None = None) -> dict:
     """定期承接通报：网点维度 + 支行维度两块，文案三段（整体/支行排名/优秀先锋）。"""
-    d = api.build_jiepan(on, start, end)
+    d = api.build_jiepan(on, start, end, snap)
     if not d.get('ok'):
         err = d.get('reason') or '该日期无定期承接数据'
         return {'ok': False, 'error': err, 'nearest': d.get('nearest'),
+                'as_of': d.get('as_of'), 'periods': d.get('periods'),
                 'coverage': d.get('coverage'), 'out_of_range': d.get('out_of_range')}
 
     k = d['kpi']
@@ -611,6 +613,7 @@ def build_jiepan(on: str | None = None, start: str | None = None, end: str | Non
         'ok': True, 'kind': 'jiepan',
         'title': f'到期承接情况通报（{span}）',
         'as_of': d['as_of'], 'coverage': d.get('coverage'), 'period': per,
+        'periods': d.get('periods') or [],
         'text': text,
         'tables': [
             {'name': '支行', 'columns': br_cols, 'rows': [dict(b) for b in branches],
@@ -623,7 +626,8 @@ def build_jiepan(on: str | None = None, start: str | None = None, end: str | Non
     }
 
 
-def jiepan_xlsx(on: str | None = None, start: str | None = None, end: str | None = None) -> tuple[bytes, str]:
+def jiepan_xlsx(on: str | None = None, start: str | None = None, end: str | None = None,
+                snap: str | None = None) -> tuple[bytes, str]:
     """按成表版式写数：
 
     Sheet6（网点到期承接通报）：标题 + 40 个网点，A/C 列在母版里是隐藏的
@@ -631,7 +635,7 @@ def jiepan_xlsx(on: str | None = None, start: str | None = None, end: str | None
     Sheet7（截止至…到期承接情况通报）：左 8 支行按综合评价排序 + 合计，右 8 个优秀先锋网点。
     """
     import openpyxl
-    d = build_jiepan(on, start, end)
+    d = build_jiepan(on, start, end, snap)
     if not d.get('ok'):
         raise RuntimeError(d.get('error') or '该日期没有定期承接数据')
 
@@ -1884,13 +1888,13 @@ CAT_OF = {'online': 'wj', 'salary': 'jg', 'wallet': 'wj', 'deposit': 'jg', 'comm
           'ck': 'jg', 'yw': 'jg', 'team': 'jg', 'scene': 'jg'}
 
 
-def build(kind: str, on: str | None = None,
-          start: str | None = None, end: str | None = None) -> dict:
+def build(kind: str, on: str | None = None, start: str | None = None,
+          end: str | None = None, snap: str | None = None) -> dict:
     fn = BUILDERS.get(kind)
     if not fn:
         return {'ok': False, 'error': f'通报未实现：{kind}'}
-    if kind == 'jiepan':                    # 唯一支持窗口的通报
-        return fn(on, start, end)
+    if kind == 'jiepan':                    # 唯一支持窗口 + 选期的通报
+        return fn(on, start, end, snap)
     return fn(on)
 
 # ---------------------------------------------------------------- Excel（套用技能模板）
@@ -2197,12 +2201,12 @@ XLSX = {'online': online_xlsx, 'salary': salary_xlsx, 'wallet': wallet_xlsx,
         'ck': ck_xlsx, 'yw': yw_xlsx}
 
 
-def xlsx(kind: str, on: str | None = None,
-         start: str | None = None, end: str | None = None) -> tuple[bytes, str]:
+def xlsx(kind: str, on: str | None = None, start: str | None = None,
+         end: str | None = None, snap: str | None = None) -> tuple[bytes, str]:
     fn = XLSX.get(kind)
     if not fn:
         raise RuntimeError(f'导出未实现：{kind}')
     if kind == 'jiepan':
-        return fn(on, start, end)
+        return fn(on, start, end, snap)
     return fn(on)
 

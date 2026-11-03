@@ -91,6 +91,7 @@ class Handler(BaseHTTPRequestHandler):
         on = (qs.get('date') or [None])[0] or None
         start = (qs.get('start') or [None])[0] or None
         end = (qs.get('end') or [None])[0] or None
+        snap = (qs.get('snap') or [None])[0] or None      # 定期承接：显式指定用哪一期
         try:
             if path in ('/', '/index.html'):
                 return self._send((WEB / 'index.html').read_bytes(), 'text/html; charset=utf-8')
@@ -138,8 +139,8 @@ class Handler(BaseHTTPRequestHandler):
                 if prof and not auth.can(sess, prof):
                     return self._json({'ok': False, 'error': '当前身份组没有该大类的通报权限'}, 403)
                 if not is_xlsx:
-                    return self._json(report_mod.build(kind, on, start, end))
-                blob, name = report_mod.xlsx(kind, on, start, end)
+                    return self._json(report_mod.build(kind, on, start, end, snap))
+                blob, name = report_mod.xlsx(kind, on, start, end, snap)
                 from urllib.parse import quote
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -152,9 +153,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/all':
                 out = api.build_all(on)
                 # 定期承接：页面要能用 ?start=&end= 切窗口
-                if start or end:
+                if start or end or snap:
                     try:
-                        out['jiepan'] = api.build_jiepan(on, start, end)
+                        out['jiepan'] = api.build_jiepan(on, start, end, snap)
                     except Exception as exc:
                         out['jiepan'] = {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
                 return self._json(out)
@@ -167,6 +168,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess.get('admin'):
                     return self._json({'ok': False, 'error': '只有管理员能管理数据'}, 403)
                 return self._json(api.admin_lines())
+            if path == '/api/jiepan/periods':
+                if not self._need_auth():
+                    return
+                return self._json({'ok': True, 'periods': api.jiepan_periods()})
             if path == '/api/state':
                 sess = self._need_auth()
                 if not sess:

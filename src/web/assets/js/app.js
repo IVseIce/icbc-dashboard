@@ -57,6 +57,8 @@ async function loadData(date) {
   const sp = new URLSearchParams(location.search);
   if (sp.get('s')) q.set('start', sp.get('s'));
   if (sp.get('e')) q.set('end', sp.get('e'));
+  // 定期承接「用哪一期」：显式指定，避免顶栏日期早于最新一期时静默退回旧快照
+  if (sp.get('snap')) q.set('snap', sp.get('snap'));
   const qs = q.toString();
   const url = qs ? `/api/all?${qs}` : '/api/all';
   state.data = await fetch(url, { cache: 'no-store' }).then((r) => r.json());

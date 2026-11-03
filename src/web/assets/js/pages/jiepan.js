@@ -25,11 +25,25 @@ function rangeBar(d) {
   const per = d.period || {};
   const days = per.start && per.end
     ? Math.round((Date.parse(per.end) - Date.parse(per.start)) / 86400000) + 1 : 0;
+  // 「数据期」下拉：显式选"用哪一次导入的数据"。
+  // 不选也行，但顶栏日期早于最新一期时会静默退回旧快照，那时就会误报"超出取数范围"。
+  const ps = d.periods || [];
+  const cur = d.as_of || '';
+  const opts = ps.map((x) => {
+    const c2 = x.coverage || [];
+    return `<option value="${x.as_of}" ${x.as_of === cur ? 'selected' : ''}>
+      取数日 ${fmt.date(x.as_of)} · 可选 ${fmt.date(c2[0] || x.as_of)}–${fmt.date(c2[1] || x.as_of)}
+    </option>`;
+  }).join('');
+  const periodSel = ps.length > 1
+    ? `<span class="jp-lab">数据期</span><select id="jpSnap" class="jp-sel">${opts}</select>`
+    : '';
   return `<div class="jp-range">
+    ${periodSel}
     <span class="jp-lab">统计区间</span>
-    <input type="date" id="jpStart" value="${per.start || ''}" min="${cov[0]}" max="${cov[1]}">
+    <input type="date" id="jpStart" value="${per.start || ''}">
     <span class="jp-tilde">至</span>
-    <input type="date" id="jpEnd" value="${per.end || ''}" min="${cov[0]}" max="${cov[1]}">
+    <input type="date" id="jpEnd" value="${per.end || ''}">
     <button class="btn btn-sm" id="jpApply">查看</button>
     <button class="btn btn-sm" id="jpWeek">上周</button>
     <span class="jp-hint">可选范围 ${fmt.date(cov[0])}–${fmt.date(cov[1])}（本次数据取自 ${fmt.date(d.as_of)}）· 当前 ${days} 天</span>
@@ -43,7 +57,7 @@ export default {
     const d = data.jiepan;
     if (!d?.ok) {
       const why = d?.out_of_range
-        ? `<div class="card">${empty('所选区间超出这份数据的取数范围', d.reason || '')}</div>`
+        ? `${rangeBar(d)}<div class="card">${empty('所选区间超出这份数据的取数范围', d.reason || '')}</div>`
         : `<div class="card">${empty('定期承接暂无数据',
           '导入「客编明细」（含 归属支行/机构名称/最近到期日期/定期余额变化），每次导出都覆盖取数日往前一个月')}</div>`;
       view.innerHTML = why;
@@ -203,11 +217,24 @@ export default {
       const u = new URL(location.href);
       if (start && end) { u.searchParams.set('s', start); u.searchParams.set('e', end); }
       else { u.searchParams.delete('s'); u.searchParams.delete('e'); }
+      // snap 不能丢：换区间时还要用同一期数据
+      if (d.as_of) u.searchParams.set('snap', d.as_of);
       history.replaceState(null, '', u.pathname + u.search + u.hash);
       await ctx.reload();
     };
     const st = view.querySelector('#jpStart');
     const en = view.querySelector('#jpEnd');
+    const sel = view.querySelector('#jpSnap');
+    if (sel) {
+      sel.onchange = async () => {
+        // 换期后原区间多半不在新 coverage 里：清掉，让后端按新期默认上周重算
+        const u = new URL(location.href);
+        u.searchParams.set('snap', sel.value);
+        u.searchParams.delete('s'); u.searchParams.delete('e');
+        history.replaceState(null, '', u.pathname + u.search + u.hash);
+        await ctx.reload();
+      };
+    }
     view.querySelector('#jpApply').onclick = () => {
       if (!st.value || !en.value) return toast('请把起止日期都选上', 'err');
       go(st.value, en.value);
