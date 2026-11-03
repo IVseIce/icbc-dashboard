@@ -10,7 +10,11 @@
   30天前资产时点 / 当前资产时点 / 时点资产变化
 
 口径（2026-10-28 对照《保留10月25到期承接率.xlsx》的活公式逐格核实）：
-  * 取数范围固定：每次导出都是「当日往前一个月」，即 31 天。
+  * **列名里的天数会变**：2026-10-25 那期是「近30天到期金额 / 30天前定期余额」，
+    2026-10-31 那期改成了「近31天… / 31天前…」。所以匹配列名时一律把
+    "数字+天" 归一成 {N}（`_norm_head`），**不要硬编码天数**。
+    曾经硬编码过，结果 due_amt（承接率分母）整列匹配不到 → 承接率全 0 且不报错。
+  * 取数范围固定：每次导出都是「当日往前一个月」。
     表里 `最近到期日期` 的最小值~最大值就是这个范围；最大值 = 取数日（as_of）。
   * **可加性**：`定期余额变化` / `时点资产变化` 是每个客编「这一期」的变化量，
     与窗口无关；按 `最近到期日期` 筛行再求和，就得到任意子区间的结果。
@@ -31,6 +35,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
 
@@ -45,23 +50,36 @@ TOP_N = 8                          # 优秀先锋网点个数
 UNIT = 10000.0                     # 元 → 万元
 
 # 源表列名 → 内部字段（按列名找，不依赖列序，容忍列被挪动）
+# 源表列名 → 内部字段。
+# ⚠️ **天数会变**：2026-10-25 那期叫「近30天到期金额 / 30天前定期余额」，
+# 2026-10-31 那期改成了「近31天… / 31天前…」。所以这里一律用 {N} 占位，
+# 匹配时把列名里的数字抹掉再比（见 _norm_head）。硬编码数字会让整列匹配不到，
+# 而 due_amt 是承接率的**分母** —— 匹配不到就是"承接率全 0"这种静默灾难。
 COLS = {
     'branch': '归属支行名称',
     'net': '机构名称',
     'custno': '客户编号',
-    'due_cnt': '近30天到期笔数',
-    'due_amt': '近30天到期金额',
+    'due_cnt': '近{N}天到期笔数',
+    'due_amt': '近{N}天到期金额',
     'due': '最近到期日期',
     'done_cnt': '承接笔数',
-    'bal30': '30天前定期余额',
+    'bal30': '{N}天前定期余额',
     'bal': '当前定期余额',
     'bal_d': '定期余额变化',
-    'dep30': '30天前存款时点',
+    'dep30': '{N}天前存款时点',
     'dep_d': '时点存款变化',
-    'ast30': '30天前资产时点',
+    'ast30': '{N}天前资产时点',
     'ast': '当前资产时点',
     'ast_d': '时点资产变化',
 }
+
+
+def _norm_head(cell) -> str:
+    """列名归一化：把「近30天」「31天前」这类数字抹成 {N}，再比对。
+
+    只抹"数字 + 天"，不动别的数字（客户经理编号之类不会出现在表头里）。
+    """
+    return re.sub(r'\d+\s*天', '{N}天', _s(cell))
 
 
 def _num(v) -> float:
@@ -117,12 +135,19 @@ def is_entity_net(name: str) -> bool:
 def _find_header(rows: list[list]) -> tuple[int, dict[str, int]]:
     """找表头行（前 5 行内），返回 (行号, {内部字段: 列号})。"""
     for i, row in enumerate(rows[:5]):
-        cells = [_s(c) for c in row]
+        cells = [_norm_head(c) for c in row]
         idx = {}
         for key, cn in COLS.items():
             if cn in cells:
                 idx[key] = cells.index(cn)
         if 'net' in idx and 'due' in idx and 'bal_d' in idx:
+            # 承接率的分母 / 两个分子缺一不可，缺了就别装作导入成功
+            need = ('due_amt', 'bal_d', 'ast_d')
+            missing = [COLS[k] for k in need if k not in idx]
+            if missing:
+                raise ValueError(
+                    '明细表缺少关键列：' + '、'.join(missing) +
+                    '（承接率的分母/分子，缺一不可）')
             return i, idx
     raise ValueError('没有找到明细表表头（需含「机构名称」「最近到期日期」「定期余额变化」列）')
 
@@ -233,6 +258,19 @@ def parse(rows: list[list], as_of: str | None = None, exclude=None, overrides=No
 
     if not recs:
         raise ValueError('明细表里没有可用数据行（缺机构名称或最近到期日期）')
+
+    # ---- 导入自检：这三列是承接率的分子分母，整列为 0 = 列没匹配上（源表改列名了）。
+    # 2026-10-31 那期把「近30天到期金额」改成「近31天到期金额」，硬匹配失败后
+    # due_amt 整列 0，页面上就是"承接率全是 0"——数据入库了、也不报错，最难查。
+    tot_due = sum(r['due_amt'] for r in recs)
+    if not tot_due:
+        raise ValueError(
+            '「到期金额」整列为 0，承接率无法计算。'
+            '多半是源表列名变了（例如把「近30天到期金额」改成「近31天到期金额」）；'
+            f'本次识别到的表头：{"、".join(sorted(set(k for k in idx)))}')
+    n_zero_chg = sum(1 for r in recs if not r['bal_d'] and not r['ast_d'])
+    if n_zero_chg == len(recs):
+        raise ValueError('「定期余额变化」「时点资产变化」整列都为 0，无法计算承接情况，请检查源表')
 
     dates = sorted({r['due'] for r in recs})
     d0, d1 = dates[0], dates[-1]
@@ -505,6 +543,8 @@ def parse_files(files, as_of: str | None = None, exclude=None,
         f'取数范围 {snap["coverage"][0]} ~ {snap["coverage"][1]}（{snap["days"]} 天），'
         f'取数日 {snap["as_of"]}',
         f'实体网点 {len(snap["nets"])} 个，明细 {len(snap["rows"])} 行',
+        f'到期金额合计 {snap["totals"]["due_amt"] / 10000:,.0f} 万元'
+        f'（承接率分母，为 0 说明列没对上）',
     ]
     if snap['excluded']:
         snap['_notes'].append(f'按需排除 {len(snap["excluded"])} 个客户')
