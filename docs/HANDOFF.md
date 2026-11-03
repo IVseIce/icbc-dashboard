@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-11-02（**版本 0.1.10.1**｜定期承接的通报也能选统计区间）
+> 最后更新：2026-11-03（**版本 0.1.11**｜新增「全量客户场景攻坚」）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -25,6 +25,7 @@
 > → 0.1.9（**数据管理页**：按模块×期软删除、可恢复、删前自动备份；schema v2）
 > → 0.1.10（**基保理**：理财/基金/保险三条线、按期存、只做导入+可视化、无通报）
 > → 0.1.10.1（**定期承接的通报支持选统计区间**：区间条搬进通报中心，Excel/图片跟着走）
+> → 0.1.11（**全量客户场景攻坚**：6 场景×8 支行文字台账、标红转标黄、只出图片+文案、前端画海报）
 
 ---
 
@@ -247,6 +248,7 @@ icbc-dashboard/
 | `dfmx` | 代发明细（月） | `build_payroll` | 2026-09-30（即 26.09 期） |
 | `wk` | 五卡唤醒 | `build_fivecards` | 2026-09-09 |
 | `jjwh` | 降级挽回（旬） | `build_downgrade` | 2026-09-13（基期） |
+| `scene` | 全量客户场景攻坚（周） | `build_scene` | 2026-11-02 |
 | `jp` | 定期承接（周） | `build_jiepan` | 2026-10-25（取数日） |
 | `ykh` | 一卡一户（日） | `build_yika` | 2026-10-25 |
 | `pbs` | 私人银行（旬） | `build_pbs` | 2026-10-24 |
@@ -621,7 +623,7 @@ icbc-dashboard/
     「数据截至」是业务信息，优先砍装饰性文字，别先砍它。
 52. **`e.currentTarget` 之外，`@media` 里的 `content:"…"` 也别用来替文字**（部分老内核不重排宽度）；
     要长短两种标签就直接放两个 `<span>`，用 `display` 切。
-53. **用户给的 logo 原图是深色底 JPG**（`Snipaste_2026-10-27_11-08-16.png` 实为 jpeg，246×246，底 `#0b1324`）：
+113. **用户给的 logo 原图是深色底 JPG**（`Snipaste_2026-10-27_11-08-16.png` 实为 jpeg，246×246，底 `#0b1324`）：
     直接放上去会在侧栏渐变上出现一块方底色。处理：按四角色差做**软阈值抠透明**
     （距离 <18 全透、18~46 线性过渡、>46 保留），裁到 `getbbox()`，补成正方形，输出 384² PNG。
     原图在 `D:\资料\ICBC\Snipaste_2026-10-27_11-08-16.png`，重做时照这个流程。
@@ -813,7 +815,7 @@ icbc-dashboard/
     严格的解析器报 `ParseError: unbound prefix`，而 openpyxl 自己重读就会炸。
     ⚠️ 以后任何"母版里带图片/图表"的导出，都要走 `save_like(母版路径, wb)`，别直接 `wb.save()`。
 
-107. **Chrome 传大文件会用 `Transfer-Encoding: chunked`，服务端原来只认 `Content-Length`**。
+112. **Chrome 传大文件会用 `Transfer-Encoding: chunked`，服务端原来只认 `Content-Length`**。
     原来 `do_POST` 直接 `self.rfile.read(Content-Length or 0)`：分块上传时读到 **0 字节**，
     于是"没有收到文件"或提前回包，连接被判为损坏，前端只看到
     `TypeError: Failed to fetch`（Chrome 报 `ERR_ALPN_NEGOTIATION_FAILED`），
@@ -873,6 +875,21 @@ icbc-dashboard/
     老库打开会自动升。加 v3 时照这个模式在 `init()` 里补分支，别改 `SCHEMA_SQL` 就完事
     （已建好的表不会因为改了 `CREATE TABLE IF NOT EXISTS` 而新增列）。
 
+107. **合并单元格的表头别"向右填满后再找特征"**：场景攻坚第 2 行是 6 个合并区（B2:C2…），
+    只有左上格有值。先填满再 `if '场景' in v` 会把每个场景识别成两个，落地数直接翻倍
+    （28→52）。正确做法：直接在**原始**表头里找非空的「XX场景」当下标起点
+    （`ingest/scene.py::_scene_cols`）。
+108. **红字要按富文本 run 判断**：`openpyxl` 默认把富文本读成一个 str，斜体/颜色信息全丢；
+    必须 `load_workbook(..., rich_text=True)`，再对 `CellRichText` 逐个 `TextBlock` 看
+    `font.color`。只看 `cell.font.color` 会漏掉「格里只有一部分红」的情况。
+109. **按编号切条目要排除数字上下文**：`1.` `2.` 的正则前后都要挡数字
+    （`(?<![\d.])([1-9])\s*[.、．]\s*(?!\d)`），否则「颍东4家加油站」里的 4 会被当编号，
+    28 会变成 27。切完必须拿成图的 KPI 复核。
+110. **`html2canvas` 截黄底会拉成色带**：块级元素 + `background` 会撑满整列，
+    截图里像一条高亮条。要 `display:inline-block; max-width:100%`，让底色只包住文字。
+111. **只出图片的通报要过 `check_modules`**：校验器默认要求每条通报都有 `_base.xlsx` 母版，
+    纯图片通报在 `report.IMAGE_ONLY` 里登记后才会跳过（前端 `report.js` 的 `IMAGE_ONLY` 要一致）。
+
 ---
 
 ## 9. 当前状态 / 卡在哪
@@ -907,6 +924,8 @@ icbc-dashboard/
 - **定期承接**（0.1.7）：客编明细单表导入 → 网点/支行两层；**一次导入可切任意区间**
   （默认上周，可取数日往前一个月内任选）；支行按综合评价（名次 4:4:2）排名、并列同名次；
   优秀先锋 = 承接率前 8；通报文案三段 + 双 sheet Excel **与成表逐格一致（32+120 项零差异）**
+- **全量客户场景攻坚**（0.1.11）：6 场景 × 8 支行文字台账，标红→标黄，泳道 + 矩阵，
+  一键导出成效图（2 倍）；通报中心只有图片+文案，不出 Excel
 - **标识与品牌**（0.1.4.2）：侧栏换成工商银行红金立体 logo（透明底 PNG），标题「工商银行阜阳分行 / 经营驾驶舱」；
   浏览器标签、收藏夹图标、加载动画同步换掉
 - **私人银行**（0.1.6 ~ 0.1.6.3）：客编明细单表导入（日期靠文件名识别，认不出让用户手填）；
@@ -940,8 +959,7 @@ icbc-dashboard/
 | 事项 | 现状 | 需要的输入 |
 |---|---|---|
 | 网点争先、挑战回访100位客户 | 占位页 | 名单/排名/积分口径 |
-| 全量客户拓展 | 占位页（`planned`） | 现在是文字进度表，需要结构化字段 |
-| 行外吸金、全量客户 | 占位 | 数据源 |
+| 行外吸金 | 占位 | 数据源 |
 | 实用工具的两个工具（时日差 / 偏离度） | 页面是空壳 | 输入输出定义 |
 | 三方支付（增收） | 占位 | 数据源 |
 | 个贷、银行卡 | 占位 | 数据源 |
@@ -998,6 +1016,8 @@ icbc-dashboard/
 | 查库/排障 | `python scripts/migrate_to_sqlite.py --db-info`，或 `sqlite3 data/icbc.db "select line,max(as_of),count(*) from snapshot group by line"` |
 | 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 | 降级挽回的口径 | `src/ingest/downgrade.py` 顶部常量（`REPORT_SHIFT` / `SPAN_DAYS` / `UNIT` / `EXCLUDE_SUFFIX`） |
+| 场景攻坚的条目切分 | `src/ingest/scene.py::split_items`（改了一定会和成图 KPI 对不上，先看成图） |
+| 场景攻坚的海报排版 | `pages/scene.js` + `app.css` 的 `.sc-*` 段 |
 | 一卡一户的口径 | `src/ingest/yika.py` 顶部常量（`WEEK_DAYS=6`、`SB_COLS`、`YL_SUB`）+ `plan_dates()` 日期块规则 |
 | 一卡一户的网点/目标 | 改 `src/report/assets/yika_targets.json`，或改 `scripts/build_yika_assets.py` 后重跑 |
 | 一卡一户的母版样式 | 换 `src/report/assets/yika_base.xlsx`（务必跑 `build_yika_assets.py` 生成，别手清） |
