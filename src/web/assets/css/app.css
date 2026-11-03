@@ -915,131 +915,122 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 
 /* ======================================================================
    全量客户场景攻坚（#/m/jg-customer-all、#/m/pj-allcustomer）
-   这一页的核心是「排版」：KPI + 6 条场景泳道 + 支行矩阵，还要能整块截成图
+   ── 这一块是**海报**：沿用原成效图的深红底 + 金字基调，页面与导出图片同一套样式。
+      原图取色：深红 #68080e / 主红 #b72230 / 亮红 #d3193a / 金 #ffd24a / 暖金 #f0b04a
    ====================================================================== */
+:root{
+  --sc-deep:#5c0710; --sc-main:#a81325; --sc-bright:#c81a3c;
+  --sc-gold:#ffd24a; --sc-gold2:#f0b04a; --sc-cream:#ffe9b8;
+  --sc-ink:#fff3e2;
+}
 .sc-chg{background:var(--amber-soft);color:#9a6205;border-color:#f2d9a8}
 
-/* ---- 海报容器：浅底卡片，截图时也是这个底色 ---- */
-.sc-board{background:#f4f6fa;border-radius:18px;padding:20px;margin-top:16px;
-  border:1px solid var(--line)}
-.sc-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;
-  background:linear-gradient(135deg,#8e1030 0%,#c8102e 55%,#a30c24 100%);
-  border-radius:14px;padding:20px 22px;color:#fff;position:relative;overflow:hidden}
-.sc-head:after{content:"";position:absolute;right:-50px;top:-60px;width:210px;height:210px;
-  border-radius:50%;background:radial-gradient(circle,rgba(255,210,140,.35),transparent 70%)}
-.sc-head h2{margin:0 0 5px;font-size:20px;letter-spacing:1px}
-.sc-head p{margin:0;color:rgba(255,255,255,.82);font-size:12px;letter-spacing:.6px}
-.sc-head-kpi{margin-left:auto;display:flex;gap:26px;position:relative;z-index:1}
-.sc-head-kpi div{text-align:center;min-width:52px}
-.sc-head-kpi b{display:block;font-size:25px;line-height:1.1;font-weight:700;
-  color:#ffd98a;font-variant-numeric:tabular-nums}
-.sc-head-kpi span{font-size:10.5px;color:rgba(255,255,255,.8);letter-spacing:.5px}
+/* ---- 海报主体：深红渐变底 ---- */
+.sc-board{
+  border-radius:18px;padding:0 0 22px;margin-top:16px;overflow:hidden;
+  background:linear-gradient(172deg,#5e060d 0%,#7d0d18 24%,#a81325 58%,#b52230 100%);
+  color:var(--sc-ink);box-shadow:0 18px 44px -22px rgba(104,8,14,.75);
+}
 
-/* ---- 本期变化提示条 ---- */
-.sc-chgbar{display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 14px;
-  background:#fff7e3;border:1px solid #f3dcae;border-radius:10px;color:#8a5a05;font-size:12px}
-.sc-chgbar i{display:inline-flex;color:#d18b00}
-.sc-chgbar b{color:#b3670b}
-.sc-chgbar em{font-style:normal;background:#ffe9a8;border-radius:4px;padding:0 4px;color:#8a5a05}
+/* ---- 顶部：标题 + 四个数 ---- */
+.sc-head{display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;
+  padding:22px 26px 18px;background:rgba(74,4,11,.6);position:relative;overflow:hidden}
+.sc-head:after{content:"";position:absolute;right:-60px;top:-70px;width:230px;height:230px;
+  border-radius:50%;background:radial-gradient(circle,rgba(255,210,74,.22),transparent 68%)}
+.sc-head h2{margin:0 0 9px;font-size:23px;letter-spacing:4px;color:var(--sc-gold);
+  text-shadow:0 2px 10px rgba(0,0,0,.35);padding-bottom:9px;
+  border-bottom:1px solid rgba(255,210,74,.42);display:inline-block}
+.sc-head > div:first-child p{margin:0;color:rgba(255,243,226,.8);font-size:12.5px;letter-spacing:1.8px}
+.sc-head-kpi{margin-left:auto;display:flex;gap:30px;position:relative;z-index:1}
+.sc-head-kpi div{text-align:center;min-width:54px}
+.sc-head-kpi b{display:block;font-size:30px;line-height:1.05;font-weight:800;color:var(--sc-gold);
+  font-variant-numeric:tabular-nums;text-shadow:0 2px 12px rgba(0,0,0,.3)}
+.sc-head-kpi span{font-size:11px;color:rgba(255,243,226,.72);letter-spacing:1.2px}
 
-/* ---- 场景小图例 ---- */
-.sc-legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
-.sc-lg{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);
-  border-radius:20px;padding:4px 11px;font-size:11.5px;color:var(--ink-2);cursor:default}
-.sc-lg:before{content:"";width:7px;height:7px;border-radius:2px;background:var(--t)}
-.sc-lg b{color:var(--t);font-size:13px}
-.sc-lg small{color:var(--ink-4)}
+/* ---- 本期变化提示 ---- */
+.sc-chgbar{display:flex;align-items:center;gap:8px;margin:14px 26px 0;padding:8px 14px;
+  border-radius:10px;font-size:12px;
+  background:rgba(255,210,74,.12);border:1px solid rgba(255,210,74,.34);color:var(--sc-cream)}
+.sc-chgbar i{display:inline-flex;color:var(--sc-gold)}
+.sc-chgbar b{color:var(--sc-gold)}
+.sc-chgbar em{font-style:normal;color:var(--sc-gold);font-weight:700}
 
-/* ---- 一条场景泳道 ---- */
-.sc-lane{background:#fff;border:1px solid var(--line);border-radius:14px;margin-top:12px;
-  overflow:hidden;box-shadow:0 1px 2px rgba(13,27,49,.04)}
-.sc-lane-head{display:flex;align-items:center;gap:10px;padding:10px 16px;
-  background:linear-gradient(90deg,rgba(200,16,46,.06),rgba(200,16,46,0));cursor:pointer;
-  border-bottom:1px solid var(--line-2)}
-.sc-abbr{width:24px;height:24px;border-radius:7px;background:var(--tone);color:#fff;
-  display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
-.sc-lane-head h3{margin:0;font-size:13.5px;letter-spacing:.3px}
+/* ---- 场景图例 ---- */
+.sc-legend{display:flex;flex-wrap:wrap;gap:8px;margin:14px 26px 0}
+.sc-lg{display:inline-flex;align-items:center;gap:6px;cursor:default;
+  background:rgba(92,7,16,.5);border:1px solid rgba(255,210,74,.3);border-radius:20px;
+  padding:5px 13px;font-size:11.5px;color:var(--sc-ink);transition:.16s}
+.sc-lg:hover{border-color:rgba(255,210,74,.55);background:rgba(92,7,16,.68)}
+.sc-lg:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--t);flex:none;
+  box-shadow:0 0 0 2px rgba(255,255,255,.14)}
+.sc-lg b{color:var(--sc-gold);font-size:13.5px;margin-left:2px}
+.sc-lg small{color:rgba(255,243,226,.55)}
+
+/* ---- 场景泳道 ---- */
+.sc-lane{background:rgba(78,5,12,.42);border:1px solid rgba(255,210,74,.2);
+  border-radius:13px;margin:13px 22px 0;overflow:hidden}
+.sc-lane-head{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;
+  background:linear-gradient(90deg,rgba(255,210,74,.14),rgba(255,210,74,0));
+  border-bottom:1px solid rgba(255,210,74,.16)}
+.sc-abbr{width:25px;height:25px;border-radius:7px;flex:none;
+  background:linear-gradient(145deg,var(--sc-gold),var(--sc-gold2));color:#5c0710;
+  display:grid;place-items:center;font-size:13px;font-weight:800}
+.sc-lane-head h3{margin:0;font-size:14.5px;font-weight:700;letter-spacing:1.8px;color:var(--sc-gold)}
 .sc-lane-stat{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
-.sc-lane-stat span{font-size:10.5px;border-radius:20px;padding:2px 9px;background:var(--line-2);color:var(--ink-3)}
-.sc-lane-stat .ok{background:var(--green-soft);color:#0b7a4f}
-.sc-lane-stat .go{background:var(--amber-soft);color:#9a6205}
-.sc-lane-stat .cv{background:var(--blue-soft);color:#1d4ed8}
-.sc-lane-stat .ch{background:#fff2d9;color:#8a5a05}
-.sc-lane-stat b{font-size:12px}
+.sc-lane-stat span{font-size:10.5px;border-radius:20px;padding:2px 10px;
+  background:rgba(255,243,226,.1);color:rgba(255,243,226,.82)}
+.sc-lane-stat .ok{background:rgba(46,196,120,.22);color:#8df0bb}
+.sc-lane-stat .go{background:rgba(255,176,74,.2);color:#ffd08a}
+.sc-lane-stat .cv{background:rgba(120,170,255,.2);color:#b9d0ff}
+.sc-lane-stat .ch{background:rgba(255,210,74,.3);color:#ffe07a;
+  box-shadow:inset 0 0 0 1px rgba(255,210,74,.35)}
+.sc-lane-stat b{font-size:12.5px;color:inherit}
 
-.sc-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0}
-.sc-col{padding:10px 14px 12px}
-.sc-col + .sc-col{border-left:1px dashed var(--line)}
-.sc-col-head{font-size:11px;font-weight:700;letter-spacing:.5px;margin-bottom:8px;
-  border-radius:6px;display:inline-block;padding:2px 9px}
-.sc-col-head.ok{background:var(--green-soft);color:#0b7a4f}
-.sc-col-head.go{background:var(--amber-soft);color:#9a6205}
-.sc-none{color:var(--ink-4);font-size:12px;padding:2px 0}
-/* 泳道左右两列高度不一致时，短的一列也不留突兀空白 */
-.sc-col{align-self:stretch}
+.sc-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.sc-col{padding:11px 15px 13px;align-self:stretch}
+.sc-col + .sc-col{border-left:1px dashed rgba(255,210,74,.22)}
+.sc-col-head{font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:9px;
+  border-radius:6px;display:inline-block;padding:2px 10px}
+.sc-col-head.ok{background:rgba(46,196,120,.24);color:#9df3c6}
+.sc-col-head.go{background:rgba(255,176,74,.22);color:#ffd08a}
+.sc-none{color:rgba(255,243,226,.42);font-size:12px;padding:2px 0}
 
 /* ---- 支行分组 + 条目 ---- */
 .sc-group{display:flex;gap:9px;margin-bottom:9px}
 .sc-group:last-child{margin-bottom:0}
-.sc-br{flex:none;min-width:40px;font-size:11.5px;font-weight:700;color:#8a3a10;
-  background:#ffeccb;border-radius:6px;padding:1px 7px;height:19px;line-height:17px;text-align:center}
-.sc-items{flex:1;min-width:0}
-.sc-item{margin:0 0 3px;font-size:12px;line-height:1.65;color:var(--ink-2);
-  word-break:break-word}
-/* 黄底只包住文字，不要拉满整列宽度（拉满在截图里像一条色带） */
-.sc-item.chg{display:inline-block;max-width:100%}
-.sc-items{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
-.sc-items .sc-item{width:auto}
-.sc-item:last-child{margin-bottom:0}
-/* 本期有变化：源表里是红字，这里按成图习惯用黄底标出 */
-.sc-item.chg{background:#fff3cf;border-radius:5px;padding:1px 7px;color:#7a4b06;
-  box-shadow:inset 0 0 0 1px #f5dea6;box-sizing:border-box;display:inline-block;
-  max-width:100%;width:auto}
-.sc-lane-empty{padding:16px;color:var(--ink-4);font-size:12px;text-align:center}
+.sc-br{flex:none;min-width:40px;font-size:11.5px;font-weight:800;height:19px;line-height:19px;
+  text-align:center;border-radius:5px;padding:0 7px;
+  background:linear-gradient(145deg,var(--sc-gold),var(--sc-gold2));color:#6a0810}
+.sc-items{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.sc-item{margin:0;font-size:13px;line-height:1.72;color:#ffefe0;word-break:break-word;width:auto}
+/* 本期有变化：原图是**黄字**，这里照做（不再用黄底） */
+.sc-item.chg{color:var(--sc-gold);font-weight:600}
+.sc-lane-empty{padding:16px;color:rgba(255,243,226,.45);font-size:12px;text-align:center}
 
-/* ---- 支行 × 场景 矩阵 ---- */
-.sc-matrix-wrap{background:#fff;border:1px solid var(--line);border-radius:14px;
-  margin-top:12px;padding:14px 16px 16px}
-.sc-matrix-wrap h3{margin:0 0 10px;font-size:13.5px;letter-spacing:.3px}
-.sc-matrix table{width:100%;border-collapse:collapse;font-size:12px}
-.sc-matrix th,.sc-matrix td{border:1px solid var(--line-2);padding:6px 8px;text-align:center}
-.sc-matrix thead th{background:#f7f9fd;font-weight:650;color:var(--ink);font-size:11.5px;
-  border-bottom:2px solid var(--line)}
-.sc-matrix thead th[style]{border-top:2px solid var(--t)}
-.sc-matrix tbody th{text-align:left;background:#fbfcfe;font-weight:600;color:var(--ink-2);
-  white-space:nowrap}
-.sc-matrix td b{color:var(--ink);font-size:13.5px}
-/* 合计列给足宽度，别被 6 个场景列挤成两行 */
-.sc-matrix th:last-child,.sc-matrix td:last-child{width:64px;min-width:64px;white-space:nowrap}
-.sc-matrix tbody td{vertical-align:middle}
-.sc-matrix td small{color:var(--ink-4);margin-left:2px;font-size:10.5px}
-.sc-matrix td .z{color:var(--ink-4)}
-.sc-mx-empty{color:var(--ink-4);background:#fcfdff}
-.sc-mx.chg{background:#fff8e5}
-.sc-mx-tot{background:#f7f9fd;font-weight:650}
-.sc-matrix tfoot td{background:#f7f9fd;font-weight:650;color:var(--ink)}
-.sc-foot{margin-top:12px;text-align:center;font-size:11px;color:var(--ink-4);line-height:1.9}
-.sc-foot em{font-style:normal;background:#ffe9a8;border-radius:3px;padding:0 4px;color:#8a5a05}
+/* ---- 合并行（多家支行同一句话） ---- */
+.sc-group-wide{margin-bottom:8px}
+.sc-item-shared{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;
+  padding:3px 0;background:none}
+.sc-chips{display:inline-flex;flex-wrap:wrap;gap:4px}
+.sc-chips i{font-style:normal;font-size:10.5px;border-radius:5px;padding:0 7px;line-height:17px;
+  background:rgba(255,210,74,.2);color:var(--sc-cream)}
+.sc-cnt{font-size:10.5px;color:rgba(255,243,226,.5)}
 
-/* ---- 截图用：临时容器（放在视口外，别闪屏） ---- */
-.sc-shotbox{position:fixed;left:-10000px;top:0;width:1080px;background:#f4f6fa;z-index:-1}
-.sc-shooting{border-radius:0;border:0}
+/* ---- 页脚 ---- */
+.sc-foot{margin:16px 26px 0;text-align:center;font-size:11px;
+  color:rgba(255,243,226,.6);line-height:1.95}
+.sc-foot em{font-style:normal;color:var(--sc-gold)}
+
+/* ---- 截图用：离屏容器 ---- */
+.sc-shotbox{position:fixed;left:-10000px;top:0;width:900px;z-index:-1}
+.sc-shooting{border-radius:0}
 
 @media (max-width:900px){
   .sc-cols{grid-template-columns:minmax(0,1fr)}
-  .sc-col + .sc-col{border-left:0;border-top:1px dashed var(--line)}
+  .sc-col + .sc-col{border-left:0;border-top:1px dashed rgba(255,210,74,.22)}
   .sc-head-kpi{margin-left:0;gap:18px}
-  .sc-head-kpi b{font-size:21px}
+  .sc-head-kpi b{font-size:24px}
+  .sc-head{padding:18px}
+  .sc-chgbar,.sc-legend,.sc-foot{margin-left:18px;margin-right:18px}
+  .sc-lane{margin-left:14px;margin-right:14px}
 }
-
-/* 同一场景里多家支行写了同一句话 → 合成一行，后面跟支行小胶囊 */
-.sc-group-wide{margin-bottom:8px}
-.sc-item-shared{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  padding:3px 8px;background:#f7f9fd;border-radius:7px}
-/* 合并行的黄底要贴合内容，别拉满整行（截图时会被切） */
-.sc-item-shared.chg{background:#fff3cf;box-shadow:inset 0 0 0 1px #f5dea6}
-.sc-item-shared:not(.chg){background:#f7f9fd}
-.sc-chips{display:inline-flex;flex-wrap:wrap;gap:4px}
-.sc-chips i{font-style:normal;font-size:10.5px;background:#ffeccb;color:#8a3a10;
-  border-radius:5px;padding:0 6px;line-height:16px}
-.sc-cnt{font-size:10.5px;color:var(--ink-4)}

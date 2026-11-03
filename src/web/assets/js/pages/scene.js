@@ -54,7 +54,7 @@ export default {
 
         ${changed ? `<div class="sc-chgbar">
           <i>${icon('spark', 13)}</i>
-          <span>本期进度有变化 <b>${changed}</b> 项，下表已用<em>黄色</em>标出</span>
+          <span>本期进度有变化 <b>${changed}</b> 项，已用<em>金色</em>标出</span>
         </div>` : ''}
 
         <div class="sc-legend">
@@ -64,19 +64,7 @@ export default {
 
         ${scenes.map((s) => sceneLane(s, branches, order)).join('')}
 
-        <div class="sc-matrix-wrap">
-          <h3>支行 × 场景 总览</h3>
-          <div class="sc-matrix">
-            <table>
-              <thead><tr><th>支行</th>${scenes.map((s) => `<th style="--t:${SCENE_TONE[s.name] || '#c8102e'}">${s.name}</th>`).join('')}<th>合计</th></tr></thead>
-              <tbody>${order.map((b) => matrixRow(b, scenes, branches)).join('')}</tbody>
-              <tfoot><tr><td>全行</td>${scenes.map((s) => `<td><b>${s.landed}</b>/${s.landed + s.ongoing}</td>`).join('')}
-                <td><b>${k.landed}</b>/${k.landed + k.ongoing}</td></tr></tfoot>
-            </table>
-          </div>
-        </div>
-
-        <div class="sc-foot">注：<em>黄色</em>标注为本期进度有变化的项目 · 各支行持续推进，场景攻坚全面发力、全量客户深耕见效</div>
+        <div class="sc-foot">注：<em>金色</em>条目为本期进度有变化 · 各支行持续推进 · 场景攻坚全面发力，全量客户深耕见效</div>
       </div>`;
 
     view.querySelector('#scShot').onclick = () => shoot(false);
@@ -91,14 +79,14 @@ export default {
 
     async function shoot(copy) {
       const node = view.querySelector('#scBoard').cloneNode(true);
-      node.classList.add('sc-shooting');           // 截图时去掉圆角阴影，白底更干净
+      node.classList.add('sc-shooting');           // 截图时去掉圆角，深红底铺满整张图
       const box = document.createElement('div');
       box.className = 'sc-shotbox';
       box.appendChild(node);
       document.body.appendChild(box);
       try {
         const canvas = await window.html2canvas(node, {
-          scale: 2, backgroundColor: '#f4f6fa', useCORS: true, logging: false,
+          scale: 2, backgroundColor: '#8e0f1c', useCORS: true, logging: false,
         });
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
         if (copy) {
@@ -234,23 +222,6 @@ function colHTML(groups) {
   const c = compactGroups(groups);
   if (!c) return groups.map((g) => groupHTML(g)).join('');
   return c.shared.map(sharedHTML).join('') + c.restGroups.map((g) => groupHTML(g)).join('');
-}
-
-function matrixRow(b, scenes, branches) {
-  const rec = branches.find((x) => x.name === b);
-  const cells = scenes.map((s) => {
-    const cell = ((rec?.scenes || {})[s.name]) || { landed: [], ongoing: [] };
-    const l = cell.landed.length;
-    const o = cell.ongoing.length;
-    const chg = [...cell.landed, ...cell.ongoing].filter((x) => x.changed).length;
-    if (!l && !o) return `<td class="sc-mx-empty">—</td>`;
-    // 落地数用大字、推进中用 +n 小字；有本期变化的整格淡黄
-    const lead = l ? `<b>${l}</b>` : '<span class="z">0</span>';
-    const rest = o ? `<small>+${o}</small>` : '';
-    return `<td class="sc-mx${chg ? ' chg' : ''}">${lead}${rest}</td>`;
-  }).join('');
-  const tot = rec ? `<b>${rec.landed}</b>${rec.ongoing ? `<small>+${rec.ongoing}</small>` : ''}` : '—';
-  return `<tr><th>${b}</th>${cells}<td class="sc-mx-tot">${tot}</td></tr>`;
 }
 
 function esc(s) {
