@@ -870,6 +870,16 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   padding:0 2px;line-height:1;font-family:inherit}
 .imp-date-x:hover{color:var(--red)}
 
+/* 导入页「通报期间」：降级挽回用。两个日期框 + 天数 + 恢复默认 */
+.period-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.period-bar label{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-3)}
+.period-bar input[type=date]{border:1px solid var(--line);border-radius:9px;
+  padding:6px 9px;font-family:inherit;font-size:12.5px;color:var(--ink);background:#fff}
+.period-bar input[type=date]:focus{outline:none;border-color:var(--blue)}
+.period-dash{color:var(--ink-4);font-size:12px}
+.period-len{font-size:12px;color:var(--ink-3);min-width:52px}
+.period-bar .btn{margin-left:auto}
+
 /* ============================== 数据管理（管理员） ============================== */
 /* 概览条：一眼看全库规模 */
 .adm-sum{display:flex;gap:26px;flex-wrap:wrap;align-items:center;padding:15px 18px;margin-bottom:12px}

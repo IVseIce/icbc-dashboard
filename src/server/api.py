@@ -382,6 +382,9 @@ def build_downgrade(on: str | None = None) -> dict:
     s = _latest('jjwh', on)
     if not s:
         return _no_data('jjwh', on)
+    # 老快照的期间是「数据日期后移一天」那套，读的时候按现行规则重算（不用重新导入）
+    from ingest import downgrade as _dg
+    s = _dg.normalize_period(s)
     branches = [dict(b) for b in (s.get('branches') or [])]
     nets = [dict(n) for n in (s.get('nets') or [])]
     totals = dict(s.get('totals') or {})

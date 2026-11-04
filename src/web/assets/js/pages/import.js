@@ -179,6 +179,24 @@ export default {
         </div>
       </div>
 
+      <div class="card" id="periodCard" style="margin-top:14px;display:none">
+        <div class="card-head"><h3>④ 通报期间</h3>
+          <div class="right">
+            <span class="chip" id="periodChip">默认 = 数据日期 → +6</span></div></div>
+        <p style="margin:0 0 12px;color:var(--ink-3);font-size:12px" id="periodHint">
+          导出通报的标题和表头写的是这一段：<b>默认从表里的数据日期起算，往后 6 天</b>（含首尾 7 天）。
+          需要写别的区间就在这里改；<b>起点与数据日期不一致会先提醒你确认</b>。
+        </p>
+        <div class="period-bar" id="periodBar">
+          <label>开始 <input type="date" id="perStart"></label>
+          <span class="period-dash">—</span>
+          <label>结束 <input type="date" id="perEnd"></label>
+          <span class="period-len" id="perLen"></span>
+          <button class="btn btn-sm" id="perReset" type="button">用默认（数据日期+6）</button>
+        </div>
+        <div id="perWarn"></div>
+      </div>
+
       <div class="card" id="jpEditCard" style="margin-top:14px;display:none">
         <div class="card-head"><h3>④ 手动编辑明细（可选）</h3>
           <div class="right">
@@ -275,9 +293,14 @@ export default {
       });
     }
 
-    /** 源表自己带日期的条线：基保理（标题「11.1第41期…」）、
+    /** 源表自己带日期的条线：基保理（标题「11.1第41期…」）、降级挽回（明细表的「数据日期」列）。
         这类**不预填**本期，留空才会用表里的日期，避免把 T-1 盖上去。 */
-    const DATE_IN_FILE = new Set(['jbl_lc', 'jbl_fund', 'jbl_bx']);
+    const DATE_IN_FILE = new Set(['jbl_lc', 'jbl_fund', 'jbl_bx', 'jjwh']);
+
+    /** 通报期间可手动改的条线（目前只有降级挽回）。
+        默认 = 表里的数据日期 ~ +6 天；起点与数据日期不符要弹确认。 */
+    const PERIOD_LINES = new Set(['jjwh']);
+    const SPAN_DAYS = 6;
 
     /** 本期默认 = 昨天（日常报表都是跑 T-1 的数）。
         用户选别的日期就尊重用户的选择，不再覆盖。 */
@@ -298,6 +321,7 @@ export default {
       if (pick && DATE_IN_FILE.has(m.as_line)) pick.value = '';
       showSales(m.as_line === 'pbs');
       showJpEdit(m.as_line === 'jp');
+      showPeriod(PERIOD_LINES.has(m.as_line));
       sync();
     }
 
@@ -310,6 +334,136 @@ export default {
         if (pick) pick.value = '';
         toast('已清除：改用文件名里的日期');
       };
+    }
+
+    // ---------- ④ 通报期间（只有降级挽回才出现）
+    // 默认 = 明细表里的数据日期 → +6 天。表放进来就自动探一次数据日期，
+    // 把默认区间填到两个框里；用户改了就以用户为准。
+    const periodCard = view.querySelector('#periodCard');
+    const perStart = view.querySelector('#perStart');
+    const perEnd = view.querySelector('#perEnd');
+    const perWarn = view.querySelector('#perWarn');
+    const perLen = view.querySelector('#perLen');
+    let perBase = null;          // 表里的数据日期（探到的）
+    let perAuto = null;          // 自动填进去的默认区间，用于判断"用户有没有动过"
+    let perTouched = false;      // 用户手动改过（不再被自动探测覆盖）
+    let perProbing = false;
+
+    const isoPlus = (iso, n) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y, m - 1, d + n);
+      const p = (x) => String(x).padStart(2, '0');
+      return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+    };
+    const cnDay = (iso) => {
+      if (!iso) return '';
+      const [, m, d] = iso.split('-');
+      return `${Number(m)}月${Number(d)}日`;
+    };
+    const daysBetween = (a, b) => {
+      if (!a || !b) return null;
+      const pa = a.split('-').map(Number);
+      const pb = b.split('-').map(Number);
+      return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000) + 1;
+    };
+
+    function showPeriod(on) {
+      periodCard.style.display = on ? '' : 'none';
+      if (!on) return;
+      perTouched = false;
+      perBase = null;
+      perAuto = null;
+      perStart.value = '';
+      perEnd.value = '';
+      perWarn.innerHTML = '';
+      perLen.textContent = '';
+      probePeriod();
+    }
+
+    /** 探一次数据日期（不汇总，很快）；探不到只是不预填，不拦提交。 */
+    async function probePeriod() {
+      if (!files.length || perProbing || perTouched) return;
+      perProbing = true;
+      view.querySelector('#periodChip').textContent = '正在读数据日期…';
+      try {
+        const fd = new FormData();
+        fd.append('line', mod?.as_line || 'jjwh');
+        const dt = view.querySelector('#impDate').value;
+        if (dt) fd.append('date', dt);
+        files.forEach((f) => fd.append('files', f, f.name));
+        const res = await authFetch('/api/import/period', { method: 'POST', body: fd });
+        const r = await res.json();
+        if (!r.ok) throw new Error(r.error || '读不出数据日期');
+        perBase = r.base_date;
+        const per = r.period || {};
+        perAuto = { start: per.start, end: per.end };
+        if (!perTouched) {
+          perStart.value = per.start || '';
+          perEnd.value = per.end || '';
+        }
+        view.querySelector('#periodChip').textContent = `数据日期 ${cnDay(perBase)}`;
+        paintPeriod();
+      } catch (err) {
+        if (err.auth) return;
+        view.querySelector('#periodChip').textContent = '默认 = 数据日期 → +6';
+        perWarn.innerHTML = `<p class="adm-note adm-warn">读不出表里的数据日期：${esc(err.message)}；
+          留空就按表里的日期算，也可以在这里直接手填区间。</p>`;
+      } finally {
+        perProbing = false;
+      }
+    }
+
+    function paintPeriod() {
+      const s = perStart.value, e = perEnd.value;
+      const n = daysBetween(s, e);
+      perLen.textContent = n ? `共 ${n} 天` : '';
+      if (!s || !e) {
+        perWarn.innerHTML = s || e
+          ? '<p class="adm-note adm-warn">只填了一端：另一端会按 7 天自动补齐。</p>'
+          : '';
+        return;
+      }
+      if (s > e) {
+        perWarn.innerHTML = '<p class="adm-note adm-warn">开始日期晚于结束日期，这样提交会报错。</p>';
+        return;
+      }
+      // 起点与数据日期不符 —— 这是唯一需要用户确认的情况
+      if (perBase && s !== perBase) {
+        perWarn.innerHTML = `<p class="adm-note adm-warn">
+          通报期间的起点 <b>${s}</b> 与表里的数据日期 <b>${perBase}</b> 不一致
+          （${s > perBase ? '晚' : '早'} ${Math.abs(daysBetween(perBase, s) - 1)} 天）。
+          提交时会再确认一次。</p>`;
+      } else if (!perBase) {
+        perWarn.innerHTML = '';
+      } else {
+        perWarn.innerHTML = `<p class="adm-note">起点 = 数据日期 ${perBase}，按惯例走。</p>`;
+      }
+    }
+
+    perStart.oninput = () => { perTouched = true; paintPeriod(); };
+    perEnd.oninput = () => { perTouched = true; paintPeriod(); };
+    view.querySelector('#perReset').onclick = () => {
+      perTouched = false;
+      if (perAuto) { perStart.value = perAuto.start || ''; perEnd.value = perAuto.end || ''; }
+      else { perStart.value = ''; perEnd.value = ''; }
+      paintPeriod();
+      toast('已恢复默认期间');
+    };
+
+    /** 提交前确认：起点与数据日期不一致时问一次（用户点「确定」才继续）。 */
+    function confirmPeriod() {
+      if (!PERIOD_LINES.has(mod?.as_line)) return true;
+      const s = perStart.value, e = perEnd.value;
+      if (!s && !e) return true;                       // 留空 = 走默认，无需确认
+      if (!perBase || s === perBase) return true;       // 起点就是数据日期
+      const def = perBase ? `${perBase} ~ ${isoPlus(perBase, SPAN_DAYS)}` : '数据日期+6';
+      const label = `${s || '(按7天补)'} — ${e || '(按7天补)'}`;
+      return window.confirm(
+        `通报期间与表里的数据日期不一致。\n\n`
+        + `表里的数据日期：${perBase}\n`
+        + `你填的期间：　　${label}\n`
+        + `默认应该是：　　${def}\n\n`
+        + `确定要按【${label}】出通报吗？`);
     }
 
     // ---------- ④ 私银产品销售（只有 pbs 模块才出现）
@@ -543,8 +697,14 @@ export default {
       });
       // 只要有任意一边有内容就能提交：文件 或 产品销售
       view.querySelector('#btnSubmit').disabled = !(mod && (files.length || salesDirty));
+      // 降级挽回：表换了就重新探数据日期，把默认期间重填一次
+      if (PERIOD_LINES.has(mod?.as_line) && files.length && !perTouched) probePeriod();
     }
-    view.querySelector('#btnClear').onclick = () => { files.length = 0; sync(); view.querySelector('#result').innerHTML = ''; };
+    view.querySelector('#btnClear').onclick = () => {
+      files.length = 0; sync();
+      view.querySelector('#result').innerHTML = '';
+      if (PERIOD_LINES.has(mod?.as_line)) showPeriod(true);   // 清空后把期间也归零
+    };
 
     // ---------- 提交
     view.querySelector('#btnSubmit').onclick = async (e) => {
@@ -577,11 +737,22 @@ export default {
       }
       box.innerHTML = `<div class="result"><h4>正在识别与计算…</h4>
         <p style="color:var(--ink-3);margin:4px 0 0">${prof.name} / ${mod.name} · ${files.length} 个文件</p></div>`;
+      // 降级挽回：区间与数据日期不符时先问一句（点取消就停在这儿，什么都不提交）
+      if (!confirmPeriod()) {
+        box.innerHTML = '';
+        btn.disabled = false;
+        return;
+      }
       const fd = new FormData();
       fd.append('line', mod.as_line);
       fd.append('module', mod.id);
       const dt = view.querySelector('#impDate').value;
       if (dt) fd.append('date', dt);
+      // 通报期间（只有降级挽回有这个面板）：两端都留空 = 后端按 数据日期+6 算
+      if (PERIOD_LINES.has(mod.as_line)) {
+        if (perStart.value) fd.append('period_start', perStart.value);
+        if (perEnd.value) fd.append('period_end', perEnd.value);
+      }
       files.forEach((f) => fd.append('files', f, f.name));
       // 定期承接：把页面里手改过的行一起带上（服务端按 客编+机构+到期日 覆盖）
       if (mod.as_line === 'jp' && jpEdits.size) {
@@ -606,6 +777,7 @@ export default {
           jpEdits.clear();
           jpBox.innerHTML = '';
           if (mod?.as_line === 'jp') paintJpEdits();
+          if (PERIOD_LINES.has(mod?.as_line)) showPeriod(true);
           sync();
           if (ctx.reloadData) await ctx.reloadData();
           paint();

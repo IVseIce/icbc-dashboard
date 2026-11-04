@@ -8,10 +8,13 @@
 客编 → 支行/网点 的映射是**固定的**，已内置在 src/report/assets/downgrade_map.json，
 不再需要每次上传（新增客编时才需要更新那份 json）。
 
-口径（2026-10-26 与业务确认）：
+口径（2026-10-26 与业务确认；2026-11-05 修订期间规则）：
   * 用**时点**列：本旬提升 = 末期 − 基期（元 → 万元）
-  * 数据日期为基期；末期 = 基期 + 6；**通报期间整体后移一天**：
-    基期 9.13 → 通报写 9.14-9.20
+  * 数据日期为基期；末期 = 基期 + 6
+  * **通报期间 = 数据日期 ~ 数据日期+6**（含首尾共 7 天）：
+    数据日期 9.13 → 通报写 9.13-9.19。不再整体后移一天。
+    导入时也可手动指定 xxx-xxx（见 `parse(period=…)`），指定值与
+    "数据日期" 不一致时由前端弹确认；这里只如实记录并在 `_notes` 里说明。
   * 网均 = 支行合计 ÷ 该支行网点数
   * 综合评价(1:1) = (网均资产提升 + 网均存款提升) ÷ 2
   * 营销先锋排行 = 按 (资产提升 + 存款提升) 降序（等价于按两项评价之和）
@@ -26,9 +29,9 @@ from pathlib import Path
 
 MAP_PATH = Path(__file__).resolve().parent.parent / 'report' / 'assets' / 'downgrade_map.json'
 EXCLUDE_SUFFIX = ('部',)          # 运行管理部这类非营业网点
-REPORT_SHIFT = 1                  # 通报期间相对数据日期整体后移的天数
-SPAN_DAYS = 6                     # 末期 = 基期 + 6
+SPAN_DAYS = 6                     # 通报期间 = 数据日期 ~ 数据日期 + 6（含首尾 7 天）
 UNIT = 10000.0                    # 元 → 万元
+PERIOD_FORMAT = '%Y-%m-%d'        # 通报期间在库里/接口里的写法
 
 
 def _num(v) -> float:
@@ -90,9 +93,86 @@ def is_entity_net(name: str) -> bool:
     return bool(n) and not n.endswith(EXCLUDE_SUFFIX) and (n.endswith('支行') or n.endswith('营业室'))
 
 
+def default_period(base: date) -> tuple[date, date]:
+    """通报期间的默认值：数据日期（基期）~ 数据日期 + 6，含首尾共 7 天。"""
+    return base, base + timedelta(days=SPAN_DAYS)
+
+
+def resolve_period(base: date, period_start=None, period_end=None) -> dict:
+    """定「通报期间」。见文件头的口径说明。
+
+    规则（2026-11-05 与业务确认）：
+      * 都不指定 → 数据日期 ~ 数据日期+6（现有 9.13 的数据就是 9.13-9.19）
+      * 只给一端 → 另一端按 7 天补齐（给 start 则 end = start+6；给 end 则 start = end-6）
+      * 两端都给 → 原样使用；首 > 尾 直接报错，跨度也不强制 7 天（业务可能真有长假）
+      * 起点与数据日期不一致**不报错**——那是导入页该弹的确认，这里只如实记录并回话，
+        由 `matches_base` / `_notes` 让用户看得见。
+    """
+    s = _date(period_start) if period_start else None
+    e = _date(period_end) if period_end else None
+    if period_start and s is None:
+        raise ValueError(f'通报开始日期无法解析：{period_start}')
+    if period_end and e is None:
+        raise ValueError(f'通报结束日期无法解析：{period_end}')
+
+    custom = bool(s or e)
+    if s is None and e is None:
+        s, e = default_period(base)
+    elif s is None:
+        s = e - timedelta(days=SPAN_DAYS)
+    elif e is None:
+        e = s + timedelta(days=SPAN_DAYS)
+
+    if s > e:
+        raise ValueError(f'通报期间开始 {s.isoformat()} 晚于结束 {e.isoformat()}')
+
+    span = (e - s).days + 1
+    return {
+        'start': s.isoformat(), 'end': e.isoformat(),
+        'label': f'{s.month:02d}{s.day:02d}-{e.month:02d}{e.day:02d}',
+        'label_cn': f'{s.month}月{s.day}日-{e.month}月{e.day}日',
+        'base_date': base.isoformat(),
+        'span_days': span,
+        'custom': custom,                       # 是否手动指定过（含只给一端）
+        # 起点 = 数据日期？否 → 前端提示"与表里的数据日期不符"
+        'matches_base': s == base,
+        'default_label': _default_label(base),  # 默认期间，供前端"设为默认"用
+    }
+
+
+def _default_label(base: date) -> str:
+    s, e = default_period(base)
+    return f'{s.month}月{s.day}日-{e.month}月{e.day}日'
+
+
+def normalize_period(snap: dict) -> dict:
+    """把老版本存下来的快照期间换成现行规则（读的时候顺手做，不必重新导入）。
+
+    0.1.12 及以前的期间是「数据日期后移一天 ~ +7」，如基期 9.13 → 0914-0920。
+    现行规则是「数据日期 ~ +6」（9.13-9.19），且期间字段多了 span_days / matches_base。
+    所以**缺这些字段的就是老快照**，按数据日期重算；新快照原样返回。
+    """
+    if not isinstance(snap, dict):
+        return snap
+    per = snap.get('period')
+    base = _date(snap.get('base_date') or snap.get('as_of'))
+    if base is None:
+        return snap
+    if isinstance(per, dict) and 'span_days' in per and 'matches_base' in per:
+        return snap                          # 已经是现行规则存的
+    out = dict(snap)
+    out['period'] = resolve_period(base)
+    return out
+
+
 def parse(data_rows: list[list], map_rows: list[list] | None = None,
-          as_of: str | None = None, mapping: dict | None = None) -> dict:
-    """明细行 + 映射（不传则用内置的 downgrade_map.json）。返回快照 dict。"""
+          as_of: str | None = None, mapping: dict | None = None,
+          period_start: str | None = None, period_end: str | None = None) -> dict:
+    """明细行 + 映射（不传则用内置的 downgrade_map.json）。返回快照 dict。
+
+    `period_start` / `period_end` 是导入时手动指定的通报期间（可只给一端），
+    不传就按「数据日期 ~ 数据日期+6」。
+    """
     di = _header_index(data_rows, ('客编', '基期资产', '末期资产'))
     if di is None:
         raise ValueError('明细表缺少「客编 / 基期资产 / 末期资产」列')
@@ -170,8 +250,7 @@ def parse(data_rows: list[list], map_rows: list[list] | None = None,
     if base is None:
         raise ValueError(f'数据日期无法解析：{as_of}')
 
-    span_start = base + timedelta(days=REPORT_SHIFT)
-    span_end = base + timedelta(days=SPAN_DAYS + REPORT_SHIFT)
+    period = resolve_period(base, period_start, period_end)
 
     branches = []
     for branch in nets_of:
@@ -218,28 +297,66 @@ def parse(data_rows: list[list], map_rows: list[list] | None = None,
     totals['score'] = round((totals['asset_avg'] + totals['dep_avg']) / 2, 4)
 
     customers.sort(key=lambda c: c['asset'])          # 降级最多的排前面
+    notes = [
+        f'客编 {len(mapping)} 个，参与统计 {len(customers)} 个'
+        + (f'，未匹配 {missing} 个' if missing else '')
+        + (f'，非营业网点 {outside} 个已排除' if outside else ''),
+        f'基期 {base.isoformat()} → 通报期间 {period["start"]} ~ {period["end"]}'
+        + ('（手动指定）' if period['custom'] else '（数据日期 +6）'),
+    ]
+    if not period['matches_base']:
+        notes.append(
+            f'注意：通报期间从 {period["start"]} 开始，与表里的数据日期 {base.isoformat()} 不一致')
     return {
         'as_of': base.isoformat(), 'as_of_cn': f'{base.month}月{base.day}日',
         'base_date': base.isoformat(),
-        'period': {
-            'start': span_start.isoformat(), 'end': span_end.isoformat(),
-            'label': f'{span_start.month:02d}{span_start.day:02d}-{span_end.month:02d}{span_end.day:02d}',
-            'label_cn': f'{span_start.month}月{span_start.day}日-{span_end.month}月{span_end.day}日',
-        },
+        'period': period,
         'branches': branches, 'nets': nets,
         'top_nets': nets[:5],
         'totals': totals,
         'customers': customers,
-        '_notes': [
-            f'客编 {len(mapping)} 个，参与统计 {len(customers)} 个'
-            + (f'，未匹配 {missing} 个' if missing else '')
-            + (f'，非营业网点 {outside} 个已排除' if outside else ''),
-            f'基期 {base.isoformat()} → 通报期间 {span_start.isoformat()} ~ {span_end.isoformat()}',
-        ],
+        '_notes': notes,
     }
 
 
-def parse_files(files, as_of: str | None = None) -> tuple[str, dict]:
+def probe_period(files, as_of: str | None = None) -> dict:
+    """只读「数据日期」，用来在导入页预填通报期间（不做汇总，很快）。
+
+    读不出日期时抛 ValueError —— 调用方（导入页）把它当提示，不拦提交。
+    """
+    from ingest import readers
+
+    for name, blob in files:
+        rows = readers.read_table(blob, name)
+        head = ' '.join(str(c) for c in (rows[0] if rows else [])[:12])
+        if '基期' not in head or '末期' not in head:
+            continue
+        di = _header_index(rows, ('客编', '基期资产', '末期资产'))
+        if di is None:
+            continue
+        col = {str(c).strip() if c is not None else '': i for i, c in enumerate(rows[di])}
+        if '数据日期' not in col:
+            raise ValueError('明细表里没有「数据日期」列')
+        dates = set()
+        for row in rows[di + 1:]:
+            if not row or row[col['客编']] in (None, ''):
+                continue
+            d = _date(row[col['数据日期']])
+            if d:
+                dates.add(d)
+        if not dates:
+            raise ValueError('明细表里读不到「数据日期」')
+        if len(dates) > 1:
+            raise ValueError(f'明细表里有多个数据日期：{sorted(d.isoformat() for d in dates)}，一次只能导一期')
+        base = _date(as_of) if as_of else next(iter(dates))
+        return {'ok': True, 'file': name, 'base_date': base.isoformat(),
+                'period': resolve_period(base)}
+    raise ValueError('没有找到明细表（需含 客编 / 基期资产 / 末期资产 列）')
+
+
+def parse_files(files, as_of: str | None = None,
+                period_start: str | None = None,
+                period_end: str | None = None) -> tuple[str, dict]:
     """只收一张明细表；映射用内置的。若误传了映射表，自动忽略。"""
     from ingest import readers
 
@@ -261,7 +378,8 @@ def parse_files(files, as_of: str | None = None) -> tuple[str, dict]:
     if data_tbl is None:
         raise ValueError('没有找到明细表（需含 客编 / 基期资产 / 末期资产 列）')
 
-    snap = parse(data_tbl, extra_map, as_of=as_of)
+    snap = parse(data_tbl, extra_map, as_of=as_of,
+                 period_start=period_start, period_end=period_end)
     snap['_files'] = used
     if extra_map is None:
         snap['_notes'].append('客编映射使用内置表（src/report/assets/downgrade_map.json）')

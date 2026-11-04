@@ -346,6 +346,11 @@ class Handler(BaseHTTPRequestHandler):
             if not self._need_auth():
                 return
             return self._import(body)
+        if path == '/api/import/period':
+            # 导入页预填「通报期间」：只读明细表里的数据日期，不做汇总
+            if not self._need_auth():
+                return
+            return self._probe_period(body)
         if path == '/api/jiepan/find':
             if not self._need_auth():
                 return
@@ -381,6 +386,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(r, 200 if r.get('ok') else 400)
         except Exception:
             return self._json({'ok': False, 'error': traceback.format_exc()[-600:]}, 500)
+
+    def _probe_period(self, body: bytes):
+        """只回「数据日期 + 默认通报期间」，供导入页在提交前预填/提示。"""
+        try:
+            fields, files = parse_multipart(self.headers.get('Content-Type', ''), body)
+            if not files:
+                return self._json({'ok': False, 'error': '没有收到文件'}, 400)
+            from ingest import downgrade as dg
+            r = dg.probe_period(files, as_of=(fields.get('date') or '').strip() or None)
+            return self._json(r)
+        except ValueError as exc:
+            return self._json({'ok': False, 'error': str(exc)})
+        except Exception:
+            return self._json({'ok': False, 'error': traceback.format_exc()[-400:]}, 500)
 
     def _jiepan_find(self, body: bytes):
         """定期承接「手动编辑」：在待导入的明细里按客户编号找行。
@@ -472,7 +491,11 @@ class Handler(BaseHTTPRequestHandler):
                     ov = json.loads(fields['overrides'])
                 except ValueError:
                     return self._json({'ok': False, 'error': '手动修改的数据格式不对（overrides 不是 JSON）'}, 400)
-            r = viz.do_import(line, files, data_date=dd, overrides=ov)
+            # 通报期间（目前只有降级挽回用）：留空 = 数据日期 ~ +6
+            ps = (fields.get('period_start') or '').strip() or None
+            pe = (fields.get('period_end') or '').strip() or None
+            period = {'start': ps, 'end': pe} if (ps or pe) else None
+            r = viz.do_import(line, files, data_date=dd, overrides=ov, period=period)
             if r.get('ok'):
                 r['all'] = api.build_all()
             return self._json(r, 200 if r.get('ok') else 400)

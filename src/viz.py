@@ -515,10 +515,17 @@ def import_fivecards(files, line, root, data_date=None):
                    '_notes': [f'{len(snap["branches"])} 家支行 · {len(snap["cards"])} 类卡']}
 
 
-def import_downgrade(files, line, root, data_date=None):
-    """降级挽回：明细表 + 客编映射表（两份都必传）。"""
+def import_downgrade(files, line, root, data_date=None, period=None):
+    """降级挽回：只收明细表（客编→支行/网点映射已内置）。
+
+    `data_date` = 数据日期（表里也带，留空就用表里的）；
+    `period`    = 导入时手动指定的通报期间 `{'start':…, 'end':…}`，
+                  留空就用「数据日期 ~ 数据日期+6」。
+    """
     from ingest import downgrade as dg
-    return dg.parse_files(files, as_of=data_date)
+    return dg.parse_files(files, as_of=data_date,
+                          period_start=(period or {}).get('start'),
+                          period_end=(period or {}).get('end'))
 
 
 def import_yika(files, line, root, data_date=None):
@@ -840,6 +847,9 @@ def import_jbl(files, line, root, data_date=None):
 # 这些导入器的签名带 data_date=(, overrides=)
 DATE_ARG_LINES = ('xgj', 'wk', 'dfmx', 'ykh', 'pbs', 'jp', 'team', 'jbl_lc', 'jbl_fund', 'jbl_bx', 'scene')
 
+# 这些导入器的签名带 data_date= 与 period=（手动指定通报期间）
+PERIOD_ARG_LINES = ('jjwh',)
+
 IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
              'xsfw': import_xsfw, 'qwsq': import_qwsq,
              'dfmx': import_payroll, 'wk': import_fivecards, 'jjwh': import_downgrade,
@@ -850,7 +860,7 @@ IMPORTERS = {'sbqb': import_sbqb, 'xgj': import_xgj, 'dqzz': import_dqzz,
 
 
 def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None = None,
-              root: Path | None = None, overrides=None) -> dict:
+              root: Path | None = None, overrides=None, period=None) -> dict:
     if line not in IMPORTERS:
         return {'ok': False, 'error': f'未知大类：{line}'}
     originals = list(files)                      # 归档用原始文件名（store.source_file 要对得上）
@@ -874,6 +884,8 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
             if line == 'jp':
                 kw['overrides'] = overrides
             dd, snap = IMPORTERS[line](files, line, root, **kw)
+        elif line in PERIOD_ARG_LINES:
+            dd, snap = IMPORTERS[line](files, line, root, data_date=data_date, period=period)
         else:
             dd, snap = IMPORTERS[line](files, line, root)
         snap['line'] = line
@@ -902,6 +914,9 @@ def do_import(line: str, files: list[tuple[str, bytes]], data_date: str | None =
                     if line == 'jp':
                         kw['overrides'] = overrides
                     dd, snap = IMPORTERS[line](conv, line, root, **kw)
+                elif line in PERIOD_ARG_LINES:
+                    dd, snap = IMPORTERS[line](conv, line, root,
+                                               data_date=data_date, period=period)
                 else:
                     dd, snap = IMPORTERS[line](conv, line, root)
                 snap['line'] = line
