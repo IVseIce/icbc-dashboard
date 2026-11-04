@@ -5,6 +5,106 @@ import { auth, authFetch } from '../auth.js';
 
 const LOCK = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4.5" y="10" width="15" height="10.5" rx="3"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg>';
 
+const bytes = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1048576) return `${(v / 1048576).toFixed(1)} MB`;
+  if (v >= 1024) return `${Math.round(v / 1024)} KB`;
+  return `${v} B`;
+};
+const esc = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/* 「最近导入 → 原件」用的弹窗与文件操作。
+   原件就是当初上传的那份表：能预览（网页里看表格）也能下载。
+   其它页面（数据管理）有同款实现，这里只服务导入页，不做跨页抽象。 */
+let _modal = null;
+const closeModal = () => { if (_modal) { _modal.remove(); _modal = null; } };
+const openModal = (html, wide) => {
+  closeModal();
+  _modal = document.createElement('div');
+  _modal.className = 'adm-modal' + (wide ? ' wide' : '');
+  _modal.innerHTML = `<div class="adm-m-card">${html}</div>`;
+  document.body.appendChild(_modal);
+  _modal.onclick = (e) => { if (e.target === _modal) closeModal(); };
+  document.addEventListener('keydown', function k(e) {
+    if (e.key === 'Escape') { closeModal(); document.removeEventListener('keydown', k); }
+  });
+  return _modal.querySelector('.adm-m-card');
+};
+const srcURL = (f, kind) => (f.id != null
+  ? `/api/source/${f.id}${kind}`
+  : `/api/source/by-path${kind}?path=${encodeURIComponent(f.path)}&name=${encodeURIComponent(f.name)}`);
+
+async function downloadSource(f, btn) {
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '准备中…';
+  try {
+    const res = await authFetch(srcURL(f, ''));
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `下载失败（${res.status}）`);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch (err) {
+    if (err.auth) return;
+    toast(err.message || '下载失败', 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+/** 原件预览：把一个文件读成二维表显示出来（只读，不参与计算）
+ *  预览是"钻进去"的一层：弹窗内容整体换成预览，右上角「返回」回到文件清单。
+ *  `onBack` 由调用方给（`showImportFiles` 定义在 render() 里，本函数在模块顶层，取不到它）。 */
+async function previewSource(f, onBack) {
+  const card = openModal(`
+    <div class="adm-m-head">
+      <div><h3>${esc(f.name)}</h3><p>${f.bytes ? bytes(f.bytes) : ''}</p></div>
+      <button class="adm-m-x" title="关闭（Esc）">✕</button>
+    </div>
+    <div class="adm-m-body"><div class="empty"><b>读取中…</b></div></div>
+    <div class="adm-m-acts">
+      ${onBack ? '<button class="btn" data-back>← 返回文件清单</button>' : ''}
+      <button class="btn" data-x>关闭</button>
+    </div>`, true);
+  card.querySelector('.adm-m-x').onclick = closeModal;
+  card.querySelector('[data-x]').onclick = closeModal;
+  const body = card.querySelector('.adm-m-body');
+  let d;
+  try {
+    d = await authFetch(srcURL(f, '/preview'), { cache: 'no-store' }).then((r) => r.json());
+    if (!d.ok) throw new Error(d.error || '读取失败');
+  } catch (err) {
+    if (err.auth) { closeModal(); return; }
+    body.innerHTML = `<div class="empty"><b>预览失败</b>${esc(err.message)}</div>`;
+    return;
+  }
+  const rowsTotal = d.total_rows == null ? '行数未统计' : `共 ${d.total_rows} 行`;
+  const colsTotal = d.total_cols == null ? '?' : d.total_cols;
+  const cut = [];
+  if (d.total_rows == null || d.shown_rows < d.total_rows) cut.push(`前 ${d.shown_rows} 行`);
+  if (Number(colsTotal) > d.shown_cols) cut.push(`前 ${d.shown_cols} 列`);
+  body.innerHTML = `
+    <div class="adm-prev-meta">${rowsTotal} · ${colsTotal} 列
+      ${cut.length ? `<b>（只显示${cut.join(' / ')}）</b>` : ''}
+      · 原件原样内容，仅供核对，不参与计算</div>
+    <div class="adm-prev-wrap" style="max-height:min(56vh,460px)">
+      <table class="adm-prev"><tbody>${(d.rows || []).map((row, i) => `<tr class="${i === 0 ? 'head' : ''}">
+        <td class="adm-prev-n">${i + 1}</td>${row.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+  const back = card.querySelector('[data-back]');
+  if (back) back.onclick = () => onBack();
+}
+
 export default {
   id: 'import',
   title: '数据导入',
@@ -551,14 +651,72 @@ export default {
       view.querySelector('#ledger').innerHTML = ledger.length ? `
         <div class="tbl-wrap" style="max-height:220px"><table class="tbl" style="table-layout:fixed;width:100%">
           <thead><tr><th style="width:92px">时间</th><th style="width:120px">条线</th>
-            <th style="width:92px">数据日期</th><th>文件</th><th style="width:80px">结果</th></tr></thead>
+            <th style="width:92px">数据日期</th><th>文件</th>
+            <th style="width:64px">原件</th><th style="width:80px">结果</th></tr></thead>
           <tbody>${ledger.map((r) => `<tr>
             <td style="text-align:left">${(r.ts || '').slice(5, 16)}</td>
             <td>${r.label || r.line}</td>
             <td>${r.data_date ? fmt.date(r.data_date) : '—'}</td>
             <td style="text-align:left;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis">${(r.files || []).join('、')}</td>
+            <td><button class="imp-files" data-log="${r.id}">查看</button></td>
             <td>${r.ok ? '<span class="chip green">成功</span>' : '<span class="chip red">失败</span>'}</td>
           </tr>`).join('')}</tbody></table></div>` : empty('还没有导入记录');
+      view.querySelectorAll('[data-log]').forEach((b) => {
+        b.onclick = () => showImportFiles(+b.dataset.log);
+      });
+    }
+
+    // ------------------------------------------------------------ 这次导入的原件
+    // 「上次到底传了哪几个文件」—— 从台账点开，能预览内容、能下载原件
+    async function showImportFiles(id) {
+      const card = openModal('<div class="adm-m-body"><div class="empty"><b>读取中…</b></div></div>', true);
+      let d;
+      try {
+        d = await authFetch(`/api/import/files?id=${id}`, { cache: 'no-store' })
+          .then((r) => r.json());
+        if (!d.ok) throw new Error(d.error || '读取失败');
+      } catch (err) {
+        if (err.auth) { closeModal(); return; }
+        card.querySelector('.adm-m-body').innerHTML =
+          `<div class="empty"><b>读取失败</b>${err.message}</div>`;
+        return;
+      }
+      const files = d.files || [];
+      card.innerHTML = `
+        <div class="adm-m-head">
+          <div><h3>${d.label} · ${(d.ts || '').slice(5, 16)}</h3>
+            <p>数据日期 ${d.data_date || '—'} · 留档 ${d.file_count} 个原件
+              ${d.ok ? '<span class="chip green">导入成功</span>' : '<span class="chip red">导入失败</span>'}
+              ${d.archive_exists ? '' : '<span class="chip amber">归档目录已不在磁盘</span>'}</p></div>
+          <button class="adm-m-x" title="关闭（Esc）">✕</button>
+        </div>
+        <div class="adm-m-body">
+          ${d.error ? `<p class="adm-note adm-warn">${d.error}</p>` : ''}
+          ${d.archive ? `<p class="adm-note">留档目录 <code>${d.archive}</code></p>` : ''}
+          ${files.length ? `
+            <div class="adm-f-wrap" style="max-height:340px"><table class="tbl adm-f-tbl">
+              <thead><tr><th>文件名</th><th style="width:80px">大小</th>
+                <th style="width:112px">操作</th></tr></thead>
+              <tbody>${files.map((f, i) => `<tr>
+                <td class="adm-f-name" title="${f.path || ''}">${f.name}</td>
+                <td class="adm-f-sz">${f.bytes ? bytes(f.bytes) : '—'}</td>
+                <td class="adm-f-ops">${f.exists === false
+                  ? '<span class="adm-f-miss">已不在磁盘</span>'
+                  : `<button class="adm-mini" data-prev="${i}">预览</button>
+                     <button class="adm-mini" data-dl="${i}">下载</button>`}</td>
+              </tr>`).join('')}</tbody>
+            </table></div>`
+            : '<p class="adm-note">这次导入没有留档原件（很早期的导入没有归档）。</p>'}
+        </div>
+        <div class="adm-m-acts"><button class="btn" data-x>关闭</button></div>`;
+      card.querySelector('.adm-m-x').onclick = closeModal;
+      card.querySelector('[data-x]').onclick = closeModal;
+      card.querySelectorAll('[data-dl]').forEach((b) => {
+        b.onclick = () => downloadSource(files[+b.dataset.dl], b);
+      });
+      card.querySelectorAll('[data-prev]').forEach((b) => {
+        b.onclick = () => previewSource(files[+b.dataset.prev], () => showImportFiles(id));
+      });
     }
 
     // 预选：优先「从模块页点导入」带过来的模块，否则落到自己有权限的大类

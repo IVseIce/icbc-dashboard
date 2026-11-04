@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import store
@@ -1080,30 +1081,280 @@ def _delete_warning(line: str, as_of: str) -> dict | None:
     return None
 
 
+# 数据管理页的条线顺序：先日常主用的，再内部原料
+_ADMIN_ORDER = {k: i for i, k in enumerate([
+    'dqzz', 'jp', 'jjwh', 'team', 'xgj', 'ykh', 'dfmx', 'wk', 'scene',
+    'xsfw', 'sbqb', 'qwsq', 'pbs', 'jbl_lc', 'jbl_fund', 'jbl_bx',
+    'qwsq_day', 'ykh_sb', 'ykh_yl'])}
+_ADMIN_GROUP = {
+    'dqzz': '个人金融', 'jp': '个人金融', 'jjwh': '个人金融', 'team': '个人金融',
+    'xgj': '个人金融', 'ykh': '个人金融', 'dfmx': '个人金融', 'wk': '个人金融',
+    'scene': '个人金融', 'jbl_lc': '个人金融', 'jbl_fund': '个人金融', 'jbl_bx': '个人金融',
+    'xsfw': '网络金融', 'sbqb': '网络金融', 'qwsq': '网络金融',
+    'pbs': '私人银行',
+}
+
+
+def _group_of(line: str) -> str:
+    return _ADMIN_GROUP.get(line, '')
+
+
 def admin_lines() -> dict:
-    """数据管理页的「模块 → 期数 → 日期」清单（只读）。"""
+    """数据管理页的「模块 → 期」清单（只读，含已删）。
+
+    一期一条，带 `batches`（这笔数据被导入过几次）/`files`（留档原件数），
+    这样在列表上就能看出"这期来过几次"，点开某一期再看它的导入批次与原件。
+    """
     stats = {r['line']: r for r in store.line_stats()}
+    periods = store.snapshot_periods()
+    idx = store.batch_index()
+    for line, rows in periods.items():
+        for p in rows:
+            extra = idx.get((line, p['as_of'])) or {}
+            p['batches'] = extra.get('batches', 0)
+            p['files'] = extra.get('files', 0)
     rows = []
     for line, meta in viz.LINES.items():
         s = stats.get(line) or {}
         # 一条数据都没有、也没删过记录的线（比如基保理还没接的基金/保险）不列
         if not int(s.get('count') or 0) and not store.deleted_dates(line):
             continue
-        rows.append({'line': line, 'label': meta['label'], 'hint': meta['hint'],
-                     'internal': False, 'count': int(s.get('count') or 0),
-                     'latest': s.get('as_of'), 'dates': store.dates(line),
-                     'deleted': store.deleted_dates(line)})
+        rows.append({'line': line, 'label': meta.get('label', line), 'hint': meta.get('hint'),
+                     'internal': False, 'group': _group_of(line),
+                     'count': int(s.get('count') or 0), 'latest': s.get('as_of'),
+                     'dates': store.dates(line), 'deleted': store.deleted_dates(line),
+                     'periods': periods.get(line, [])})
     for line, label in INTERNAL_LINES.items():
-        if line not in stats and not store.deleted_dates(line):
+        if line not in periods and not store.deleted_dates(line):
             continue
         s = stats.get(line) or {}
         rows.append({'line': line, 'label': label,
                      'hint': '内部线：界面上看不到，删了会影响后续拼装',
-                     'internal': True, 'count': int(s.get('count') or 0),
-                     'latest': s.get('as_of'), 'dates': store.dates(line),
-                     'deleted': store.deleted_dates(line)})
-    rows.sort(key=lambda r: (r['internal'], -r['count'], r['line']))
+                     'internal': True, 'group': '原始数据',
+                     'count': int(s.get('count') or 0), 'latest': s.get('as_of'),
+                     'dates': store.dates(line), 'deleted': store.deleted_dates(line),
+                     'periods': periods.get(line, [])})
+    rows.sort(key=lambda r: (r['internal'], _ADMIN_ORDER.get(r['line'], 99), r['line']))
     return {'ok': True, 'lines': rows, 'db': store.stats()}
+
+
+def _resolve_file(path: str | None):
+    """台账里的一行文件 → 本机真实路径；越界（数据目录外）一律不认。"""
+    if not path:
+        return None
+    base = store.root().resolve()
+    p = Path(path)
+    cands = [p] if p.is_absolute() else [base / p]
+    norm = str(path).replace('\\', '/')
+    i = norm.find('imports/')
+    if i > 0:
+        cands.append(base / norm[i:])
+    for c in cands:
+        try:
+            real = c.resolve()
+        except Exception:
+            continue
+        if real.is_file() and (base == real or base in real.parents):
+            return real
+    return None
+
+
+_HASH_CAP = 32 * 1048576        # 超过这个大小不算指纹，退化成"文件名 + 字节数"
+
+
+def _sha_of(f: dict) -> str | None:
+    """原件的指纹：台账里没有就现算一次（源表普遍几百 KB，算一次几毫秒）。
+
+    早期导入没往 `source_file` 写 sha256，盘上那份是"无名氏"，
+    不算指纹就会和同名同大小的另一份混成一行 —— 而文件名相同的两份表
+    内容可能真的不一样（私银的上月末/上季末表就是这样）。
+    """
+    if f.get('sha256'):
+        return f['sha256']
+    p = _resolve_file(f.get('path'))
+    if p is None:
+        return None
+    try:
+        if p.stat().st_size > _HASH_CAP:
+            return None
+        import hashlib
+        h = hashlib.sha256()
+        with p.open('rb') as fh:
+            for chunk in iter(lambda: fh.read(1 << 16), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _group_files(rows: list[dict], line: str) -> list[dict]:
+    """同一期的原件按「文件名 + 内容指纹」合并，其余折成 `times`。
+
+    这一期可能被导入过 20 多次，每次都留一份同样的表；逐条列出来没人看得下去。
+    合并后「这一期用过哪些文件、各是什么时候留的」一眼能看清。
+
+    指纹缺失时**现算**（`_sha_of`），不能拿"文件名 + 大小"凑合：
+    同名同大小但内容不同的表确实存在，凑合会把它们错并成一行。
+    """
+    out: list[dict] = []
+    by_key: dict[tuple, dict] = {}
+    for f in rows:
+        sha = _sha_of(f)
+        key = (f.get('name'), sha or f'nosha:{f.get("bytes")}')
+        hit = by_key.get(key)
+        if hit is not None:
+            hit['times'] += 1
+            hit['stamps'].append(f.get('created_at'))
+            if not hit.get('sha256') and sha:
+                hit['sha256'] = sha
+            # 有 id 的（进了 source_file 台账）优先，前端据此走 /api/source/<id>
+            if hit.get('id') is None and f.get('id') is not None:
+                hit['id'] = f['id']
+                hit['path'] = f['path']
+            continue
+        g = dict(f)
+        g['sha256'] = sha
+        g['times'] = 1
+        g['stamps'] = [f.get('created_at')]
+        by_key[key] = g
+        out.append(g)
+    for g in out:
+        g['exists'] = _resolve_file(g.get('path')) is not None
+        g['stamps'] = [s for s in g['stamps'] if s][:8]
+    # 同名不同内容（私银的上月末/上季末表就叫一个名字）：标出来，不然看着像重复行
+    seen: dict[str, int] = {}
+    for g in out:
+        seen[g.get('name') or ''] = seen.get(g.get('name') or '', 0) + 1
+    for g in out:
+        g['dup'] = seen.get(g.get('name') or '', 0) > 1
+    out.sort(key=lambda g: (g.get('created_at') or '', g.get('name') or ''), reverse=True)
+    return out
+
+
+def admin_period(line: str, as_of: str) -> dict:
+    """某一期的详情：来源（导入批次）+ 留档原件 + 前后期。
+
+    「这期是哪次导入算的、用的是哪几个文件、文件还在不在」一次说清；
+    原件可下载、可预览（`/api/source/<id>` 与 `/api/source/<id>/preview`）。
+    """
+    row = store.snapshot_rows(line, as_of)
+    if not row:
+        return {'ok': False, 'error': f'库里没有 {line} {as_of} 这一期'}
+    sid = int(row['id'])
+    batches = store.snapshot_batches(line, as_of, sid)
+    files = store.snapshot_sources(sid)
+
+    # 早期导入没写 source_file：把台账归档目录里认得出的文件也补上（只列，不进库）
+    loose, seen = [], {f.get('path') for f in files}
+    for b in batches:
+        d = store.resolve_archive(line, b.get('archive'))
+        if not d:
+            continue
+        for p in store.archive_files(d):
+            rel = store.rel_path(p)
+            if rel in seen:
+                continue
+            seen.add(rel)
+            loose.append({'id': None, 'name': p.name, 'bytes': p.stat().st_size,
+                          'sha256': None, 'path': rel, 'archive': store.rel_path(d),
+                          'created_at': (b.get('ts') or '').replace(' ', 'T'),
+                          'from_batch': b.get('id')})
+
+    merged = _group_files(files + loose, line)
+    label = (viz.LINES.get(line) or {}).get('label') or INTERNAL_LINES.get(line, line)
+    others = store.dates(line)
+    missing = [g['name'] for g in merged if not g['exists']]
+    return {'ok': True, 'line': line, 'label': label, 'as_of': as_of,
+            'internal': line in INTERNAL_LINES, 'group': _group_of(line),
+            'snapshot': row, 'batches': batches, 'files': merged,
+            'file_count': len(merged), 'occurrences': sum(g['times'] for g in merged),
+            'missing': missing, 'warning': _delete_warning(line, as_of),
+            'prev': ([d for d in others if d < as_of] or [None])[-1],
+            'next': ([d for d in others if d > as_of] or [None])[0],
+            'deleted_others': [d['as_of'] for d in store.deleted_dates(line)]}
+
+
+def source_download(file_id: int) -> dict:
+    """下载/预览一个原件（按 `source_file.id`）。"""
+    row = store.source_file(int(file_id))
+    if not row:
+        return {'ok': False, 'error': '没有这个原件记录'}
+    p = _resolve_file(row.get('path'))
+    if p is None:
+        return {'ok': False, 'error': f'文件已不在磁盘上：{row.get("path")}',
+                'name': row.get('name'), 'path': row.get('path')}
+    return {'ok': True, 'path': str(p), 'name': row.get('name') or p.name,
+            'bytes': p.stat().st_size, 'row': row}
+
+
+def source_by_path(path: str, name: str | None = None) -> dict:
+    """没登记进 `source_file` 的老原件：按台账里的路径直接找。
+
+    返回里带 `line`（从 `imports/<line>/<stamp>/` 反推），供调用方做权限判断 ——
+    否则这条路会绕过「按条线授权」。
+    """
+    p = _resolve_file(path)
+    if p is None:
+        return {'ok': False, 'error': f'文件已不在磁盘上：{path}'}
+    norm = str(path).replace('\\', '/')
+    i = norm.find('imports/')
+    line = None
+    if i >= 0:
+        parts = norm[i:].split('/')
+        if len(parts) >= 3:
+            line = parts[1]
+    return {'ok': True, 'path': str(p), 'name': name or p.name,
+            'bytes': p.stat().st_size, 'row': {'line': line} if line else None,
+            'line': line}
+
+
+def import_files(log_id: int) -> dict:
+    """某一次导入留档了哪些原件（导入页「最近导入」点开看）。
+
+    先看 `source_file` 按归档目录登记过的，再补归档目录里剩下的文件 ——
+    早期导入没写 `source_file`，光查台账会显示"没有文件"。
+    """
+    rec = store.import_row(log_id)
+    if not rec:
+        return {'ok': False, 'error': '没有这条导入记录'}
+    line = rec.get('line')
+    d = store.resolve_archive(line, rec.get('archive'))
+
+    rows = [dict(r) for r in store.connect().execute(
+        'SELECT id, name, sha256, bytes, path, archive, created_at FROM source_file'
+        ' WHERE archive=? ORDER BY id', (rec.get('archive'),))] if rec.get('archive') else []
+    seen = {r['path'] for r in rows}
+    loose = []
+    if d is not None:
+        for p in store.archive_files(d):
+            rel = store.rel_path(p)
+            if rel in seen:
+                continue
+            seen.add(rel)
+            loose.append({'id': None, 'name': p.name, 'sha256': None,
+                          'bytes': p.stat().st_size, 'path': rel,
+                          'archive': store.rel_path(d), 'created_at': rec.get('ts')})
+    merged = _group_files(rows + loose, line or '')
+    return {'ok': True, 'id': rec['id'], 'line': line,
+            'label': (viz.LINES.get(line) or {}).get('label') or INTERNAL_LINES.get(line, line),
+            'ts': rec.get('ts'), 'data_date': rec.get('data_date'), 'ok': bool(rec.get('ok')),
+            'error': rec.get('error'), 'archive': store.rel_path(d) if d else rec.get('archive'),
+            'archive_exists': d is not None,
+            'files': merged, 'file_count': len(merged),
+            'missing': [g['name'] for g in merged if not g['exists']]}
+
+
+def _backup_before(label: str, line: str, as_of: str) -> tuple[object | None, str | None]:
+    """改动前热备份；失败返回 (None, 错误说明)，调用方据此中止。"""
+    bak_dir = store.root() / 'backups'
+    try:
+        bak_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        bak = bak_dir / f'before-{label}-{line}-{as_of}-{stamp}.db'
+        store.backup_to(bak)
+        return bak, None
+    except Exception as exc:
+        return None, str(exc)
 
 
 def admin_delete(line: str, as_of: str) -> dict:
@@ -1117,14 +1368,9 @@ def admin_delete(line: str, as_of: str) -> dict:
         return {'ok': False, 'error': '这一期已经是删除状态'}
 
     # 删之前热备份（软删除本身可恢复，备份是最后一道保险）
-    bak_dir = store.root() / 'backups'
-    bak_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    bak = bak_dir / f'before-delete-{line}-{as_of}-{stamp}.db'
-    try:
-        store.backup_to(bak)
-    except Exception as exc:
-        return {'ok': False, 'error': f'删除前备份失败，已中止：{exc}'}
+    bak, err = _backup_before('delete', line, as_of)
+    if err:
+        return {'ok': False, 'error': f'删除前备份失败，已中止：{err}'}
 
     warn = _delete_warning(line, as_of)
     if not store.soft_delete(line, as_of):
@@ -1137,6 +1383,39 @@ def admin_restore(line: str, as_of: str) -> dict:
     if not store.restore_snapshot(line, as_of):
         return {'ok': False, 'error': '这一期不是在删除状态'}
     return {'ok': True, 'line': line, 'as_of': as_of}
+
+
+def admin_purge(line: str, as_of: str, confirm: str | None = None) -> dict:
+    """【彻底删除】把这一期从库里真的抹掉 —— 不可恢复。
+
+    两道闸：
+      1. 只允许删**已经在软删除状态**的期（先"删除"再"彻底删除"，
+         逼着操作的人分两步走，不会一键点没）；
+      2. 必须把数据日期原样打字确认（`confirm` 要等于 `as_of`）。
+    删之前照样热备份；`source_file` 的行由外键置空、磁盘上的原件**不动**
+    （"这期算错了"和"这台机器上有没有这个文件"是两件事）。
+    """
+    if line not in viz.LINES and line not in INTERNAL_LINES:
+        return {'ok': False, 'error': f'未知条线：{line}'}
+    row = store.snapshot_rows(line, as_of)
+    if not row:
+        return {'ok': False, 'error': f'库里没有 {line} {as_of} 这一期'}
+    if not row.get('deleted_at'):
+        return {'ok': False, 'error': '要先把这一期「删除」，确认没影响到别处，再来彻底删除',
+                'need_soft_delete': True}
+    if (confirm or '').strip() != as_of:
+        return {'ok': False, 'error': f'确认日期不对：请原样输入 {as_of}', 'need_confirm': True}
+
+    bak, err = _backup_before('purge', line, as_of)
+    if err:
+        return {'ok': False, 'error': f'彻底删除前备份失败，已中止：{err}'}
+    n_files = len(store.snapshot_sources(int(row['id'])))
+    if not store.purge_snapshot(line, as_of):
+        return {'ok': False, 'error': '彻底删除失败（可能已被别处改过）'}
+    return {'ok': True, 'line': line, 'as_of': as_of, 'backup': str(bak),
+            'files_kept': n_files,
+            'label': (viz.LINES.get(line) or {}).get('label', line)}
+
 
 
 def build_all(on: str | None = None) -> dict:

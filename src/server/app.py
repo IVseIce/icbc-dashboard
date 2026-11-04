@@ -24,7 +24,7 @@ from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 BASE = Path(__file__).resolve().parent      # src/server
 SRC = BASE.parent                            # src
@@ -63,6 +63,25 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(json.dumps(obj, ensure_ascii=False).encode('utf-8'),
                    'application/json; charset=utf-8', code)
+
+    def _file(self, path: Path, name: str, *, download: bool = True):
+        """把磁盘上的文件吐出去（原件下载/预览）。
+
+        大文件分块写，避免整份读进内存；文件名按 RFC 5987 编码，中文名不乱码。
+        """
+        size = path.stat().st_size
+        ctype = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+        disp = 'attachment' if download else 'inline'
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(size))
+        self.send_header('Content-Disposition',
+                         f"{disp}; filename*=UTF-8''{quote(name)}")
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        with path.open('rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                self.wfile.write(chunk)
 
     # ---------------------------------------------------------------- 口令
     def _token(self) -> str | None:
@@ -168,6 +187,75 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess.get('admin'):
                     return self._json({'ok': False, 'error': '只有管理员能管理数据'}, 403)
                 return self._json(api.admin_lines())
+            if path == '/api/admin/period':
+                # 某一期的详情：导入批次 + 留档原件
+                sess = self._need_auth()
+                if not sess:
+                    return
+                if not sess.get('admin'):
+                    return self._json({'ok': False, 'error': '只有管理员能管理数据'}, 403)
+                line = (qs.get('line') or [''])[0].strip()
+                as_of = (qs.get('as_of') or [''])[0].strip()
+                if not line or not as_of:
+                    return self._json({'ok': False, 'error': '要指定 line 和 as_of'}, 400)
+                r = api.admin_period(line, as_of)
+                return self._json(r, 200 if r.get('ok') else 404)
+            if path.startswith('/api/source/'):
+                # 原件下载 / 预览。管理员，或对该条线有权限的身份组都能拿（原件就是源表，
+                # 页面上能看到这期数据的人，没道理看不到它的来源文件）。
+                sess = self._need_auth()
+                if not sess:
+                    return
+                rest = path[len('/api/source/'):].strip('/')
+                want_preview = rest.endswith('/preview')
+                if want_preview:
+                    rest = rest[:-len('/preview')].strip('/')
+                # GET /api/source/by-path?path=imports/...（老台账没 id 的情况）
+                if rest == 'by-path':
+                    src = api.source_by_path((qs.get('path') or [''])[0],
+                                             (qs.get('name') or [None])[0])
+                else:
+                    try:
+                        fid = int(rest)
+                    except ValueError:
+                        return self._json({'ok': False, 'error': '原件 id 不合法'}, 400)
+                    src = api.source_download(fid)
+                if not src.get('ok'):
+                    return self._json(src, 404)
+                row = src.get('row') or {}
+                line = row.get('line') or src.get('line')
+                if line and not sess.get('admin'):
+                    from domain import catalog as _cat
+                    if line not in _cat.lines_of(sess.get('scope')):
+                        return self._json({'ok': False,
+                                           'error': '当前身份组没有这条线的权限'}, 403)
+                p = Path(src['path'])
+                if not want_preview:
+                    return self._file(p, src['name'])
+                from ingest import readers
+                try:
+                    r = readers.preview(p, src['name'],
+                                        sheet=(qs.get('sheet') or [None])[0])
+                except Exception as exc:
+                    return self._json({'ok': False, 'error': f'预览失败：{exc}'}, 500)
+                r['name'] = src['name']
+                r['source_id'] = row.get('id')
+                return self._json(r)
+            if path == '/api/import/files':
+                # 导入页「最近导入」点开：这次导入留档了哪些原件
+                sess = self._need_auth()
+                if not sess:
+                    return
+                try:
+                    lid = int((qs.get('id') or [''])[0])
+                except ValueError:
+                    return self._json({'ok': False, 'error': '要指定导入记录 id'}, 400)
+                r = api.import_files(lid)
+                if r.get('ok') and r.get('line') and not sess.get('admin'):
+                    from domain import catalog as _cat
+                    if r['line'] not in _cat.lines_of(sess.get('scope')):
+                        return self._json({'ok': False, 'error': '当前身份组没有这条线的权限'}, 403)
+                return self._json(r, 200 if r.get('ok') else 404)
             if path == '/api/jiepan/periods':
                 if not self._need_auth():
                     return
@@ -262,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._need_auth():
                 return
             return self._jiepan_find(body)
-        if path in ('/api/admin/delete', '/api/admin/restore'):
+        if path in ('/api/admin/delete', '/api/admin/restore', '/api/admin/purge'):
             sess = self._need_auth()
             if not sess:
                 return
@@ -272,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_error(404)
 
     def _admin_edit(self, path: str, body: bytes):
-        """软删除 / 恢复某一期。POST JSON：{line, as_of}"""
+        """软删除 / 恢复 / 彻底删除某一期。POST JSON：{line, as_of[, confirm]}"""
         try:
             try:
                 payload = json.loads(body.decode('utf-8') or '{}')
@@ -284,6 +372,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': False, 'error': '要指定 line 和 as_of'}, 400)
             if path.endswith('/delete'):
                 r = api.admin_delete(line, as_of)
+            elif path.endswith('/purge'):
+                r = api.admin_purge(line, as_of, payload.get('confirm'))
             else:
                 r = api.admin_restore(line, as_of)
             if r.get('ok'):

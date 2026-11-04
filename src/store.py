@@ -25,7 +25,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent / 'data'
@@ -206,6 +206,59 @@ def rel_path(p) -> str:
         return str(p)
 
 
+def resolve_archive(line: str | None, archive: str | None) -> Path | None:
+    """把台账里的归档目录还原成本机的真实目录；找不到返回 None。
+
+    台账里存过三种写法，都要认（历史上换过数据根目录：先 D 盘、后 WSL）：
+      1. 相对数据目录（`imports/xsfw/20261023_175439`）—— 现在的写法
+      2. 旧数据根的绝对路径（`/mnt/d/资料/ICBC/Visualizations/imports/...`）—— D 盘已不存在
+      3. 换成新根之后的绝对路径
+    第 2 种按“时间戳目录名”在 `imports/<line>/` 下找回：戳是不会重复的，
+    这样 D 盘时代的 25 条台账也能重新指到磁盘上的真实目录（0.1.12）。
+    解析结果必须在数据目录内，避免台账被改成 `../..` 越界读文件。
+    """
+    if not archive:
+        return None
+    base = Path(_root).resolve()
+
+    def inside(p: Path) -> Path | None:
+        try:
+            real = p.resolve()
+        except Exception:
+            return None
+        if real.is_dir() and (base == real or base in real.parents):
+            return real
+        return None
+
+    p = Path(archive)
+    for c in ([p] if p.is_absolute() else [base / p]):
+        hit = inside(c)
+        if hit:
+            return hit
+    norm = str(archive).replace('\\', '/').rstrip('/')
+    i = norm.find('imports/')
+    if i >= 0:
+        tail = norm[i:]
+        hit = inside(base / tail)
+        if hit:
+            return hit
+    stamp = norm.rsplit('/', 1)[-1]
+    if stamp and line:
+        hit = inside(base / 'imports' / line / stamp)
+        if hit:
+            return hit
+    return None
+
+
+def archive_files(directory: Path) -> list[Path]:
+    """归档目录里的原件（只取直接子文件，不进子目录）。"""
+    try:
+        return sorted((p for p in Path(directory).iterdir() if p.is_file()),
+                      key=lambda p: p.name)
+    except OSError:
+        return []
+
+
 # ---------------------------------------------------------------- 设置
 def get(key: str, default=None):
     row = connect().execute('SELECT value FROM setting WHERE key=?', (key,)).fetchone()
@@ -249,10 +302,15 @@ def save_snapshot(line: str, as_of: str, snap: dict, *, source: str | None = Non
     now = _now()
     rows_n = len(snap.get('nets') or snap.get('branches') or [])
     # 不用 ON CONFLICT（SQLite < 3.24 没有 UPSERT）：UPDATE 命中就更新，没命中再 INSERT
+    #
+    # deleted_at 必须显式清空：这一行可能是之前软删掉的同一期。
+    # 不清的话，"删掉某期 → 再导入同一期"会出现"导入成功但页面/通报还是看不到"，
+    # 用户以为导入失败，其实是新数据被历史的删除标记盖住了（0.1.12 修）。
     with tx() as conn:
         cur = conn.execute(
             'UPDATE snapshot SET month=?, partial=?, rows=?, payload=?, payload_hash=?,'
-            ' source=COALESCE(?, source), updated_at=? WHERE line=? AND as_of=?',
+            ' source=COALESCE(?, source), deleted_at=NULL, updated_at=?'
+            ' WHERE line=? AND as_of=?',
             (snap.get('month'), int(bool(partial)), rows_n, payload, digest, source, now, line, as_of))
         if cur.rowcount == 0:
             conn.execute(
@@ -369,11 +427,161 @@ def deleted_dates(line: str) -> list[dict]:
 
 
 def snapshot_rows(line: str, as_of: str) -> dict | None:
-    """一期快照的元信息（不含 payload），给删除确认框用。"""
+    """一期快照的元信息（不含 payload），给删除确认框/详情用。"""
     r = connect().execute(
-        'SELECT id, line, as_of, rows, partial, import_id, deleted_at, created_at, updated_at'
+        'SELECT id, line, as_of, month, rows, partial, import_id, deleted_at,'
+        ' created_at, updated_at, LENGTH(payload) AS payload_bytes'
         ' FROM snapshot WHERE line=? AND as_of=?', (line, as_of)).fetchone()
     return dict(r) if r else None
+
+
+def snapshot_periods() -> dict[str, list[dict]]:
+    """所有条线的期目录（**含已删**）：`{line: [{as_of, ...}]}`，按日期降序。
+
+    数据管理页要按「模块 × 期」一次列全，用一条查询代替按线 N+1。
+    `batches`/`files`（导入过几次、留档几个原件）不在这里算 —— 那是 `batch_index()` 的活，
+    两边各算一遍既慢又容易对不上。
+    """
+    sql = ("SELECT id, line, as_of, rows, partial, import_id, deleted_at,"
+           " created_at, updated_at FROM snapshot ORDER BY as_of DESC, id DESC")
+    out: dict[str, list[dict]] = {}
+    for r in connect().execute(sql):
+        d = dict(r)
+        out.setdefault(d['line'], []).append(d)
+    return out
+
+
+def snapshot_sources(snapshot_id: int) -> list[dict]:
+    """这一期留档的全部原件（可能来自多次导入）。"""
+    return [dict(r) for r in connect().execute(
+        'SELECT id, name, sha256, bytes, path, archive, created_at FROM source_file'
+        ' WHERE snapshot_id=? ORDER BY created_at DESC, id DESC', (snapshot_id,))]
+
+
+def snapshot_batches(line: str, as_of: str, snapshot_id: int) -> list[dict]:
+    """写这一期的导入批次，几种关联强度都收（越靠前的越可信）：
+
+    * `exact`   —— `import_log.snapshot_id` 就是它（0.1.9 之后的新台账）
+    * `archive` —— 台账归档目录里登记过归属于它的原件（旧台账 snapshot_id 为空）
+    * `date`    —— 同条线、数据日期完全相同（很早以前的台账，只能按日期对）
+    * `near`    —— 同条线、数据日期差 3 天以内（一卡一户这类一次写多期的线，
+                   台账记的是"当天"，快照 as_of 可能是前一日）
+
+    返回按时间降序，每项带 `files` 与 `archive`。
+    """
+    conn = connect()
+    out: list[dict] = []
+    seen: set[int] = set()
+
+    def add(rows, linked: str):
+        for r in rows:
+            d = dict(r)
+            if d['id'] in seen:
+                continue
+            seen.add(d['id'])
+            try:
+                d['files'] = json.loads(d.get('files') or '[]')
+            except Exception:
+                d['files'] = []
+            d['ok'] = bool(d.get('ok'))
+            d['linked'] = linked
+            out.append(d)
+
+    add(conn.execute('SELECT * FROM import_log WHERE snapshot_id=? ORDER BY ts DESC, id DESC',
+                     (snapshot_id,)), 'exact')
+    add(conn.execute(
+        'SELECT l.* FROM import_log l WHERE l.snapshot_id IS NULL AND l.archive IN'
+        ' (SELECT DISTINCT archive FROM source_file WHERE snapshot_id=? AND archive IS NOT NULL)'
+        ' ORDER BY l.ts DESC, l.id DESC', (snapshot_id,)), 'archive')
+    add(conn.execute(
+        'SELECT * FROM import_log WHERE snapshot_id IS NULL AND line=? AND data_date=?'
+        ' ORDER BY ts DESC, id DESC', (line, as_of)), 'date')
+    if not out:
+        try:
+            d0 = datetime.strptime(as_of, '%Y-%m-%d')
+        except ValueError:
+            d0 = None
+        if d0:
+            lo = (d0 - timedelta(days=3)).strftime('%Y-%m-%d')
+            hi = (d0 + timedelta(days=3)).strftime('%Y-%m-%d')
+            add(conn.execute(
+                'SELECT * FROM import_log WHERE snapshot_id IS NULL AND line=?'
+                ' AND data_date BETWEEN ? AND ? ORDER BY ts DESC, id DESC',
+                (line, lo, hi)), 'near')
+    out.sort(key=lambda d: (d.get('ts') or ''), reverse=True)
+    return out
+
+
+def batch_index() -> dict[tuple[str, str], dict]:
+    """一次算出「每期被导入过几次、留档几个文件」（数据管理列表用，避免 N+1）。
+
+    关联强度与 `snapshot_batches()` 一致：`import_log.snapshot_id` → 归档目录归属
+    → 同条线同数据日期。这里为了快，全部在内存里归一，不为每期单独查库。
+    """
+    conn = connect()
+    snap_key = {(int(r['id'])): (r['line'], r['as_of'])
+                for r in conn.execute('SELECT id, line, as_of FROM snapshot')}
+    arc2snap: dict[str, tuple[str, str]] = {}
+    files_by_snap: dict[int, int] = {}
+    for r in conn.execute('SELECT snapshot_id, archive FROM source_file'
+                          ' WHERE snapshot_id IS NOT NULL'):
+        files_by_snap[int(r['snapshot_id'])] = files_by_snap.get(int(r['snapshot_id']), 0) + 1
+        if r['archive'] and int(r['snapshot_id']) in snap_key:
+            arc2snap[str(r['archive'])] = snap_key[int(r['snapshot_id'])]
+
+    exact: dict[tuple[str, str], int] = {}
+    by_archive: dict[tuple[str, str], int] = {}
+    by_date: dict[tuple[str, str], int] = {}
+    for r in conn.execute('SELECT snapshot_id, line, data_date, archive FROM import_log'):
+        sid = int(r['snapshot_id']) if r['snapshot_id'] else None
+        key = snap_key.get(sid) if sid else None
+        if key:
+            exact[key] = exact.get(key, 0) + 1
+        elif r['archive'] and str(r['archive']) in arc2snap:
+            k2 = arc2snap[str(r['archive'])]
+            by_archive[k2] = by_archive.get(k2, 0) + 1
+        elif r['line'] and r['data_date']:
+            k3 = (r['line'], r['data_date'])
+            by_date[k3] = by_date.get(k3, 0) + 1
+
+    out: dict[tuple[str, str], dict] = {}
+    for key in snap_key.values():
+        n = exact.get(key) or by_archive.get(key) or by_date.get(key) or 0
+        out[key] = {'batches': n, 'files': 0}
+    for sid, n in files_by_snap.items():
+        key = snap_key.get(sid)
+        if key and key in out:
+            out[key]['files'] = n
+    return out
+
+
+
+def source_file(file_id: int) -> dict | None:
+    r = connect().execute('SELECT * FROM source_file WHERE id=?', (file_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def import_row(log_id: int) -> dict | None:
+    r = connect().execute('SELECT * FROM import_log WHERE id=?', (log_id,)).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    try:
+        d['files'] = json.loads(d.get('files') or '[]')
+    except Exception:
+        d['files'] = []
+    return d
+
+
+def purge_snapshot(line: str, as_of: str) -> bool:
+    """【硬删】把这一期连行带 payload 一起抹掉（不可恢复，界面上要二次确认）。
+
+    原件与台账**保留**：`source_file.snapshot_id` 由外键置空，磁盘文件不动，
+    这样"这期算错了"和"这台机器上有没有这个文件"能分开处理。
+    """
+    cur = connect().execute('DELETE FROM snapshot WHERE line=? AND as_of=?', (line, as_of))
+    _bump()
+    return bool(cur.rowcount)
 
 
 def set_import_id(line: str, as_of: str, import_id: int | None) -> None:

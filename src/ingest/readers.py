@@ -24,6 +24,8 @@ OLE_MAGIC = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
 OLE_MAGIC_ALT = b'\xd0\xcf\x11\xe0'
 
 TEXT_EXTS = ('.csv', '.txt', '.tsv')
+
+_COUNT_CAP = 200_000        # 预览数总行数的上限（防止几十万行的表把请求拖死）
 XLSX_EXTS = ('.xlsx', '.xlsm')
 XLS_EXTS = ('.xls',)
 
@@ -169,6 +171,115 @@ def sheets(path_or_bytes, filename: str | None = None) -> list[tuple[str, list[l
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(blob), data_only=True)
     return [(ws.title, [list(r) for r in ws.iter_rows(values_only=True)]) for ws in wb.worksheets]
+
+
+# ---------------------------------------------------------------- 只读预览（限量）
+def _cell(v):
+    """单元格 → 前端能直接显示的字符串/数字（日期转成 YYYY-MM-DD）。"""
+    if v is None:
+        return ''
+    if isinstance(v, bool):
+        return '是' if v else '否'
+    if isinstance(v, (int, float)):
+        if isinstance(v, float) and v.is_integer():
+            return int(v)
+        return round(v, 6) if isinstance(v, float) else v
+    if hasattr(v, 'strftime'):
+        try:
+            if getattr(v, 'hour', 0) or getattr(v, 'minute', 0):
+                return v.strftime('%Y-%m-%d %H:%M')
+            return v.strftime('%Y-%m-%d')
+        except Exception:
+            return str(v)
+    s = str(v)
+    return s if len(s) <= 300 else s[:300] + '…'
+
+
+def preview(path_or_bytes, filename: str | None = None, sheet: str | None = None,
+            max_rows: int = 200, max_cols: int = 30) -> dict:
+    """预览一张源表（**限量**：默认最多 200 行 × 30 列）。
+
+    只做"让人眼看一眼原始数据长什么样"，不做任何业务解析；
+    大表也不会把服务卡住（xlsx 用 read_only 逐行取够就停）。
+    """
+    if isinstance(path_or_bytes, (bytes, bytearray)):
+        blob, name = bytes(path_or_bytes), (filename or 'a.xlsx')
+    else:
+        p = Path(path_or_bytes)
+        blob, name = p.read_bytes(), p.name
+    kind = sniff(blob)
+    out = {'ok': True, 'file': name, 'kind': kind, 'sheets': [], 'sheet': None,
+           'rows': [], 'total_rows': None, 'total_cols': None,
+           'max_rows': max_rows, 'max_cols': max_cols, 'truncated': False}
+    picked: list[list] = []
+
+    if kind == 'text':
+        text, enc = decode_text(blob)
+        rows = parse_rows(text)
+        out.update({'sheets': ['csv'], 'sheet': 'csv', 'encoding': enc,
+                    'total_rows': len(rows),
+                    'total_cols': max((len(r) for r in rows), default=0)})
+        picked = rows
+    elif kind == 'xls':
+        import xlrd
+        book = xlrd.open_workbook(file_contents=blob, on_demand=True)
+        names = book.sheet_names()
+        target = sheet if sheet in names else names[0]
+        sh = book.sheet_by_name(target)
+        out.update({'sheets': names, 'sheet': target,
+                    'total_rows': sh.nrows, 'total_cols': sh.ncols})
+        picked = [[sh.cell_value(r, c) for c in range(sh.ncols)] for r in range(sh.nrows)]
+        try:
+            book.release_resources()
+        except Exception:
+            pass
+    else:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(blob), read_only=True, data_only=True)
+        try:
+            names = list(wb.sheetnames)
+            target = sheet if sheet in names else names[0]
+            ws = wb[target]
+            # 表里没有 <dimension> 时 openpyxl 报不出总行数（`max_row` 是 None），
+            # 只能真数一遍。数到 _COUNT_CAP 就停：来个几十万行的表也不至于把服务拖死，
+            # 这时总行数标成"至少这么多"（`rows_capped`），别假装知道确切值。
+            known = getattr(ws, 'max_row', None)
+            if known:
+                for i, row in enumerate(ws.iter_rows(values_only=True)):
+                    if i >= max_rows:
+                        break
+                    picked.append(list(row))
+                out.update({'total_rows': known, 'rows_capped': False})
+            else:
+                n = 0
+                for row in ws.iter_rows(values_only=True):
+                    if n < max_rows:
+                        picked.append(list(row))
+                    n += 1
+                    if n >= _COUNT_CAP:
+                        break
+                capped = n >= _COUNT_CAP
+                out.update({'total_rows': None if capped else n, 'rows_capped': capped})
+            out.update({'sheets': names, 'sheet': target,
+                        'total_cols': getattr(ws, 'max_column', None)})
+        finally:
+            wb.close()
+
+    picked = picked[:max_rows]
+    width = 0
+    for r in picked:
+        width = max(width, len(r))
+    width = min(width, max_cols)
+    out['rows'] = [[_cell(v) for v in list(r)[:width]] + [''] * (width - min(len(r), width))
+                   for r in picked]
+    # 表里没写 <dimension> 时总列数也报不出来，用实际扫到的宽度兜底
+    if not out.get('total_cols'):
+        out['total_cols'] = width
+    if (out['total_rows'] or 0) > len(out['rows']) or (out['total_cols'] or 0) > width:
+        out['truncated'] = True
+    out['shown_rows'] = len(out['rows'])
+    out['shown_cols'] = width
+    return out
 
 
 if __name__ == '__main__':

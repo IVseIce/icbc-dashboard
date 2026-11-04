@@ -1,7 +1,7 @@
 # 交接文档（HANDOFF）
 
 > 写给"完全没有本会话记忆"的接手者。只读这份 + 仓库，应能：理解项目、跑起来、知道现在卡在哪、接着干活、不重复踩坑。
-> 最后更新：2026-11-03（**版本 0.1.11.3**｜定期承接加「数据期」下拉，不再误用旧快照）
+> 最后更新：2026-11-04（**版本 0.1.12**｜数据管理重做：每期可查导入批次与原始文件、原件可预览可下载；修「删了再导入同一期看不到」）
 >
 > 历史节点：0.1.0 首版（口令+按模块时点）→ 0.1.2（SQLite、部署/U 盘、模块 skill、实用工具）
 > → 0.1.3（降级挽回）→ 0.1.3.1（按正式成表对齐 + 映射内置）→ 0.1.3.2（修前三/后三取名次 + 网点明细按综合评价排序）
@@ -29,6 +29,8 @@
 > → 0.1.11.2（**定期承接列名天数会变**：`近30天/30天前` → `近31天/31天前`，改成正则归一 + 导入自检）
 > → 0.1.11.3（**定期承接可显式选「数据期」**：顶栏日期早于最新一期时不再静默退回旧快照）
 > → 0.1.11.1（**通报中心保留选中项**：切日期不再回落到第一条；定期承接出错分支也画区间条）
+> → **0.1.12（数据管理重做**：模块×期→期待详情；原件可预览可下载；删除分软/彻底两级；
+>   修「删掉某期再导入同一期，导入成功却看不到」的根因）
 
 ---
 
@@ -238,6 +240,55 @@ icbc-dashboard/
   一卡一户/代发会一次写多条，靠这个才能整批追溯。
 - 内部线（`qwsq_day` / `ykh_sb` / `ykh_yl`）也能删，但界面上单列且带红字警告：
   它们是"原料"，删了后续拼装会缺对比基准。
+- **`save_snapshot` 的 UPDATE 必须把 `deleted_at` 显式清成 NULL**（0.1.12 修）。
+  不清的话"删掉某期 → 再导入同一期"会**导入成功但页面/通报仍然看不到**：
+  数据写进去了，却还挂着历史的删除标记。
+  这个坑的表现极容易被误判为"导入失败"，实际上 `import_log` 里那条是 `ok=1`。
+
+### 4.1c 数据管理页的数据来源（0.1.12 起）
+
+新版数据管理页不是"只列日期"，而是**模块 → 期 → 期待详情**三层：
+
+| 接口 | 作用 | 关键点 |
+|---|---|---|
+| `GET /api/admin/data` | 全部模块 × 全部期（含已删） | 每期带 `batches`（导入过几次）/`files`（留档几个原件）/`partial`；顺序由 `_ADMIN_ORDER` 固定，不按条线名字母排 |
+| `GET /api/admin/period?line=&as_of=` | 一期详情 | 快照元信息 + `batches`（导入批次，带关联强度）+ `files`（合并后的原件） |
+| `GET /api/import/files?id=` | 某次导入留档了哪些文件 | 导入页「最近导入 → 查看」用 |
+| `GET /api/source/<id>` | 原件下载 | 分块写盘，`filename*=UTF-8''` 编中文名 |
+| `GET /api/source/<id>/preview?sheet=` | 原件预览 | 限量 200 行 × 30 列，见 4.1d |
+| `GET /api/source/by-path?path=` | 没进 `source_file` 台账的老原件 | 从 `imports/<line>/` 反推 `line` 做权限判断 |
+
+**权限**：`/api/admin/*` 只给管理员；`/api/source/*` 与 `/api/import/files` 给"管理员 **或** 对该条线有权限的身份组"
+（原件就是源表，能看这期数据的人没道理看不到它的来源文件）。
+`by-path` 那条路**必须**反推 `line` 再判权限 —— 否则它是绕过按条线授权的后门。
+
+**批次关联强度**（`store.snapshot_batches`）：`exact`（`import_log.snapshot_id` 就是它）
+→ `archive`（归档目录里的原件归属它）→ `date`（同条线同数据日期）
+→ `near`（±3 天，一卡一户这类"一次写多期"的线，台账记当天、快照 `as_of` 可能是前一日）。
+前端「关联」列直接把 `linked` 显示出来，别让用户以为都是等价关系。
+
+### 4.1d 原件预览（`readers.preview`）
+
+- **限量**：默认 200 行 × 30 列，返回 `truncated/shown_rows/shown_cols`，前端必须显示"只显示前 N 行"。
+- **总行数**：xlsx 若没写 `<dimension>`，`ws.max_row` 是 `None`。这时只能真数一遍
+  （`_COUNT_CAP = 200_000` 封顶，超了返回 `total_rows=None` + `rows_capped=True`，前端显示"行数未统计"）。
+  别把 `None` 当 0 显示成"共 0 行"。
+- **总列数**：同样可能为 `None`，用实际扫到的宽度兜底（否则前端显示"11 列 / 0 列"）。
+- **合并同名文件不能拿"文件名+大小"凑合**：同名同大小但内容不同的表确实存在
+  （私银的上月末表 `20260930.xlsx` 就有两份不同内容）。`_group_files` 对缺失 sha256 的
+  现算一次指纹（`_sha_of`，>32MB 放弃），不同指纹就是两行，并标 `dup` 让前端显示「同名不同内容」。
+- 单元格值统一走 `_cell()`：日期转 `YYYY-MM-DD`、`float` 整数化、长字符串截 300 字。
+
+### 4.1e 彻底删除（`admin_purge`，0.1.12 起）
+
+界面上分两级：**删除**（软，可恢复）→ **彻底删除**（硬，不可恢复）。硬删的闸门：
+
+1. 只允许删**已经在软删状态**的期（先删再彻底删，逼着分两步走）；
+2. POST 里 `confirm` 必须**原样等于** `as_of`；
+3. 照样先 `backup_to()`，备份失败就中止；
+4. **原始文件不删**：只 `DELETE FROM snapshot`，`source_file.snapshot_id` 由外键置 `NULL`，
+   盘上的 `data/imports/` 一个不动（"这期算错了"和"这台机器上有没有这个文件"是两件事）。
+
 
 ### 4.2 条线与日期基线
 
@@ -399,9 +450,15 @@ icbc-dashboard/
 | GET | `/api/report/<kind>.xlsx` | ✅ | 通报 Excel（按样式母版填） |
 | GET | `/api/state` | ✅ | 各线时点、期数、最近导入台账（含 `db` 统计） |
 | POST | `/api/import` | ✅ | multipart：`line`、`date?`、`files[]` |
-| GET | `/api/admin/data` | 管理员 | 数据管理页清单：各条线期数/日期/已删 |
+| GET | `/api/admin/data` | 管理员 | 数据管理页清单：各模块 × 各期（含已删），每期带 `batches`/`files` |
+| GET | `/api/admin/period?line=&as_of=` | 管理员 | 一期详情：快照元信息 + 导入批次 + 原件清单 |
 | POST | `/api/admin/delete` | 管理员 | `{line, as_of}` → 软删除（删前自动备份） |
 | POST | `/api/admin/restore` | 管理员 | `{line, as_of}` → 恢复一期 |
+| POST | `/api/admin/purge` | 管理员 | `{line, as_of, confirm}` → 彻底删除（须先软删 + 日期原样确认；原件不删） |
+| GET | `/api/import/files?id=` | ✅按条线 | 某次导入留档了哪些原件 |
+| GET | `/api/source/<id>` | ✅按条线 | 下载原件（分块写盘） |
+| GET | `/api/source/<id>/preview?sheet=` | ✅按条线 | 预览原件（限量 200×30） |
+| GET | `/api/source/by-path?path=` | ✅按条线 | 台上没进 `source_file` 的老原件（从路径反推 line 判权限） |
 
 口令不对或过期时，这几个接口回 `401 {"ok":false,"auth":true}`；前端据此弹口令框。
 
@@ -914,6 +971,28 @@ icbc-dashboard/
     老库打开会自动升。加 v3 时照这个模式在 `init()` 里补分支，别改 `SCHEMA_SQL` 就完事
     （已建好的表不会因为改了 `CREATE TABLE IF NOT EXISTS` 而新增列）。
 
+### 8.14b 数据管理重做 / 原件可查（0.1.12）
+
+112. **"删了某期再导入同一期，导入成功却看不到"**——用户报过，根因是
+     `store.save_snapshot` 的 UPDATE 没清 `deleted_at`，新数据带着旧删除标记。
+     修完要**顺手想一遍"还有哪些路径会写同一行"**（`import_legacy` 也走 `save_snapshot`，一并好了）。
+113. **台账里的归档路径有三种写法**，只认相对路径会让 25 条台账"找不到原件"：
+     ① `imports/<line>/<stamp>/`（现在的写法）；② 旧数据根的绝对路径（`/mnt/d/资料/...`，D 盘早没了）；
+     ③ 换根后的绝对路径。`store.resolve_archive()` 依次试"绝对/相对 → 截 `imports/` 之后 →
+     用时间戳目录名在 `imports/<line>/` 下反查"，并**校验结果仍在数据目录内**（防 `../..` 越界）。
+     单看 DB 会误判成"文件丢了"，实际磁盘上好好的。
+114. **`source_file` 只有 93 行，磁盘上有 296 个文件**：早期导入没写这张表，
+     所以"按台账列原件"会漏。`admin_period` 会把台账归档目录里**剩下的文件也捞出来**（`loose`），
+     但那些没有 `id`，前端要用 `/api/source/by-path` 下载/预览 —— 这条路必须反推 `line` 做权限校验。
+115. **别用"文件名 + 大小"合并同名原件**：同名同大小但内容不同的表真的存在
+     （私银 `20260930.xlsx` 两份）。要么按 sha256，要么现算指纹（`_sha_of`），合并错了比不合并更误导。
+116. **`openpyxl` read_only 模式下 `max_row` 可能是 `None`**（表没写 `<dimension>`）。
+     直接算 `total_rows` 会显示"？行"，算 `total_cols` 会显示"0 列"。要么真数一遍（有上限），
+     要么用实际扫到的宽度兜底 —— 见 4.1d。
+117. **前端"返回上一层"别引用作用域外的函数**：`previewSource()` 在模块顶层、
+     `showImportFiles()` 定义在 `render()` 里，直接调 `showImportFiles(id)` 会 ReferenceError，
+     表现是"点返回没反应、弹窗不换"。传一个 `onBack` 回调进去。
+
 107. **合并单元格的表头别"向右填满后再找特征"**：场景攻坚第 2 行是 6 个合并区（B2:C2…），
     只有左上格有值。先填满再 `if '场景' in v` 会把每个场景识别成两个，落地数直接翻倍
     （28→52）。正确做法：直接在**原始**表头里找非空的「XX场景」当下标起点
@@ -955,7 +1034,13 @@ icbc-dashboard/
 - **使用指南**（0.1.4）：右上角「导入数据」左边一个低调入口 + 每页可直达对应章节
   （`#/guide/<模块id>`）；正文 19 节分五组，左侧目录常驻、底部「回到最上边」；指南**不过口令**
 - **更新日志**独立成页（`#/changelog`），与指南用页面左上角页签互切（0.1.4.1）
-- **数据管理**（0.1.9）：管理员在网页上删/恢复数据。按「模块 × 期」列，软删除 + 删除前热备份；内部线（`qwsq_day`/`ykh_sb`/`ykh_yl`）单列并带警告。schema 升到 v2（`import_id`/`deleted_at`）
+- **数据管理**（0.1.9 起，**0.1.12 重做**）：管理员在网页上查/删数据。
+  0.1.9 只有「模块 × 日期」，点一下就是删；0.1.12 改成 **模块 → 期 → 期待详情** 三层：
+  格子上标「导入过几次 / 留档几个文件 / 是否历史回填」，点开一期能看到它的**导入批次**与
+  **原始文件**（可预览、可下载）；顶部支持搜索与「只看已删除」。
+  删除分两级：软删除（可恢复，删前热备份）→ 彻底删除（不可恢复，须先软删 + 日期原样确认，
+  且**不删磁盘上的原件**）。内部线（`qwsq_day`/`ykh_sb`/`ykh_yl`）单列并带警告。
+  导入页「最近导入」每行也能「查看」当次留档的文件。schema v2（`import_id`/`deleted_at`）
 - **顶栏精简**（0.1.4）：原来「刷新」+「回到最新」两个按钮功能重叠，合并为一个
   （清筛选 + 重新取数）；动效改成切 class，不再碰 `e.currentTarget`
 - **侧栏防误拖**（0.1.4）：`draggable=false` + 拦 `dragstart` + 位移>6px 不认点击
@@ -1051,7 +1136,7 @@ icbc-dashboard/
 | 发布打包 | `python scripts/package_release.py`（版本号=日期+git sha） |
 | 口令 / 身份组 | `src/server/auth.py` 的 `ROLES`/`DEFAULTS`；前端表现看 `auth.js`、`app.js` 的 `paintTop()/startGate()` |
 | 表结构 / 加指标表 | `src/store.py`（`SCHEMA_SQL` + `SCHEMA_VERSION` + `init()` 升级分支；老库加列要用 `ALTER TABLE`，见 `_upgrade_2`） |
-| 数据管理页（删数据） | `src/web/assets/js/pages/admin.js` + `api.admin_lines/admin_delete/admin_restore`；入口在 `app.js` 的 `adminMenu()` |
+| 数据管理页（查来历/删数据） | `src/web/assets/js/pages/admin.js`（模块×期→期待详情、原件预览/下载）+ `api.admin_lines/admin_period/admin_delete/admin_restore/admin_purge/import_files/source_download`；入口在 `app.js` 的 `adminMenu()`；通用文件名/大小/转义走 `ui.js` 之外的本地小工具 |
 | 查库/排障 | `python scripts/migrate_to_sqlite.py --db-info`，或 `sqlite3 data/icbc.db "select line,max(as_of),count(*) from snapshot group by line"` |
 | 某模块的"数据截至" | 自动取该模块 `as_line` 的 `as_of`；要改文案看 `app.js` 的 `asofFor()` |
 | 降级挽回的口径 | `src/ingest/downgrade.py` 顶部常量（`REPORT_SHIFT` / `SPAN_DAYS` / `UNIT` / `EXCLUDE_SUFFIX`） |
@@ -1136,7 +1221,11 @@ icbc-dashboard/
     （「下载 财客 Excel（10.21）」「下载 远维 Excel（10.21）」），两份 Excel 都能下
 15. 打开任意页，左侧栏应显示工商银行 logo + 「工商银行阜阳分行 / 经营驾驶舱」；
    浏览器标签标题形如「定期存款 · 阜阳分行经营驾驶舱」；`/assets/img/logo.png` 返回 200
-16. 管理员登录 → 右上角身份菜单应有「数据管理」；进去能看到各模块期数，删一期后页面回退到上一期、能在「已删」里恢复
+16. 管理员登录 → 右上角身份菜单应有「数据管理」；进去能看到各模块的每一期（格子上有导入次数/原件数）。
+    点一格应弹出详情（导入批次 + 原始文件），点「预览」能在网页里看到表格、点「下载」能拿到原件。
+    删一期后页面回退到上一期、能在「已删」里恢复；**再导入同一期应立刻恢复成在用**（0.1.12 修的坑）。
+    彻底删除要先软删、再原样输入日期才肯执行，执行后 `data/imports/` 里的原件应还在。
+    另：导入页「最近导入」每行「查看」应列出当次留档的文件。
 17. 改动前先读本文件第 8 节（坑）与第 9 节（现状/待办）；`docs/archive/` 是过时规划，不要作为依据
 
 > 约定：所有数据数字以"正式通报成表"为准；页面/图片/Excel 三处必须同源同值；改完必跑对账。
